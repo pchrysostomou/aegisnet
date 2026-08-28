@@ -63,6 +63,10 @@ Nothing is released yet. There is no tagged version.
 - `backend/pyproject.toml` declared `readme = "../README.md"`. A readme outside the project
   directory is rejected by the build backend, which made the package impossible to build or
   install; `backend/README.md` now holds the package-level readme.
+- `docker-compose.test.yml` inlined four literal credential values. It now sets no secret
+  variables at all and relies on the placeholder defaults, which only `ENV=test` accepts. The
+  existing "no inline secret literals" security test covered `docker-compose.yml` but not the
+  test runner, so this went unnoticed; that gap is closed when the suite lands.
 
 ### Not yet present
 Frontend placeholder, tests, CI and security workflows, database migrations, ORM models,

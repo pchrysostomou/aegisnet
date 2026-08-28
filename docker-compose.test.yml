@@ -8,8 +8,10 @@
 # Compose file, both Dockerfiles, .env.example, and .gitignore as data. Caches are redirected
 # to /tmp so the mounted tree is not polluted.
 #
-# The secrets below are literal test strings. ENV=test is the only environment in which the
-# application tolerates weak or placeholder secrets, and nothing here is ever used elsewhere.
+# No secret variables are set here at all. ENV=test is the only environment in which the
+# settings object tolerates the `__REPLACE_ME__` placeholder defaults, so the suite needs no
+# credential values, and this file therefore contains no credential literal to leak, rot, or
+# be copied into a real environment by mistake.
 
 name: aegisnet-test
 
@@ -30,17 +32,14 @@ services:
       MYPY_CACHE_DIR: /tmp/mypy_cache
       RUFF_CACHE_DIR: /tmp/ruff_cache
       PYTEST_ADDOPTS: -p no:cacheprovider
-      SECRET_KEY: test-only-not-a-real-secret
+      # Hostnames are deliberately unresolvable: nothing in Chunk 1 may open a connection.
       POSTGRES_HOST: db-unused
       POSTGRES_PORT: "5432"
       POSTGRES_DB: aegisnet
       POSTGRES_APP_USER: aegisnet_app
-      POSTGRES_APP_PASSWORD: test-only-not-a-real-secret
       POSTGRES_MIGRATOR_USER: aegisnet_migrator
-      POSTGRES_MIGRATOR_PASSWORD: test-only-not-a-real-secret
       REDIS_HOST: redis-unused
       REDIS_PORT: "6379"
-      REDIS_PASSWORD: test-only-not-a-real-secret
     volumes:
       # Read-write so `make format` can rewrite files; everything else only reads.
       - .:/repo

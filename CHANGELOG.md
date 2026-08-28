@@ -36,15 +36,36 @@ Nothing is released yet. There is no tagged version.
   `require-env` guard. `up` and `build` are intentionally absent until the services they
   start have source and lockfiles.
 - hadolint configuration waiving only DL3006 and DL3008, each with a recorded reason.
+- Backend FastAPI application: settings whose secrets are `SecretStr` and which refuse to
+  load while any value is still a `.env.example` placeholder outside `ENV=test`; JSON
+  logging with correlation-ID propagation, literal-secret scrubbing and control-character
+  neutralisation of untrusted values; a single error envelope that discloses no traceback,
+  SQL or path; `GET /healthz`; `GET /readyz`; `GET /api/v1/meta/version`.
+- Async PostgreSQL engine and async Redis client, connectivity only. A Dramatiq broker that
+  registers **zero** actors (ADR-010) so the worker's topology is proven without inventing a
+  workload.
+- `backend/uv.lock`, committed so `uv sync --frozen` and the image build are reproducible.
+  `backend/Dockerfile` already requires it.
+- `make backend-install`, `lint`, `format`, `format-check`, `typecheck`, and an aggregate
+  `check`. `test` remains absent until a suite exists.
+
+### Changed
+- Ruff now also enforces `BLE` (blind `except`). The one intentional broad catch, a failed
+  readiness probe, carries an explicit waiver.
 
 ### Fixed
 - `.env.example` no longer places comments on the same line as an assignment. Docker Compose
   `env_file` does not strip a trailing `# comment`, so `SECRET_KEY` would have been delivered
   to the container with the comment text appended to its value.
+- The log sanitiser now strips LF and CR. It previously allowed both, so a newline inside an
+  untrusted value survived; the JSON encoder escaped it, but any future non-JSON log sink
+  would have made log-line forgery possible.
+- `backend/pyproject.toml` declared `readme = "../README.md"`. A readme outside the project
+  directory is rejected by the build backend, which made the package impossible to build or
+  install; `backend/README.md` now holds the package-level readme.
 
 ### Not yet present
-Backend application, health and version endpoints, frontend
-placeholder, tests, CI and security workflows, database migrations, ORM models, Suricata EVE
-schemas and normalisation, ingestion endpoints, dataset registry, background actors, asset
-and event APIs, authentication, RBAC, audit logging, rate limiting, detectors, correlation,
-Perplexity integration, reports, dashboard.
+Frontend placeholder, tests, CI and security workflows, database migrations, ORM models,
+Suricata EVE schemas and normalisation, ingestion endpoints, dataset registry, background
+actors, asset and event APIs, authentication, RBAC, audit logging, rate limiting, detectors,
+correlation, Perplexity integration, reports, dashboard.

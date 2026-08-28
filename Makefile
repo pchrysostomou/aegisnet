@@ -2,17 +2,20 @@
 SHELL := /bin/sh
 
 # Targets are added by the commit that introduces the thing they operate on, so this file
-# never advertises a command that cannot work yet. Test, lint, typecheck, audit and CI
-# targets arrive with the application, the test suite, and the workflows respectively.
+# never advertises a command that cannot work yet. Test, audit and CI targets arrive with
+# the test suite and the workflows respectively.
 #
 # `up` and `build` are deliberately absent: the Compose manifests describe services whose
 # source, dependency manifests and lockfiles do not exist until later chunks, so a build
 # cannot succeed yet. They arrive with the service they start.
 
 COMPOSE ?= docker compose
+UV ?= uv
+BACKEND := backend
 
 .PHONY: help bootstrap bootstrap-force verify-ignore require-env compose-config \
-        compose-ps compose-logs compose-down pin-digests clean
+        compose-ps compose-logs compose-down pin-digests clean \
+        backend-install lint format format-check typecheck check
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort | \
@@ -25,6 +28,29 @@ bootstrap: ## Create .env with random development-only secrets (idempotent, neve
 
 bootstrap-force: ## Regenerate .env, overwriting the existing file
 	python3 infra/scripts/bootstrap_env.py --force
+
+## ---------------------------------------------------------------- backend quality
+
+# These run natively via uv and need no containers, so they work before the stack builds.
+
+backend-install: ## Install the backend's locked dependency set
+	cd $(BACKEND) && $(UV) sync --frozen
+
+lint: ## Lint the backend
+	cd $(BACKEND) && $(UV) run ruff check src
+
+format: ## Reformat the backend in place
+	cd $(BACKEND) && $(UV) run ruff format src
+
+format-check: ## Fail if the backend is not formatted
+	cd $(BACKEND) && $(UV) run ruff format --check src
+
+typecheck: ## Typecheck the backend
+	cd $(BACKEND) && $(UV) run mypy
+
+# `test` is absent until the suite exists. Adding it now would advertise a command that
+# collects nothing.
+check: verify-ignore lint format-check typecheck ## Run every check that works today
 
 ## ---------------------------------------------------------------- safety checks
 

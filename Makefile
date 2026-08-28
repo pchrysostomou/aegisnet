@@ -1,0 +1,48 @@
+.DEFAULT_GOAL := help
+SHELL := /bin/sh
+
+# Targets are added by the commit that introduces the thing they operate on, so this file
+# never advertises a command that cannot work yet. Build, run, test, lint, typecheck, audit,
+# and CI targets arrive with the Compose stack, the application, the test suite, and the
+# workflows respectively.
+
+.PHONY: help bootstrap bootstrap-force verify-ignore clean
+
+help: ## Show available targets
+	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
+
+## ---------------------------------------------------------------- environment
+
+bootstrap: ## Create .env with random development-only secrets (idempotent, never overwrites)
+	python3 infra/scripts/bootstrap_env.py
+
+bootstrap-force: ## Regenerate .env, overwriting the existing file
+	python3 infra/scripts/bootstrap_env.py --force
+
+## ---------------------------------------------------------------- safety checks
+
+verify-ignore: ## Prove that secrets, captures, and local artefacts cannot be committed
+	@fail=0; \
+	for path in .env .env.local secret.pem capture.pcap capture.pcapng eve.json \
+	            app.log logs/suricata.log pgdata/base coverage.xml .coverage \
+	            node_modules/x .next/build backend/.pytest_cache/x samples/external/set.zip; do \
+		if git check-ignore -q "$$path"; then \
+			printf '  ignored      %s\n' "$$path"; \
+		else \
+			printf '  NOT IGNORED  %s\n' "$$path"; fail=1; \
+		fi; \
+	done; \
+	for path in .env.example README.md Makefile; do \
+		if git check-ignore -q "$$path"; then \
+			printf '  WRONGLY IGNORED  %s\n' "$$path"; fail=1; \
+		else \
+			printf '  tracked      %s\n' "$$path"; \
+		fi; \
+	done; \
+	if [ "$$fail" -ne 0 ]; then echo "verify-ignore FAILED"; exit 1; fi; \
+	echo "verify-ignore OK"
+
+clean: ## Remove local caches and build artefacts
+	rm -rf .pytest_cache .mypy_cache .ruff_cache .coverage coverage.xml htmlcov
+	find . -name __pycache__ -type d -prune -exec rm -rf {} +

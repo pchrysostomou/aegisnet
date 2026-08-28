@@ -1,0 +1,44 @@
+# Run `pre-commit install` once after cloning.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=2048"]
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+        files: ^(backend|infra)/.*\.py$
+      - id: ruff-format
+        files: ^(backend|infra)/.*\.py$
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.19.2
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: forbid-dotenv
+        name: refuse to commit .env
+        entry: .env must never be committed; only .env.example is tracked
+        language: fail
+        files: ^\.env$|^\.env\..*$
+        exclude: ^\.env\.example$
+
+      - id: forbid-captures
+        name: refuse to commit packet captures or live sensor output
+        entry: >-
+          packet captures and live EVE output can contain real addresses and payload bytes;
+          commit only reviewed synthetic corpora under samples/synthetic/
+        language: fail
+        files: \.(pcap|pcapng|cap)$|(^|/)eve[^/]*\.json$
+        exclude: ^samples/synthetic/

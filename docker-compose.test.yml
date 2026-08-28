@@ -1,0 +1,48 @@
+# Local test, lint, and typecheck runner for Chunk 1.
+#
+# Chunk 1 tests are hermetic: they fake the PostgreSQL and Redis probes rather than talking
+# to real services, so no database or cache container is defined here yet. Real `db-test` /
+# `redis-test` service containers arrive with the migrations chunk (decision F-2).
+#
+# The whole repository is mounted at /repo because the security tests read the committed
+# Compose file, both Dockerfiles, .env.example, and .gitignore as data. Caches are redirected
+# to /tmp so the mounted tree is not polluted.
+#
+# The secrets below are literal test strings. ENV=test is the only environment in which the
+# application tolerates weak or placeholder secrets, and nothing here is ever used elsewhere.
+
+name: aegisnet-test
+
+services:
+  tests:
+    build:
+      context: ./backend
+      target: dev
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      ENV: test
+      DEBUG: "false"
+      LOG_LEVEL: WARNING
+      PYTHONPATH: /repo/backend/src
+      PYTHONDONTWRITEBYTECODE: "1"
+      COVERAGE_FILE: /tmp/.coverage
+      MYPY_CACHE_DIR: /tmp/mypy_cache
+      RUFF_CACHE_DIR: /tmp/ruff_cache
+      PYTEST_ADDOPTS: -p no:cacheprovider
+      SECRET_KEY: test-only-not-a-real-secret
+      POSTGRES_HOST: db-unused
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: aegisnet
+      POSTGRES_APP_USER: aegisnet_app
+      POSTGRES_APP_PASSWORD: test-only-not-a-real-secret
+      POSTGRES_MIGRATOR_USER: aegisnet_migrator
+      POSTGRES_MIGRATOR_PASSWORD: test-only-not-a-real-secret
+      REDIS_HOST: redis-unused
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: test-only-not-a-real-secret
+    volumes:
+      # Read-write so `make format` can rewrite files; everything else only reads.
+      - .:/repo
+    working_dir: /repo/backend
+    command: ["pytest"]

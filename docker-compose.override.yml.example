@@ -1,0 +1,23 @@
+# Optional local development overrides. This file is an EXAMPLE and is never loaded
+# automatically.
+#
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#
+# docker-compose.override.yml IS loaded automatically by Compose once it exists, and it is
+# gitignored, so treat it as local-only: it may contain host paths or loosened settings that
+# must never reach the repository. Do not put secrets in it — secrets belong in .env.
+#
+# The overrides below trade hardening for developer convenience. They mount source read-only
+# and enable reload; they do not publish any additional port and do not widen any bind
+# address beyond 127.0.0.1.
+
+services:
+  api:
+    build:
+      target: dev
+    command:
+      ["uvicorn", "aegisnet.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    volumes:
+      - ./backend/src:/app/src:ro
+    environment:
+      LOG_LEVEL: DEBUG

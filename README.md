@@ -39,8 +39,8 @@ aspirational:
 | Area | State |
 |---|---|
 | Milestone 0 planning package (PRD, architecture, threat model, data model, API contract, delivery plan, evaluation plan) | Complete |
-| Repository scaffolding: ignore rules, licence, changelog, environment template, secret bootstrap, pre-commit config | This commit |
-| Docker Compose topology | Not yet committed |
+| Repository scaffolding: ignore rules, licence, changelog, environment template, secret bootstrap, pre-commit config | Complete |
+| Docker Compose topology and container images (five services, hardened, loopback-only) | Declared, never built — see the caveat below |
 | Backend application (FastAPI, config, logging, health endpoints) | Not yet committed |
 | Frontend health placeholder | Not yet committed |
 | Tests | Not yet committed |
@@ -60,8 +60,6 @@ pytest · Ruff · mypy · GitHub Actions. Rationale is in
 
 ## Local setup so far
 
-Only environment bootstrap exists at this commit. There is nothing to build or run yet.
-
 ```bash
 git clone git@github.com:pchrysostomou/aegisnet.git
 cd aegisnet
@@ -69,11 +67,40 @@ cd aegisnet
 # Generate a local .env containing random, development-only secrets.
 # Idempotent: it never overwrites an existing .env without --force, and never prints a secret.
 make bootstrap
+
+# Parse and interpolate the Compose manifests without starting or building anything.
+make compose-config
 ```
 
-`make help` lists the currently implemented targets. Build, run, test, lint, and CI targets
-are added in the commits that introduce the things they operate on, so the Makefile never
+`make help` lists the currently implemented targets. Test, lint, typecheck and CI targets are
+added in the commits that introduce the things they operate on, so the Makefile never
 advertises a command that cannot work.
+
+### The stack cannot be started yet
+
+`up` and `build` are deliberately absent from the Makefile. The Compose manifests reference
+`./backend` and `./frontend` build contexts whose source, dependency manifests and lockfiles
+arrive in later commits, so a build would fail. `make compose-config` validates the manifests;
+it does not prove that any image builds or that any container runs.
+
+No container in this repository has ever been built or started. The container assertions that
+exist are policy checks that read the committed manifests as data — they prove what the
+manifests declare, not what a running stack does.
+
+### Container topology as declared
+
+Five services: `db` (PostgreSQL 16), `redis` (Redis 7), `api` (FastAPI), `worker` (Dramatiq,
+no actors registered until Chunk 4), `web` (Next.js). `db`, `redis` and `worker` publish no
+host port at all. `api` and `web` publish only on `127.0.0.1`, so nothing is reachable from
+another host. Every service sets `cap_drop: ["ALL"]` and `no-new-privileges:true`, and both
+images end on a non-root `USER`. `read_only` root filesystems and image digest pinning are
+tracked as later work (Milestone 6 and decision F-5) and are **not** applied.
+
+The database is initialised with two least-privilege roles by
+[`infra/postgres/init/01_roles.sh`](infra/postgres/init/01_roles.sh): `aegisnet_migrator`
+owns the schema, `aegisnet_app` is the runtime role and never receives DDL rights. The script
+validates every interpolated role name and secret against a strict allowlist and fails closed,
+and it creates no tables — no schema exists until Chunk 2.
 
 ### Secrets
 

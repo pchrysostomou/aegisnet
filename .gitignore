@@ -18,6 +18,11 @@
 !**/testdata/**/*.crt
 secrets/
 .secrets/
+
+# Local Compose overrides. Compose loads this automatically once it exists, so it can
+# silently change bind addresses, mounts, or hardening on one machine only. Keep it local.
+docker-compose.override.yml
+!docker-compose.override.yml.example
 .netrc
 .npmrc
 credentials.json

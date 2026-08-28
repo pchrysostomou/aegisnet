@@ -1,0 +1,20 @@
+# hadolint configuration.
+#
+# Only two rules are waived, both with reasons rather than for convenience.
+ignored:
+  # DL3006 "always tag the version of an image explicitly".
+  # False positive here: both Dockerfiles use `FROM ${IMAGE}` where IMAGE is an ARG whose
+  # default is already pinned by minor tag (python:3.12-slim-bookworm, node:20-alpine,
+  # ghcr.io/astral-sh/uv:python3.12-bookworm-slim). hadolint does not resolve ARG defaults,
+  # so it reports the indirection rather than a missing tag. The ARG exists so CI can build
+  # against a digest without editing the Dockerfile, which is how decision F-5 will land.
+  - DL3006
+  # DL3008 "pin versions in apt-get install".
+  # The single apt package installed is procps, needed for the worker's pgrep liveness probe.
+  # Pinning a Debian binary version inside a slim base breaks the build outright as soon as
+  # Debian publishes a point release, which turns a hardening rule into recurring build
+  # breakage. Base-image reproducibility is handled at the right layer instead: by digest
+  # pinning the base image (F-5, `make pin-digests`), which fixes the apt snapshot too.
+  - DL3008
+
+failure-threshold: warning

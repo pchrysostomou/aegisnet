@@ -67,7 +67,8 @@ Nothing is released yet. There is no tagged version.
   and `next build`, compose config and hadolint, and a `stack` job that runs
   `docker compose up --build --wait` and curls every published endpoint) and `security.yml`
   (gitleaks, pip-audit over the exported uv lockfile, pnpm audit; on push, pull request and
-  weekly). **Not yet executed** — nothing has been pushed.
+  weekly). On the first push `ci` was green end to end — the stack job reached healthy on
+  the runner — and `security` failed on the genuine dependency findings fixed below.
 
 ### Changed
 - Ruff now also enforces `BLE` (blind `except`). The one intentional broad catch, a failed
@@ -78,6 +79,21 @@ Nothing is released yet. There is no tagged version.
   verified locally, with the evidence listed in `docs/STATUS.md`. Earlier revisions claimed
   no application code existed after it had been committed, and referred to tests that had
   not been written.
+
+### Security
+- The first `security` workflow run flagged real, known-vulnerable dependencies; both
+  findings are fixed by upgrade, verified by a clean local `pip-audit --strict` and
+  `pnpm audit --prod --audit-level=high`, with the suite unchanged at 124 passed:
+  - starlette 0.46.2 (pulled in by the fastapi `<0.116` pin) carried nine advisories.
+    fastapi moves to 0.141, uvicorn to 0.52, and a `constraint-dependencies` entry bars the
+    resolver from any starlette below 1.3.1 (now 1.6.0). The two status-code constants
+    starlette renamed are updated (`HTTP_413_CONTENT_TOO_LARGE`,
+    `HTTP_422_UNPROCESSABLE_CONTENT`); the wire format is unchanged.
+  - next 14.2.35 carried ten high advisories patched only in the 15.5 line. The web
+    placeholder moves to next 15.5.24 with react 19, and a pnpm override forces the
+    bundled postcss to ≥8.5.18 (next still pins 8.4.31, which has two high advisories).
+- The `web` image base moves from `node:20-alpine` (end of life April 2026) to
+  `node:22-alpine`, matching the CI node version.
 
 ### Fixed
 - `.env.example` no longer places comments on the same line as an assignment. Docker Compose

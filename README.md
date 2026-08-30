@@ -46,7 +46,7 @@ aspirational:
 | Dramatiq worker | Boots, authenticates to Redis, registers **zero** actors ([ADR-010](docs/adr/ADR-010-defer-scheduler.md)) |
 | Frontend | Health placeholder only: one page and `GET /api/health` |
 | Tests | 124 hermetic tests (unit, integration, security); no database or Redis needed |
-| CI and security workflows | Committed, **not yet run** — nothing has been pushed |
+| CI and security workflows | `ci` green on the first push, including the stack gate on the runner; `security` initially flagged known-vulnerable dependencies, upgraded since — see `docs/STATUS.md` |
 | Migrations, ORM models, EVE ingestion, detection, correlation, auth/RBAC/audit/rate limiting, AI briefs, dashboard | Not started — Chunk 2 onward and later milestones |
 
 ---
@@ -54,7 +54,7 @@ aspirational:
 ## Technology
 
 Python 3.12 · FastAPI · SQLAlchemy · Alembic · Pydantic · PostgreSQL 16 · Redis 7 ·
-Dramatiq · Next.js 14 · TypeScript · Docker Compose · Suricata EVE JSON · pytest · Ruff ·
+Dramatiq · Next.js 15 · TypeScript · Docker Compose · Suricata EVE JSON · pytest · Ruff ·
 mypy · GitHub Actions. Rationale is in [`ARCHITECTURE.md`](ARCHITECTURE.md). Tailwind and
 Alembic are planned but not yet in the tree.
 
@@ -64,7 +64,7 @@ Alembic are planned but not yet in the tree.
 
 Requirements: Docker with Compose v2, Python 3 on the host (for the bootstrap script),
 `make`. For native backend development also [`uv`](https://docs.astral.sh/uv/); for the
-frontend Node 20 with `corepack`.
+frontend Node 22 with `corepack`.
 
 ```bash
 git clone git@github.com:pchrysostomou/aegisnet.git

@@ -19,7 +19,7 @@
 | Docker stack | **Built and started locally; all five services healthy** — see evidence E-3 |
 | Database | Roles `aegisnet_migrator` / `aegisnet_app` created at init; **no migrations, no tables** |
 | Perplexity integration | **Not implemented; no API call has been made** |
-| CI | Workflows committed (`ci.yml`, `security.yml`); **never executed** — nothing pushed |
+| CI | First push done. `ci` **green** end to end, including the stack job. `security` **failed on real findings** (E-11), fixed by dependency upgrades (E-12) |
 | Detector accuracy | **Unmeasured. No claims.** |
 
 ## Evidence (local, 2026-08-30, Windows 11 host, Docker Desktop 29.7 / Compose v5.4)
@@ -35,9 +35,9 @@
 | E-7 | `psql` as `aegisnet_app`: `CREATE TABLE` | `permission denied for schema public`; the same statement as `aegisnet_migrator` succeeds |
 | E-8 | `uv run ruff check src tests`, `ruff format --check`, `mypy` | clean |
 | E-9 | `docker compose -f docker-compose.test.yml run --rm --build tests` | `124 passed` inside the non-root `dev` image, with no secret variable set and unresolvable datastore hostnames |
-
-Evidence is a transcript in the working session, not yet a CI run. The first push will
-produce the CI links that replace this table.
+| E-10 | GitHub Actions `ci` run **33331753840** (first push) | ✅ all four jobs, including `stack`: `docker compose up --build --wait` reached healthy on the runner and every published endpoint answered |
+| E-11 | GitHub Actions `security` run **33331753793** (first push) | ❌ genuine findings: starlette 0.46.2 carried 9 advisories (via the fastapi pin) and next 14.2.35 carried 10 high (patched in ≥15.5.21, plus bundled postcss 8.4.31) |
+| E-12 | After upgrading (fastapi 0.141 → starlette 1.6.0, uvicorn 0.52; next 15.5.24, react 19, postcss override): `uvx pip-audit --strict` on the exported lockfile and `pnpm audit --prod --audit-level=high` | both clean locally; `124 passed` unchanged |
 
 ## Milestone tracker
 
@@ -133,6 +133,6 @@ produce the CI links that replace this table.
 
 ## Next actions
 
-1. Push and confirm both workflows are green; replace the evidence table with CI links.
+1. Confirm the `security` workflow is green on the next push (the `ci` workflow already is).
 2. Chunk 2: Alembic baseline migration for the nine M1 tables, ORM models, `audit_log` grants, `SCHEMA_REVISION` wired to the Alembic head, `db-test` service in `docker-compose.test.yml`.
 3. Keep this file and `THREAT_MODEL.md` updated per chunk, not afterwards.

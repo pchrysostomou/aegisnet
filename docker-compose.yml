@@ -98,7 +98,9 @@ services:
       redis: {condition: service_healthy}
     healthcheck:
       # Liveness only: is the worker process alive. NOT a readiness or capability signal.
-      test: ["CMD-SHELL", "pgrep -f 'dramatiq aegisnet.adapters.queue.worker' > /dev/null"]
+      # The bracketed first letter keeps the pattern from matching the probe's own shell,
+      # whose command line contains the pattern text; without it pgrep always succeeds.
+      test: ["CMD-SHELL", "pgrep -f '[d]ramatiq aegisnet.adapters.queue.worker' > /dev/null"]
       interval: 15s
       timeout: 5s
       retries: 4

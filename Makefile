@@ -2,19 +2,15 @@
 SHELL := /bin/sh
 
 # Targets are added by the commit that introduces the thing they operate on, so this file
-# never advertises a command that cannot work yet. Audit and CI targets arrive with the
-# workflows.
-#
-# `up` and `build` are deliberately absent: the Compose manifests describe services whose
-# source, dependency manifests and lockfiles do not exist until later chunks, so a build
-# cannot succeed yet. They arrive with the service they start.
+# never advertises a command that cannot work yet. Migration, seed and demo targets arrive
+# with the chunks that introduce them.
 
 COMPOSE ?= docker compose
 UV ?= uv
 BACKEND := backend
 
 .PHONY: help bootstrap bootstrap-force verify-ignore require-env compose-config \
-        compose-ps compose-logs compose-down compose-test pin-digests clean \
+        build up down compose-ps compose-logs compose-down compose-test pin-digests clean \
         backend-install lint format format-check typecheck test test-cov check
 
 help: ## Show available targets
@@ -94,6 +90,20 @@ compose-config: require-env ## Validate and render the Compose manifests without
 	$(COMPOSE) config --quiet
 	$(COMPOSE) -f docker-compose.test.yml config --quiet
 	@echo "compose-config OK"
+
+build: require-env ## Build the api, worker and web images
+	$(COMPOSE) build
+
+# The Milestone 1 gate from ADR-011: `make bootstrap && make up`. Every service has a
+# healthcheck, so --wait returns only once all five report healthy (or fails after the
+# timeout, printing which dependency did not come up).
+up: require-env ## Build if needed, start the stack and wait until every service is healthy
+	$(COMPOSE) up --build --detach --wait --wait-timeout 240
+	@echo "api:  http://127.0.0.1:8000/healthz  /readyz  /docs"
+	@echo "web:  http://127.0.0.1:3000/"
+
+down: ## Stop the stack and remove the database volume
+	$(COMPOSE) down --volumes --remove-orphans
 
 compose-ps: ## Show stack status
 	$(COMPOSE) ps

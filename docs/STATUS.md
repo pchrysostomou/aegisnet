@@ -1,9 +1,9 @@
 # AegisNet — Project Status
 
-**Last updated:** 2026-08-28 · **Current phase:** M0 Planning complete, awaiting M1 chunk-1 approval · **Version:** none tagged
+**Last updated:** 2026-08-30 · **Current phase:** M1 Chunk 1 (foundation) verified locally; CI not yet run · **Version:** none tagged
 
 > This file is the single source of truth for progress. It states only what has **evidence**. Nothing below is
-> claimed to run, pass, or exist unless an evidence link is given.
+> claimed to run, pass, or exist unless an evidence entry is given.
 
 ---
 
@@ -11,31 +11,61 @@
 
 | | |
 |---|---|
-| Phase | **M0 — Planning complete, implementation not started** |
-| Application code written | **None** |
-| Tests written | **None** |
-| Tests run | **None** |
-| Docker stack | **Not built, never started** |
-| Database | **No migrations exist** |
+| Phase | **M1 — Chunk 1 (foundation) complete locally; Chunk 2 (migrations) not started** |
+| Application code written | Settings, JSON logging, error envelope, `/healthz`, `/readyz`, `/api/v1/meta/version`, DB/Redis connectivity adapters, Dramatiq broker with zero actors |
+| Frontend | Health placeholder: one page, `GET /api/health` |
+| Tests written | 124 (unit, integration, security), all hermetic |
+| Tests run | **Yes, locally** — see evidence E-1, E-2 |
+| Docker stack | **Built and started locally; all five services healthy** — see evidence E-3 |
+| Database | Roles `aegisnet_migrator` / `aegisnet_app` created at init; **no migrations, no tables** |
 | Perplexity integration | **Not implemented; no API call has been made** |
-| CI | **No workflow exists** |
+| CI | Workflows committed (`ci.yml`, `security.yml`); **never executed** — nothing pushed |
 | Detector accuracy | **Unmeasured. No claims.** |
+
+## Evidence (local, 2026-08-30, Windows 11 host, Docker Desktop 29.7 / Compose v5.4)
+
+| ID | Command | Result |
+|---|---|---|
+| E-1 | `cd backend && ENV=test uv run pytest` | `124 passed` |
+| E-2 | `ENV=test uv run pytest --cov=aegisnet` | 96% line+branch coverage; only `worker.py` (import-time entrypoint) and the real DB/Redis round trips are uncovered |
+| E-3 | `make bootstrap && docker compose up -d --wait --wait-timeout 240` | `db`, `redis`, `api`, `worker`, `web` all `(healthy)`; `api` on `127.0.0.1:8000`, `web` on `127.0.0.1:3000`, no other port published |
+| E-4 | `curl 127.0.0.1:8000/healthz`, `/readyz`, `/api/v1/meta/version`, `127.0.0.1:3000/api/health` | all `200`; readiness `{"status":"ok"}`; response carries `x-correlation-id` |
+| E-5 | `docker compose exec <svc> id` for every service | `db` uid 70, `redis` uid 999, `api`/`worker` uid 10001, `web` uid 1000 — no root |
+| E-6 | `docker compose exec worker python -c "...build_broker(get_settings()).client.ping()"` | `True` (worker authenticates to the `--requirepass` Redis); declared actors `[]` |
+| E-7 | `psql` as `aegisnet_app`: `CREATE TABLE` | `permission denied for schema public`; the same statement as `aegisnet_migrator` succeeds |
+| E-8 | `uv run ruff check src tests`, `ruff format --check`, `mypy` | clean |
+| E-9 | `docker compose -f docker-compose.test.yml run --rm --build tests` | `124 passed` inside the non-root `dev` image, with no secret variable set and unresolvable datastore hostnames |
+
+Evidence is a transcript in the working session, not yet a CI run. The first push will
+produce the CI links that replace this table.
 
 ## Milestone tracker
 
 | Milestone | Status | Evidence | Notes |
 |---|---|---|---|
 | M0 Planning | ✅ Complete | This doc set | PRD, architecture, threat model, data model, M1 API, delivery plan, evaluation plan |
-| M1 Foundation / ingest / normalize / assets | ⬜ Not started | — | Next up |
+| M1 Foundation / ingest / normalize / assets | 🟡 In progress — Chunk 1 done | E-1 – E-8 | Next: Chunk 2 Alembic baseline |
 | M2 Five detectors + labelled fixtures | ⬜ Not started | — | Blocked on M1 |
 | M3 Correlation / incidents / workflow | ⬜ Not started | — | Blocked on M2 |
 | M4 Analyst dashboard | ⬜ Not started | — | Blocked on M3 |
 | M5 Perplexity brief + Markdown export | ⬜ Not started | — | Blocked on M4 (safe renderer first) |
 | M6 Hardening / evaluation / release | ⬜ Not started | — | Gate for `v1.0.0` |
 
+## Milestone 1 chunk tracker
+
+| Chunk | Contents | Status |
+|---|---|---|
+| 1 | Skeleton, Compose, config, logging, health, worker topology, web placeholder, tests, CI | ✅ Locally verified |
+| 2 | Alembic baseline migration, ORM models, DB grants incl. `audit_log` | ⬜ |
+| 3 | EVE domain: schema, sanitizer, normalizer, `event_hash`, synthetic generator, registry | ⬜ |
+| 4 | Ingest service, first Dramatiq actor, rejects, idempotency | ⬜ |
+| 5 | Assets API, events read API | ⬜ |
+| 6 | Auth, RBAC, audit, rate limits, `SECURITY.md` | ⬜ |
+| 7 | Docs update at the M1 gate with CI evidence | ⬜ |
+
 ## Definition-of-Done checklist (v1.0.0)
 
-- [ ] `docker compose up --build` starts the full local environment
+- [ ] `docker compose up --build` starts the full local environment — *Chunk 1 topology does (E-3); the full environment does not exist yet*
 - [ ] Documented safe sample dataset ingests via one command
 - [ ] All five detectors have labelled positive **and** negative test cases
 - [ ] Unit + integration tests run in GitHub Actions
@@ -49,10 +79,10 @@
 
 | Doc | State |
 |---|---|
-| `README.md` | ⬜ To be written in M1 |
+| `README.md` | ✅ Reflects Chunk 1 |
 | `ARCHITECTURE.md` | ✅ v0.1 (proposal) |
 | `THREAT_MODEL.md` | ✅ v0.1 (planning-phase model; review at every milestone gate) |
-| `SECURITY.md` | ⬜ To be written in M1 (RBAC matrix, secret handling, disclosure policy) |
+| `SECURITY.md` | ⬜ Chunk 6 (RBAC matrix, secret handling, disclosure policy) |
 | `docs/PRD.md` | ✅ v0.1 |
 | `docs/repo-structure.md` | ✅ v0.1 |
 | `docs/data-model.md` | ✅ v0.1 |
@@ -77,6 +107,17 @@
 | D-7 | Events keep promoted typed columns **plus** a validated JSONB payload |
 | D-8 | Auth/audit/rate-limit primitives exist from M1; M6 completes and proves them |
 | D-9 | **Isolated Suricata Docker lab (`infra/lab/`) deferred to M2.** M1 is file-and-API driven only: no packet capture, no traffic generation, no live-traffic component. Rationale: sensor config, capture permissions, and topology introduce reproducibility risk that would compromise the M1 gates. |
+| D-10 | Scheduler and periodiq deferred to M2 (ADR-010); the M1 worker registers zero actors |
+
+## Defects found and fixed in Chunk 1 review (2026-08-30)
+
+| Defect | Effect | Fix |
+|---|---|---|
+| `RedisBroker(url=..., password=...)` ignored the password | Worker would fail with `NOAUTH` on first Redis command | Explicit authenticated `redis.Redis` client; regression test |
+| Worker liveness probe `pgrep -f 'dramatiq …'` matched its own `sh -c` wrapper | Healthcheck always passed | `[d]ramatiq` pattern; policy test |
+| `cap_drop: ALL` on the official `postgres`/`redis` images | Both restart-looped (`setresuid failed`); the stack had never started | `user: postgres` / `user: redis`; policy test |
+| No `.gitattributes`; CRLF checkout on Windows | Bind-mounted `01_roles.sh` unusable inside the container | LF normalisation for all text files |
+| README / STATUS / CHANGELOG described tests and a frontend that did not exist | Misleading status | This revision |
 
 ## Open risks being carried
 
@@ -87,9 +128,11 @@
 | Indirect prompt injection via log content | Contained, not eliminated — see `THREAT_MODEL.md` R-3 |
 | Metadata egress to Perplexity is non-zero even when redacted | Opt-in per incident, off by default, offline mode supported — R-2 |
 | Public-dataset licence obligations | Provenance + required citation stored per ingest batch |
+| `/api/v1/meta/version` is unauthenticated | No auth layer exists yet; git SHA already withheld in production; permission-gated in Chunk 6 |
+| Base images and GitHub Actions pinned by tag, not digest | Decision F-5; `make pin-digests` prints the digests |
 
 ## Next actions
 
-1. Execute **M1** per `docs/delivery-plan.md` and the Milestone 1 implementation prompt.
-2. Write `README.md` and `SECURITY.md` as part of M1, not after.
-3. Update this file at the M1 gate with evidence links (CI run, command transcripts).
+1. Push and confirm both workflows are green; replace the evidence table with CI links.
+2. Chunk 2: Alembic baseline migration for the nine M1 tables, ORM models, `audit_log` grants, `SCHEMA_REVISION` wired to the Alembic head, `db-test` service in `docker-compose.test.yml`.
+3. Keep this file and `THREAT_MODEL.md` updated per chunk, not afterwards.

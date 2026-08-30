@@ -1,0 +1,168 @@
+# Continuous integration.
+#
+# Every job is hermetic with respect to secrets: the only .env ever created is produced by
+# infra/scripts/bootstrap_env.py inside the runner, holds random throwaway values, and is
+# discarded with the runner. No repository or organisation secret is read anywhere here.
+#
+# Actions are pinned by major tag. Pinning them by commit digest is tracked with decision
+# F-5 alongside the container base images.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_FROZEN: "1"
+
+jobs:
+  backend:
+    name: backend · ruff, mypy, pytest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install the locked dependency set
+        run: uv sync --frozen
+
+      - name: Ruff (lint)
+        run: uv run ruff check --output-format=github src tests
+
+      - name: Ruff (format)
+        run: uv run ruff format --check src tests
+
+      - name: mypy
+        run: uv run mypy
+
+      - name: pytest with coverage gate
+        env:
+          ENV: test
+        run: >-
+          uv run pytest
+          --cov=aegisnet --cov-report=term-missing --cov-report=xml
+          --cov-fail-under=85
+          --junitxml=pytest-report.xml
+
+      - name: Upload test artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-reports
+          path: |
+            backend/coverage.xml
+            backend/pytest-report.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+  frontend:
+    name: frontend · tsc, next build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Enable the pnpm version pinned in package.json
+        run: corepack enable
+
+      - name: Install the locked dependency set
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: pnpm build
+
+  manifests:
+    name: manifests · compose config, hadolint, ignore rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate a throwaway .env
+        run: python3 infra/scripts/bootstrap_env.py
+
+      - name: Validate the Compose manifests
+        run: |
+          docker compose config --quiet
+          docker compose -f docker-compose.test.yml config --quiet
+
+      - name: Prove the ignore rules hold
+        run: make verify-ignore
+
+      - name: hadolint backend/Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: backend/Dockerfile
+          config: .hadolint.yaml
+
+      - name: hadolint frontend/Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: frontend/Dockerfile
+          config: .hadolint.yaml
+
+  stack:
+    # The Milestone 1 gate as stated in ADR-011: `make bootstrap && docker compose up
+    # --build` reaches healthy from a clean clone. Every service has a healthcheck, so
+    # `--wait` only returns once all five report healthy.
+    name: stack · compose up --build reaches healthy
+    runs-on: ubuntu-latest
+    needs: [backend, frontend, manifests]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate a throwaway .env
+        run: python3 infra/scripts/bootstrap_env.py
+
+      - name: Build and start every service
+        env:
+          GIT_SHA: ${{ github.sha }}
+        run: docker compose up --build --detach --wait --wait-timeout 240
+
+      - name: Probe the published endpoints from the runner
+        run: |
+          set -eu
+          curl --fail --silent --show-error http://127.0.0.1:8000/healthz
+          echo
+          curl --fail --silent --show-error http://127.0.0.1:8000/readyz
+          echo
+          curl --fail --silent --show-error http://127.0.0.1:8000/api/v1/meta/version
+          echo
+          curl --fail --silent --show-error http://127.0.0.1:3000/api/health
+          echo
+
+      - name: Show service state and logs
+        if: always()
+        run: |
+          docker compose ps
+          docker compose logs --no-color --tail=100
+
+      - name: Tear down, including the database volume
+        if: always()
+        run: docker compose down --volumes --remove-orphans

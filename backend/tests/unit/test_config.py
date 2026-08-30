@@ -102,8 +102,11 @@ def test_database_url_uses_asyncpg_and_escapes_credentials() -> None:
 
 
 def test_redis_url_carries_no_credential() -> None:
-    settings = make_settings(redis_password=REAL)
+    # Host and port are explicit: the test-runner container points REDIS_HOST at an
+    # unresolvable name on purpose, and the assertion must not depend on that.
+    settings = make_settings(redis_host="redis", redis_port=6379, redis_password=REAL)
     assert settings.redis_url == "redis://redis:6379/0"
+    assert REAL not in settings.redis_url
 
 
 def test_secret_values_skips_short_strings() -> None:

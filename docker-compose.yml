@@ -89,7 +89,7 @@ services:
       args:
         GIT_SHA: ${GIT_SHA:-unknown}
     <<: *hardening
-    command: ["dramatiq", "aegisnet.adapters.queue.broker", "--processes", "1", "--threads", "2"]
+    command: ["dramatiq", "aegisnet.adapters.queue.worker", "--processes", "1", "--threads", "2"]
     env_file: [.env]
     environment:
       POSTGRES_HOST: db
@@ -98,7 +98,7 @@ services:
       redis: {condition: service_healthy}
     healthcheck:
       # Liveness only: is the worker process alive. NOT a readiness or capability signal.
-      test: ["CMD-SHELL", "pgrep -f 'dramatiq aegisnet.adapters.queue.broker' > /dev/null"]
+      test: ["CMD-SHELL", "pgrep -f 'dramatiq aegisnet.adapters.queue.worker' > /dev/null"]
       interval: 15s
       timeout: 5s
       retries: 4

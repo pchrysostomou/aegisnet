@@ -1,9 +1,12 @@
-"""Dramatiq broker configuration.
+"""Dramatiq broker factory.
 
-**No actors are registered here.** The worker container runs this module so that the
-topology, image, and broker connection are proven early, but it has no business workload
-until the EVE normalisation actor lands in Chunk 4. Its container healthcheck is
-process-level liveness only and asserts nothing about capability (ADR-010).
+**No actors are registered here.** The worker container has no business workload until
+the EVE normalisation actor lands in Chunk 4; its container healthcheck is process-level
+liveness only and asserts nothing about capability (ADR-010).
+
+This module is a pure factory with no import-time side effects, so it can be imported and
+tested without a running Redis. The process entrypoint that the ``dramatiq`` CLI loads is
+``aegisnet.adapters.queue.worker``.
 
 Deliberately absent: any placeholder actor, heartbeat job, or synthetic task created
 merely to make the worker look busy.
@@ -12,21 +15,35 @@ merely to make the worker look busy.
 from __future__ import annotations
 
 import dramatiq
+import redis
 from dramatiq.brokers.redis import RedisBroker
 
 from aegisnet.config import Settings, get_settings
-from aegisnet.logging import configure_logging, get_logger
 
-logger = get_logger(__name__)
+
+def build_redis_client(settings: Settings) -> redis.Redis:
+    """Synchronous Redis client for the broker, authenticated from settings.
+
+    The client is built explicitly rather than via ``RedisBroker(url=..., password=...)``.
+    When ``url`` is given, Dramatiq creates its own ``ConnectionPool.from_url(url)`` and
+    passes it to ``redis.Redis`` together with the remaining keyword arguments; redis-py
+    ignores ``password`` whenever a pool is supplied, so the worker would have connected
+    unauthenticated and failed with NOAUTH against the password-protected server.
+    """
+    return redis.Redis(
+        host=settings.redis_host,
+        port=settings.redis_port,
+        db=0,
+        password=settings.redis_password.get_secret_value(),
+        socket_connect_timeout=settings.probe_timeout_seconds,
+        socket_timeout=settings.probe_timeout_seconds,
+    )
 
 
 def build_broker(settings: Settings) -> RedisBroker:
     # Dramatiq ships no annotations for RedisBroker.__init__, so the call is untyped.
     # The ignore is narrow and deliberate rather than a project-wide mypy relaxation.
-    return RedisBroker(  # type: ignore[no-untyped-call]
-        url=settings.redis_url,
-        password=settings.redis_password.get_secret_value(),
-    )
+    return RedisBroker(client=build_redis_client(settings))  # type: ignore[no-untyped-call]
 
 
 def install(settings: Settings | None = None) -> RedisBroker:
@@ -35,10 +52,3 @@ def install(settings: Settings | None = None) -> RedisBroker:
     broker = build_broker(resolved)
     dramatiq.set_broker(broker)
     return broker
-
-
-# Importing this module is how `dramatiq aegisnet.adapters.queue.broker` boots.
-_settings = get_settings()
-configure_logging(level=_settings.log_level, secrets=_settings.secret_values())
-broker = install(_settings)
-logger.info("worker_started", extra={"actors_registered": 0, "workload": "none_until_chunk_4"})

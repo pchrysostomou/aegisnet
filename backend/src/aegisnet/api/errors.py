@@ -44,7 +44,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
         status.HTTP_403_FORBIDDEN: "forbidden",
         status.HTTP_404_NOT_FOUND: "not_found",
         status.HTTP_409_CONFLICT: "conflict",
-        status.HTTP_413_REQUEST_ENTITY_TOO_LARGE: "payload_too_large",
+        status.HTTP_413_CONTENT_TOO_LARGE: "payload_too_large",
         status.HTTP_429_TOO_MANY_REQUESTS: "rate_limited",
         status.HTTP_503_SERVICE_UNAVAILABLE: "service_unavailable",
     }.get(exc.status_code, "http_error")
@@ -66,7 +66,7 @@ async def validation_exception_handler(
         for error in exc.errors()
     ]
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content=_envelope("validation_failed", "Request failed validation.", details),
     )
 

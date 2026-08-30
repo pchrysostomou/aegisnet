@@ -13,8 +13,8 @@ requires-python = ">=3.12,<3.13"
 license = { text = "MIT" }
 
 dependencies = [
-  "fastapi>=0.115,<0.116",
-  "uvicorn[standard]>=0.30,<0.31",
+  "fastapi>=0.141,<0.142",
+  "uvicorn[standard]>=0.52,<0.53",
   "pydantic>=2.9,<3.0",
   "pydantic-settings>=2.5,<3.0",
   "sqlalchemy[asyncio]>=2.0.35,<2.1",
@@ -22,6 +22,12 @@ dependencies = [
   "redis>=5.1,<6.0",
   "dramatiq[redis]>=1.17,<2.0",
 ]
+
+[tool.uv]
+# starlette is pulled in by fastapi, whose pin is only a floor. Anything below 1.3.1
+# carries known advisories (PYSEC-2026-161/-248/-249/-1941/-1942/-2280/-2281), so the
+# resolver is barred from selecting one; security.yml's pip-audit enforces the same.
+constraint-dependencies = ["starlette>=1.3.1"]
 
 [dependency-groups]
 dev = [

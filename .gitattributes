@@ -1,0 +1,23 @@
+# Normalise line endings to LF for every text file, on every platform.
+#
+# Several files are bind-mounted or COPY'd straight into Linux containers:
+# infra/postgres/init/*.sh is executed by the PostgreSQL entrypoint, and a CRLF checkout
+# turns `#!/bin/sh` into `#!/bin/sh\r`, which fails the database initialisation outright.
+# Dockerfiles, Compose manifests and Python sources are affected the same way. With
+# core.autocrlf=true on Windows (the default Git for Windows setting) the working tree was
+# CRLF while the index was LF, so the breakage only showed up on that platform.
+* text=auto eol=lf
+
+# Shell scripts must be LF without exception.
+*.sh text eol=lf
+
+# Binary content is never rewritten.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pcap binary
+*.pcapng binary

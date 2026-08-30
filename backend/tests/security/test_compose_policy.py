@@ -137,3 +137,12 @@ def test_postgres_init_scripts_are_mounted_read_only() -> None:
     volumes = _services(COMPOSE)["db"]["volumes"]
     init = [v for v in volumes if "docker-entrypoint-initdb.d" in str(v)]
     assert init == ["./infra/postgres/init:/docker-entrypoint-initdb.d:ro"]
+
+
+def test_official_images_are_started_as_their_service_user() -> None:
+    """Regression: postgres/redis entrypoints start as root and drop privileges with
+    gosu/setpriv, which needs CAP_SETUID and fails under cap_drop ALL. Declaring the
+    service user up front means no privilege switch is attempted."""
+    services = _services(COMPOSE)
+    assert services["db"].get("user") == "postgres"
+    assert services["redis"].get("user") == "redis"

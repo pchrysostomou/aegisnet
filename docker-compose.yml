@@ -4,7 +4,11 @@
 #   * Every published port is bound to 127.0.0.1 — nothing is reachable off-host (THREAT_MODEL T-5.2).
 #   * `db` and `redis` publish no ports at all.
 #   * All services drop every Linux capability and disable privilege escalation.
-#   * Images run as non-root (see the USER directives in the Dockerfiles).
+#   * Images run as non-root. The project images set USER in their Dockerfiles; the official
+#     postgres and redis images instead start as root and drop to their service user with
+#     gosu/setpriv, which needs CAP_SETUID/CAP_SETGID and therefore fails under cap_drop ALL
+#     ("setresuid failed: Operation not permitted"). They are started directly as that user
+#     via `user:` so no privilege switch is ever attempted.
 #   * `read_only` root filesystems are deliberately deferred to Milestone 6 (THREAT_MODEL T-5.1, partial).
 #   * Image tags are pinned by minor version. Digest pinning is tracked as F-5 and is NOT done yet;
 #     run `make pin-digests` to obtain manifest-list digests, then commit them here.
@@ -20,6 +24,9 @@ services:
   db:
     image: postgres:16-alpine
     <<: *hardening
+    # uid 70 in the alpine image. Owns /var/lib/postgresql/data and /var/run/postgresql, so
+    # initdb and the socket directory need no chown and no capability.
+    user: postgres
     environment:
       POSTGRES_USER: ${POSTGRES_SUPERUSER}
       POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
@@ -42,6 +49,8 @@ services:
   redis:
     image: redis:7-alpine
     <<: *hardening
+    # uid 999 in the image. Persistence is disabled below, so /data is never written.
+    user: redis
     command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--save", "", "--appendonly", "no"]
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a $${REDIS_PASSWORD} ping | grep -q PONG"]

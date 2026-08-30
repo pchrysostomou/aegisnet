@@ -4,7 +4,8 @@
 # no client-side data fetching. Base image pinned by minor version; digest pinning is F-5
 # and is NOT done yet.
 
-ARG NODE_IMAGE=node:20-alpine
+# Node 20 reached end of life in April 2026; 22 is the active LTS line.
+ARG NODE_IMAGE=node:22-alpine
 
 # ---------------------------------------------------------------- deps
 FROM ${NODE_IMAGE} AS deps

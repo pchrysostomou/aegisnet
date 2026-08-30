@@ -120,7 +120,7 @@ compose-test: ## Run the backend suite inside the hermetic test-runner container
 # Decision F-5: images are pinned by minor tag, not digest. This prints the digests to paste
 # into docker-compose.yml when F-5 is applied; it does not edit any file.
 pin-digests: ## Print manifest-list digests for the pinned base images
-	@for image in postgres:16-alpine redis:7-alpine python:3.12-slim-bookworm node:20-alpine \
+	@for image in postgres:16-alpine redis:7-alpine python:3.12-slim-bookworm node:22-alpine \
 	              ghcr.io/astral-sh/uv:python3.12-bookworm-slim; do \
 		printf '%-52s ' "$$image"; \
 		docker buildx imagetools inspect "$$image" --format '{{.Manifest.Digest}}' 2>/dev/null \

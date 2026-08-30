@@ -4,7 +4,7 @@
 ignored:
   # DL3006 "always tag the version of an image explicitly".
   # False positive here: both Dockerfiles use `FROM ${IMAGE}` where IMAGE is an ARG whose
-  # default is already pinned by minor tag (python:3.12-slim-bookworm, node:20-alpine,
+  # default is already pinned by minor tag (python:3.12-slim-bookworm, node:22-alpine,
   # ghcr.io/astral-sh/uv:python3.12-bookworm-slim). hadolint does not resolve ARG defaults,
   # so it reports the indirection rather than a missing tag. The ARG exists so CI can build
   # against a digest without editing the Dockerfile, which is how decision F-5 will land.

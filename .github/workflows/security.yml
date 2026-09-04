@@ -37,8 +37,11 @@ jobs:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v10.0.1
         with:
-          enable-cache: true
-          cache-dependency-glob: backend/uv.lock
+          # No cache here. This job only exports the lockfile and runs pip-audit through
+          # uvx. Sharing the ci backend job's cache key meant this faster job saved a cache
+          # holding only pip-audit's dependencies, and the backend job could never save
+          # its own ("Unable to reserve cache ... another job may be creating this cache").
+          enable-cache: false
       - name: Export the locked runtime dependency set
         run: uv export --frozen --no-dev --no-emit-project --format requirements-txt > requirements.lock.txt
       - name: pip-audit

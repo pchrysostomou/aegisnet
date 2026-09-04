@@ -103,6 +103,10 @@ Nothing is released yet. There is no tagged version.
   `node:22-alpine`, matching the CI node version.
 
 ### Fixed
+- The `security` workflow's pip-audit job used the same uv cache key as the `ci` backend
+  job. Finishing first, it saved a cache that held only pip-audit's own dependencies, so the
+  backend job could never save the runtime set it had just installed; setup-uv v10 surfaces
+  this as "Unable to reserve cache". The pip-audit job now runs with the cache disabled.
 - `.env.example` no longer places comments on the same line as an assignment. Docker Compose
   `env_file` does not strip a trailing `# comment`, so `SECRET_KEY` would have been delivered
   to the container with the comment text appended to its value.

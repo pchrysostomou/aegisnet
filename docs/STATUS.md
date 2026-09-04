@@ -41,7 +41,7 @@
 | E-13 | GitHub Actions `security` runs **33332243302** (push, 2026-08-30) and **33399756070** (weekly schedule, 2026-08-31) | ✅ gitleaks, pip-audit and pnpm audit all clean on the runner |
 | E-14 | 2026-09-04, macOS host: `uvx pip-audit --strict` on the exported lockfile, `pnpm audit --prod --audit-level=high`, `ruff check`, `ruff format --check`, `mypy`, `ENV=test uv run pytest`, `pnpm typecheck` | all clean against that day's advisory data; `124 passed` |
 | E-15 | Annotations on every job of runs 33332243290 (`ci`) and 33399756070 (`security`) | ⚠️ "Node.js 20 is deprecated … forced to run on Node.js 24" for `checkout@v4`, `setup-node@v4`, `upload-artifact@v4`, `setup-uv@v5`, `gitleaks-action@v2`; GitHub removes Node 20 from hosted runners on 2026-09-16. Fixed by moving each to a Node 24 release; the result is recorded on the push that carries it |
-| E-16 | Push a8e9510 (Node 24 actions): `security` run **33918434907**, `ci` run **33918434915** | ✅ both green, no Node 20 annotation. One new annotation on the `ci` backend job: "Failed to save: Unable to reserve cache … another job may be creating this cache" — the `security` pip-audit job had saved a 7.9 MiB cache under the shared key first. Fixed by disabling the cache in that job; the stale entry was deleted so the backend job can save its own |
+| E-16 | Push a8e9510 (Node 24 actions): `security` run **33918434907**, `ci` run **33918434915** | ✅ both green, no Node 20 annotation. One new annotation on the `ci` backend job: "Failed to save: Unable to reserve cache … another job may be creating this cache" — the `security` pip-audit job had saved a 7.9 MiB cache under the shared key first. Fixed by disabling the cache in that job and deleting the stale entry. Verified on push e712429: `security` run **33918817419** and `ci` run **33918817392** both green with no annotation, and the backend job saved a 41 MiB cache (the runtime set) under its key |
 
 ## Milestone tracker
 
@@ -137,6 +137,6 @@
 
 ## Next actions
 
-1. Both workflows are green on the Node 24 action releases (E-16). Confirm on the push carrying the cache fix that the `ci` backend job saves its uv cache without an annotation.
+1. Both workflows are green on the Node 24 action releases with no annotations, and the `ci` backend job saves its uv cache (E-16). Nothing is outstanding in CI.
 2. Chunk 2: Alembic baseline migration for the nine M1 tables, ORM models, `audit_log` grants, `SCHEMA_REVISION` wired to the Alembic head, `db-test` service in `docker-compose.test.yml`.
 3. Keep this file and `THREAT_MODEL.md` updated per chunk, not afterwards.

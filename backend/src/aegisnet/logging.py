@@ -68,6 +68,23 @@ _RESERVED: Final = frozenset(
 )
 
 
+def untrusted_text(value: str, *, max_chars: int = MAX_VALUE_CHARS) -> str:
+    """Neutralise one untrusted string at the point it leaves the request.
+
+    CR and LF are removed first and explicitly, then every other control character except
+    tab, then the result is truncated. The formatter applies the same treatment to every
+    record, so a log line is clean regardless of the caller; this function exists for the
+    call sites that hand request-derived text to a log call or a response header, so that
+    the guard is visible at the sink itself, to a reader and to static taint analysis,
+    rather than implied by the formatter downstream.
+    """
+    cleaned = value.replace("\r", "").replace("\n", "")
+    cleaned = _CONTROL_CHARS.sub("", cleaned)
+    if len(cleaned) > max_chars:
+        cleaned = cleaned[:max_chars] + "…[truncated]"
+    return cleaned
+
+
 def safe_value(value: object, *, max_chars: int = MAX_VALUE_CHARS) -> object:
     """Neutralise untrusted content for logging.
 
@@ -75,10 +92,7 @@ def safe_value(value: object, *, max_chars: int = MAX_VALUE_CHARS) -> object:
     are handled recursively. Non-string scalars pass through unchanged.
     """
     if isinstance(value, str):
-        cleaned = _CONTROL_CHARS.sub("", value)
-        if len(cleaned) > max_chars:
-            cleaned = cleaned[:max_chars] + "…[truncated]"
-        return cleaned
+        return untrusted_text(value, max_chars=max_chars)
     if isinstance(value, dict):
         return {
             str(safe_value(k, max_chars=64)): safe_value(v, max_chars=max_chars)

@@ -22,7 +22,7 @@ from aegisnet.adapters.db import engine as db_engine
 from aegisnet.api.errors import register_error_handlers
 from aegisnet.api.v1 import health, meta
 from aegisnet.config import Settings, get_settings
-from aegisnet.logging import configure_logging, correlation_id_var, get_logger
+from aegisnet.logging import configure_logging, correlation_id_var, get_logger, untrusted_text
 from aegisnet.version import APP_VERSION
 
 logger = get_logger(__name__)
@@ -60,6 +60,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("application_stopped")
 
 
+def canonical_correlation_id(supplied: str) -> str:
+    """Return the inbound id in canonical UUID form, or a fresh id if it is not a UUID.
+
+    The value is re-rendered from the parsed UUID and then passed through the same CR/LF
+    strip as every other request-derived string before it is echoed in a response header.
+    A canonical UUID cannot contain those characters, so the strip changes nothing; it
+    keeps the header-injection guard explicit at the sink rather than implied by the
+    parser.
+    """
+    try:
+        parsed = uuid.UUID(supplied)
+    except (ValueError, AttributeError, TypeError):
+        return str(uuid.uuid4())
+    return untrusted_text(str(parsed), max_chars=36)
+
+
 def _install_correlation_middleware(app: FastAPI) -> None:
     @app.middleware("http")
     async def correlation_middleware(
@@ -67,11 +83,7 @@ def _install_correlation_middleware(app: FastAPI) -> None:
     ) -> Response:
         # An inbound header is accepted for tracing but never trusted as content: it is
         # replaced unless it is a well-formed UUID.
-        supplied = request.headers.get(CORRELATION_HEADER, "")
-        try:
-            correlation_id = str(uuid.UUID(supplied))
-        except (ValueError, AttributeError):
-            correlation_id = str(uuid.uuid4())
+        correlation_id = canonical_correlation_id(request.headers.get(CORRELATION_HEADER, ""))
 
         token = correlation_id_var.set(correlation_id)
         try:

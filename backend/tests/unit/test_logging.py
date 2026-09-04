@@ -14,6 +14,7 @@ from aegisnet.logging import (
     configure_logging,
     correlation_id_var,
     safe_value,
+    untrusted_text,
 )
 
 pytestmark = pytest.mark.unit
@@ -75,6 +76,27 @@ class TestSafeValue:
         assert safe_value(42) == 42
         assert safe_value(None) is None
         assert safe_value(1.5) == 1.5
+
+
+class TestUntrustedText:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("GET", "GET"),
+            ("/a\r\n/b", "/a/b"),
+            ("/x\x1b[2Jy", "/x[2Jy"),
+            ("\r\n\r\n", ""),
+        ],
+    )
+    def test_crlf_and_control_characters_are_removed(self, raw: str, expected: str) -> None:
+        assert untrusted_text(raw) == expected
+
+    def test_truncates_like_safe_value(self) -> None:
+        assert untrusted_text("y" * 50, max_chars=10) == safe_value("y" * 50, max_chars=10)
+
+    def test_safe_value_delegates_for_strings(self) -> None:
+        hostile = "a\nb\x00c" + "z" * 600
+        assert safe_value(hostile) == untrusted_text(hostile)
 
 
 class TestSecretScrubber:

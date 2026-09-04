@@ -20,6 +20,7 @@
 | Database | Roles `aegisnet_migrator` / `aegisnet_app` created at init; **no migrations, no tables** |
 | Perplexity integration | **Not implemented; no API call has been made** |
 | CI | `ci` **green** end to end, including the stack job (E-10, E-13). `security` failed on real findings on the first push (E-11), fixed by dependency upgrades (E-12), **green** since (E-13). Every job carried a Node 20 deprecation annotation; cleared by moving to Node 24 action releases (E-15) |
+| SonarCloud | External GitHub App check (automatic analysis, not a workflow in this repository). **Quality gate failed** on every analysis since the first; single failing condition *Security Rating on New Code C*. Finding not readable from the check (E-17) |
 | Detector accuracy | **Unmeasured. No claims.** |
 
 ## Evidence (local, 2026-08-30, Windows 11 host, Docker Desktop 29.7 / Compose v5.4)
@@ -42,6 +43,7 @@
 | E-14 | 2026-09-04, macOS host: `uvx pip-audit --strict` on the exported lockfile, `pnpm audit --prod --audit-level=high`, `ruff check`, `ruff format --check`, `mypy`, `ENV=test uv run pytest`, `pnpm typecheck` | all clean against that day's advisory data; `124 passed` |
 | E-15 | Annotations on every job of runs 33332243290 (`ci`) and 33399756070 (`security`) | ⚠️ "Node.js 20 is deprecated … forced to run on Node.js 24" for `checkout@v4`, `setup-node@v4`, `upload-artifact@v4`, `setup-uv@v5`, `gitleaks-action@v2`; GitHub removes Node 20 from hosted runners on 2026-09-16. Fixed by moving each to a Node 24 release; the result is recorded on the push that carries it |
 | E-16 | Push a8e9510 (Node 24 actions): `security` run **33918434907**, `ci` run **33918434915** | ✅ both green, no Node 20 annotation. One new annotation on the `ci` backend job: "Failed to save: Unable to reserve cache … another job may be creating this cache" — the `security` pip-audit job had saved a 7.9 MiB cache under the shared key first. Fixed by disabling the cache in that job and deleting the stale entry. Verified on push e712429: `security` run **33918817419** and `ci` run **33918817392** both green with no annotation, and the backend job saved a 41 MiB cache (the runtime set) under its key |
+| E-17 | SonarCloud Code Analysis check (`sonarqubecloud` app) on 9ef3024, 89f8dae, a8e9510, e712429, fc53775 | ❌ every one "Quality Gate failed"; the only failing condition is **Security Rating on New Code C** (required A). The project is private on sonarcloud.io, the check carries no annotation and no notification e-mail exists, so the exact finding could not be read. The two request-derived flows Sonar's Python taint rules cover are now neutralised at the sink (`untrusted_text` in the unhandled-exception log call; `canonical_correlation_id` before the response header); 135 tests, 96% coverage. Result recorded on the push carrying it |
 
 ## Milestone tracker
 
@@ -137,6 +139,6 @@
 
 ## Next actions
 
-1. Both workflows are green on the Node 24 action releases with no annotations, and the `ci` backend job saves its uv cache (E-16). Nothing is outstanding in CI.
+1. Both workflows are green on the Node 24 action releases with no annotations, and the `ci` backend job saves its uv cache (E-16). The SonarCloud check, an external app rather than a workflow here, still fails its quality gate and the finding is visible only on the private dashboard (E-17): confirm the outcome of the sink-side neutralisation on the push carrying it; if the gate still fails, read the finding there or remove the app from the repository.
 2. Chunk 2: Alembic baseline migration for the nine M1 tables, ORM models, `audit_log` grants, `SCHEMA_REVISION` wired to the Alembic head, `db-test` service in `docker-compose.test.yml`.
 3. Keep this file and `THREAT_MODEL.md` updated per chunk, not afterwards.

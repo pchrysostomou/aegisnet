@@ -18,7 +18,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from aegisnet.logging import correlation_id_var, get_logger
+from aegisnet.logging import correlation_id_var, get_logger, untrusted_text
 
 logger = get_logger(__name__)
 
@@ -72,12 +72,14 @@ async def validation_exception_handler(
 
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    # The exception type is logged; the response says nothing about it.
+    # The exception type is logged; the response says nothing about it. Path and method
+    # are request-derived, so they are neutralised here, at the log call, and not only by
+    # the formatter.
     logger.error(
         "unhandled_exception",
         extra={
-            "path": request.url.path,
-            "method": request.method,
+            "path": untrusted_text(request.url.path),
+            "method": untrusted_text(request.method, max_chars=16),
             "exception_type": type(exc).__name__,
         },
         exc_info=exc,

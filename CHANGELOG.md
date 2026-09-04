@@ -71,6 +71,16 @@ Nothing is released yet. There is no tagged version.
   the runner — and `security` failed on the genuine dependency findings fixed below.
 
 ### Changed
+- Request-derived text is neutralised at the sink, not only by the log formatter.
+  `untrusted_text` strips CR and LF explicitly, then every other control character, and
+  truncates; `safe_value` delegates to it for strings. The unhandled-exception log call
+  passes the request path and method through it, and the correlation-ID middleware
+  re-renders the inbound id from the parsed UUID and passes it through the same strip
+  before echoing it in the response header (`canonical_correlation_id`). Behaviour is
+  unchanged; the guard is now visible at each sink to a reader and to static taint
+  analysis. Prompted by the SonarCloud quality gate, which has failed on *Security Rating
+  on New Code C* since its first analysis; the project is private on sonarcloud.io and the
+  check exposes no finding, so this addresses the two flows its Python taint rules cover.
 - GitHub Actions: every action moves to a release that runs on the Node 24 runtime
   (`actions/checkout` v6, `actions/setup-node` v7, `actions/upload-artifact` v7,
   `gitleaks/gitleaks-action` v3, `astral-sh/setup-uv` v10.0.1). Every job of both workflows

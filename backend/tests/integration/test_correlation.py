@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from aegisnet.logging import correlation_id_var
-from aegisnet.main import CORRELATION_HEADER
+from aegisnet.main import CORRELATION_HEADER, canonical_correlation_id
 
 pytestmark = pytest.mark.integration
 
@@ -35,6 +35,19 @@ def test_a_malformed_inbound_id_is_replaced(client: TestClient, hostile: str) ->
     echoed = response.headers[CORRELATION_HEADER]
     assert echoed != hostile
     assert uuid.UUID(echoed)
+
+
+def test_an_inbound_id_is_echoed_in_canonical_form(client: TestClient) -> None:
+    raw = uuid.uuid4()
+    response = client.get("/healthz", headers={CORRELATION_HEADER: raw.hex.upper()})
+    assert response.headers[CORRELATION_HEADER] == str(raw)
+
+
+@pytest.mark.parametrize("bad", ["", "nope", "1\n2", None])
+def test_canonical_correlation_id_replaces_anything_that_is_not_a_uuid(bad: str | None) -> None:
+    produced = canonical_correlation_id(bad)  # type: ignore[arg-type]
+    assert produced != bad
+    assert str(uuid.UUID(produced)) == produced
 
 
 def test_error_envelope_id_matches_the_response_header(client: TestClient) -> None:

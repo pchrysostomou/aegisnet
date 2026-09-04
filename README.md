@@ -46,7 +46,7 @@ aspirational:
 | Dramatiq worker | Boots, authenticates to Redis, registers **zero** actors ([ADR-010](docs/adr/ADR-010-defer-scheduler.md)) |
 | Frontend | Health placeholder only: one page and `GET /api/health` |
 | Tests | 124 hermetic tests (unit, integration, security); no database or Redis needed |
-| CI and security workflows | `ci` green on the first push, including the stack gate on the runner; `security` initially flagged known-vulnerable dependencies, upgraded since — see `docs/STATUS.md` |
+| CI and security workflows | Both green: `ci` including the stack gate on the runner, and `security` after the dependency upgrades its first run demanded. Every action now runs on the Node 24 runtime — see `docs/STATUS.md` |
 | Migrations, ORM models, EVE ingestion, detection, correlation, auth/RBAC/audit/rate limiting, AI briefs, dashboard | Not started — Chunk 2 onward and later milestones |
 
 ---

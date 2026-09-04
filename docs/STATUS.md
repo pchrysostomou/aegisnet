@@ -19,7 +19,7 @@
 | Docker stack | **Built and started locally; all five services healthy** — see evidence E-3 |
 | Database | Roles `aegisnet_migrator` / `aegisnet_app` created at init; **no migrations, no tables** |
 | Perplexity integration | **Not implemented; no API call has been made** |
-| CI | First push done. `ci` **green** end to end, including the stack job. `security` **failed on real findings** (E-11), fixed by dependency upgrades (E-12) |
+| CI | `ci` **green** end to end, including the stack job (E-10, E-13). `security` failed on real findings on the first push (E-11), fixed by dependency upgrades (E-12), **green** since (E-13). Every job carried a Node 20 deprecation annotation; cleared by moving to Node 24 action releases (E-15) |
 | Detector accuracy | **Unmeasured. No claims.** |
 
 ## Evidence (local, 2026-08-30, Windows 11 host, Docker Desktop 29.7 / Compose v5.4)
@@ -38,6 +38,9 @@
 | E-10 | GitHub Actions `ci` run **33331753840** (first push) | ✅ all four jobs, including `stack`: `docker compose up --build --wait` reached healthy on the runner and every published endpoint answered |
 | E-11 | GitHub Actions `security` run **33331753793** (first push) | ❌ genuine findings: starlette 0.46.2 carried 9 advisories (via the fastapi pin) and next 14.2.35 carried 10 high (patched in ≥15.5.21, plus bundled postcss 8.4.31) |
 | E-12 | After upgrading (fastapi 0.141 → starlette 1.6.0, uvicorn 0.52; next 15.5.24, react 19, postcss override): `uvx pip-audit --strict` on the exported lockfile and `pnpm audit --prod --audit-level=high` | both clean locally; `124 passed` unchanged |
+| E-13 | GitHub Actions `security` runs **33332243302** (push, 2026-08-30) and **33399756070** (weekly schedule, 2026-08-31) | ✅ gitleaks, pip-audit and pnpm audit all clean on the runner |
+| E-14 | 2026-09-04, macOS host: `uvx pip-audit --strict` on the exported lockfile, `pnpm audit --prod --audit-level=high`, `ruff check`, `ruff format --check`, `mypy`, `ENV=test uv run pytest`, `pnpm typecheck` | all clean against that day's advisory data; `124 passed` |
+| E-15 | Annotations on every job of runs 33332243290 (`ci`) and 33399756070 (`security`) | ⚠️ "Node.js 20 is deprecated … forced to run on Node.js 24" for `checkout@v4`, `setup-node@v4`, `upload-artifact@v4`, `setup-uv@v5`, `gitleaks-action@v2`; GitHub removes Node 20 from hosted runners on 2026-09-16. Fixed by moving each to a Node 24 release; the result is recorded on the push that carries it |
 
 ## Milestone tracker
 
@@ -129,10 +132,10 @@
 | Metadata egress to Perplexity is non-zero even when redacted | Opt-in per incident, off by default, offline mode supported — R-2 |
 | Public-dataset licence obligations | Provenance + required citation stored per ingest batch |
 | `/api/v1/meta/version` is unauthenticated | No auth layer exists yet; git SHA already withheld in production; permission-gated in Chunk 6 |
-| Base images and GitHub Actions pinned by tag, not digest | Decision F-5; `make pin-digests` prints the digests |
+| Base images and GitHub Actions pinned by tag, not digest | Decision F-5; `make pin-digests` prints the digests. `astral-sh/setup-uv` publishes no major tags from v8 on and is already pinned to an exact release |
 
 ## Next actions
 
-1. Confirm the `security` workflow is green on the next push (the `ci` workflow already is).
+1. Confirm both workflows stay green on the Node 24 action releases on the push that carries them. The last runs on the old majors were green (E-13) but annotated (E-15).
 2. Chunk 2: Alembic baseline migration for the nine M1 tables, ORM models, `audit_log` grants, `SCHEMA_REVISION` wired to the Alembic head, `db-test` service in `docker-compose.test.yml`.
 3. Keep this file and `THREAT_MODEL.md` updated per chunk, not afterwards.

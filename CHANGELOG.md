@@ -71,6 +71,13 @@ Nothing is released yet. There is no tagged version.
   the runner — and `security` failed on the genuine dependency findings fixed below.
 
 ### Changed
+- GitHub Actions: every action moves to a release that runs on the Node 24 runtime
+  (`actions/checkout` v6, `actions/setup-node` v7, `actions/upload-artifact` v7,
+  `gitleaks/gitleaks-action` v3, `astral-sh/setup-uv` v10.0.1). Every job of both workflows
+  was annotated "Node.js 20 is deprecated", and GitHub removes Node 20 from hosted runners
+  on 2026-09-16, after which the previous majors would not run at all. `setup-uv` publishes
+  no major tags from v8 on and is pinned to an exact release. The `hadolint` action is a
+  Docker action and is unaffected.
 - Ruff now also enforces `BLE` (blind `except`). The one intentional broad catch, a failed
   readiness probe, carries an explicit waiver.
 - The Dramatiq worker is started with `dramatiq aegisnet.adapters.queue.worker`; the broker

@@ -11,7 +11,7 @@ record without exposing anything to the caller.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Final
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -40,7 +40,7 @@ from aegisnet.domain.auth import (
     RefreshReuseError,
 )
 from aegisnet.domain.pagination import InvalidCursorError
-from aegisnet.logging import correlation_id_var, get_logger, untrusted_text
+from aegisnet.logging import correlation_id_var, get_logger
 from aegisnet.services.event_read_service import EventNotFoundError, EventQueryError
 from aegisnet.services.ingest_service import BatchNotFoundError, IngestLimitExceededError
 
@@ -108,15 +108,22 @@ async def validation_exception_handler(
     )
 
 
+KNOWN_METHODS: Final = {
+    method: method for method in ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+}
+
+
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    # The exception type is logged; the response says nothing about it. Path and method
-    # are request-derived, so they are neutralised here, at the log call, and not only by
-    # the formatter.
+    # The exception type is logged; the response says nothing about it. Nothing the client
+    # sent is logged either: the route is the matched template from the routing table (or
+    # "unmatched"), and the method is looked up in a fixed set, so the log line carries
+    # only server-owned strings (T-2.7, log injection).
+    matched = request.scope.get("route")
     logger.error(
         "unhandled_exception",
         extra={
-            "path": untrusted_text(request.url.path),
-            "method": untrusted_text(request.method, max_chars=16),
+            "route": getattr(matched, "path", None) or "unmatched",
+            "method": KNOWN_METHODS.get(request.method, "other"),
             "exception_type": type(exc).__name__,
         },
         exc_info=exc,

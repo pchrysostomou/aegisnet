@@ -38,7 +38,7 @@ from aegisnet.api.deps import AppServices
 from aegisnet.api.errors import register_error_handlers
 from aegisnet.api.v1 import assets, audit, auth, events, health, ingest, meta
 from aegisnet.config import Settings, get_settings
-from aegisnet.logging import configure_logging, correlation_id_var, get_logger, untrusted_text
+from aegisnet.logging import configure_logging, correlation_id_var, get_logger
 from aegisnet.services.asset_service import AssetService
 from aegisnet.services.audit_service import AuditReadService, AuditService
 from aegisnet.services.auth_service import AuthPolicy, AuthService
@@ -127,17 +127,16 @@ def _lifespan(
 def canonical_correlation_id(supplied: str) -> str:
     """Return the inbound id in canonical UUID form, or a fresh id if it is not a UUID.
 
-    The value is re-rendered from the parsed UUID and then passed through the same CR/LF
-    strip as every other request-derived string before it is echoed in a response header.
-    A canonical UUID cannot contain those characters, so the strip changes nothing; it
-    keeps the header-injection guard explicit at the sink rather than implied by the
-    parser.
+    The echoed value is never the inbound string: the header is parsed to a UUID, reduced
+    to its 128-bit integer, and a new UUID is rendered from that integer. Only the number
+    survives the round trip, so no request-derived text reaches the response header or the
+    log context, and a canonical UUID cannot carry CR, LF or any other control character.
     """
     try:
         parsed = uuid.UUID(supplied)
     except (ValueError, AttributeError, TypeError):
         return str(uuid.uuid4())
-    return untrusted_text(str(parsed), max_chars=36)
+    return str(uuid.UUID(int=parsed.int))
 
 
 def _install_correlation_middleware(app: FastAPI) -> None:

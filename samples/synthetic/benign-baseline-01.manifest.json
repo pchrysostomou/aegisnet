@@ -1,0 +1,24 @@
+{
+  "generator": "tools/gen_synthetic_eve.py",
+  "generator_version": 1,
+  "seed": 20260905,
+  "events": 2000,
+  "counts_by_type": {
+    "alert": 28,
+    "anomaly": 14,
+    "dns": 826,
+    "fileinfo": 46,
+    "flow": 706,
+    "http": 194,
+    "tls": 186
+  },
+  "time_range": {
+    "start": "2026-09-01T00:00:04.103325+0000",
+    "end": "2026-09-01T01:35:20.576050+0000"
+  },
+  "sha256": "5f1c7bd28dcd419da8bada22f51a3f586bf0ba65d68b7441c7b5c641907c6781",
+  "size_bytes": 937382,
+  "addressing": "RFC 1918 lab hosts (10.10.0.0/24) and RFC 5737 documentation ranges only",
+  "names": "example.test and example.com only",
+  "content": "benign baseline traffic; the only alerts are synthetic informational signatures (sid 9000001-9000002)"
+}

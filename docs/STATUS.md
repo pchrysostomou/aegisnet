@@ -11,11 +11,11 @@
 
 | | |
 |---|---|
-| Phase | **M1 — Chunk 2 (schema baseline) complete and verified against PostgreSQL 16 locally; Chunk 3 (EVE domain) not started** |
-| Application code written | Settings, JSON logging, error envelope, `/healthz`, `/readyz`, `/api/v1/meta/version`, DB/Redis connectivity adapters, Dramatiq broker with zero actors; Alembic baseline `0001_m1_baseline` for the nine M1 tables, ORM models, schema enums in `domain/`, `schema_revision()` (ADR-012) |
+| Phase | **M1 — Chunk 3 (EVE domain, dataset registry, synthetic corpus) complete and verified locally; Chunk 4 (ingest service) not started** |
+| Application code written | Settings, JSON logging, error envelope, `/healthz`, `/readyz`, `/api/v1/meta/version`, DB/Redis connectivity adapters, Dramatiq broker with zero actors; Alembic baseline `0001_m1_baseline` for the nine M1 tables, ORM models, schema enums in `domain/`, `schema_revision()` (ADR-012); EVE domain — limits, sanitiser, schema, canonical hash, normaliser — dataset registry adapter, synthetic generator and committed corpus (ADR-013) |
 | Frontend | Health placeholder: one page, `GET /api/health` |
-| Tests written | 137 hermetic (unit, integration, security) plus 19 database tests (marker `db`, opt-in, real PostgreSQL) |
-| Tests run | **Yes, locally** — hermetic suite E-1, E-2, E-19; database suite E-18 |
+| Tests written | 262 hermetic (unit, integration, security) plus 19 database tests (marker `db`, opt-in, real PostgreSQL) |
+| Tests run | **Yes, locally** — hermetic suite E-22; database suite E-18, E-20 |
 | Docker stack | **Built and started locally; all five services healthy** — see evidence E-3 |
 | Database | Roles `aegisnet_migrator` / `aegisnet_app` created at init; **nine tables created by `make migrate`** under the migrator role, runtime-role privileges proven exact by the database suite (E-18); `/api/v1/meta/version` reports the packaged head |
 | Perplexity integration | **Not implemented; no API call has been made** |
@@ -46,6 +46,7 @@
 | E-18 | 2026-09-05, macOS host, native PostgreSQL 16.15 (Homebrew) initialised with `infra/postgres/init/01_roles.sh`: `AEGISNET_DB_TESTS=1 uv run pytest -m db -v` | `19 passed`: the nine tables and nothing else; `alembic_version` equals the packaged head; Alembic `compare_metadata` reports **no** difference between `models.py` and the migrated schema; enum labels; GIST `inet_ops`, GIN `jsonb_path_ops`, partial and DESC index definitions; `event_hash` 32-byte check and uniqueness; case-insensitive `users.email`; server-side defaults; app-role privilege matrix exactly `SELECT, INSERT, UPDATE` on the ordinary tables, `SELECT, INSERT` on `audit_log`, `SELECT` on `alembic_version`; the migrator owns every table; UPDATE/DELETE/TRUNCATE on `audit_log`, DELETE on every table, and CREATE/ALTER/DROP/CREATE EXTENSION all refused; head → base → head round trip leaves only the empty `alembic_version` |
 | E-19 | 2026-09-05: `ruff check`, `ruff format --check`, `mypy`, `ENV=test uv run pytest --cov=aegisnet --cov-fail-under=85` | clean; `137 passed, 19 skipped`; coverage 98% (the migration environment is excluded from the hermetic gate and exercised by E-18 instead, ADR-012) |
 | E-20 | 2026-09-05, macOS host, Docker Desktop 29.4 / Compose v5.1: `make test-db`, then `make up && make migrate && make migrate-status`, probes, `make down` | ✅ Compose path: `db-test` healthy, `tests-db` `19 passed`, teardown clean. Stack path: all five services healthy; `alembic upgrade head` ran inside the api image as the migrator; `alembic current` and `heads` both `0001_m1_baseline (head)`; `/readyz` `{"status":"ok"}`; `/api/v1/meta/version` carries `"schema_revision":"0001_m1_baseline"`; `\dt` as `aegisnet_app` lists the nine tables plus `alembic_version`, every one owned by `aegisnet_migrator`; `UPDATE audit_log` as `aegisnet_app` → `permission denied for table audit_log`. (Docker Desktop first hung on image pulls for most of the session and needed a forced restart; the native run E-18 preceded this.) |
+| E-22 | 2026-09-05: `ruff check` (backend and `tools/`), `ruff format --check`, `mypy` (strict on `domain/`), `lint-imports`, `ENV=test uv run pytest --cov=aegisnet --cov-fail-under=85` | clean; both import contracts kept; `262 passed, 19 skipped`; coverage 98%, every `domain/eve` module 100%. `python3 tools/gen_synthetic_eve.py` regenerates the committed corpus byte-identically (sha256 `5f1c7bd2…`, recorded in `samples/registry.yml` and verified by `tests/integration/test_samples_corpus.py`) |
 | E-21 | Push 2d3a437: GitHub Actions `ci` run **33950753099** and `security` run **33950753033** | ✅ all five `ci` jobs green with no annotation — `backend`, `frontend`, `manifests`, **`migrations` (upgrade, grants, downgrade on PostgreSQL 16, 32s)** and **`stack` (compose up --build reaches healthy, migrate, 1m53s)**; `security` green. SonarCloud still reports *Quality Gate failed* on the same single condition (E-17) |
 | E-17 | SonarCloud Code Analysis check (`sonarqubecloud` app) on 9ef3024, 89f8dae, a8e9510, e712429, fc53775 | ❌ every one "Quality Gate failed"; the only failing condition is **Security Rating on New Code C** (required A). The project is private on sonarcloud.io, the check carries no annotation and no notification e-mail exists, so the exact finding could not be read. The two request-derived flows Sonar's Python taint rules cover are now neutralised at the sink (`untrusted_text` in the unhandled-exception log call; `canonical_correlation_id` before the response header); 135 tests, 96% coverage. Result recorded on the push carrying it |
 
@@ -54,7 +55,7 @@
 | Milestone | Status | Evidence | Notes |
 |---|---|---|---|
 | M0 Planning | ✅ Complete | This doc set | PRD, architecture, threat model, data model, M1 API, delivery plan, evaluation plan |
-| M1 Foundation / ingest / normalize / assets | 🟡 In progress — Chunks 1–2 done | E-1 – E-8, E-18 – E-21 | Next: Chunk 3 EVE domain |
+| M1 Foundation / ingest / normalize / assets | 🟡 In progress — Chunks 1–3 done | E-1 – E-8, E-18 – E-22 | Next: Chunk 4 ingest service |
 | M2 Five detectors + labelled fixtures | ⬜ Not started | — | Blocked on M1 |
 | M3 Correlation / incidents / workflow | ⬜ Not started | — | Blocked on M2 |
 | M4 Analyst dashboard | ⬜ Not started | — | Blocked on M3 |
@@ -67,7 +68,7 @@
 |---|---|---|
 | 1 | Skeleton, Compose, config, logging, health, worker topology, web placeholder, tests, CI | ✅ Locally verified |
 | 2 | Alembic baseline migration, ORM models, DB grants incl. `audit_log` | ✅ Verified locally (native E-18, Compose and stack paths E-20) and in CI (E-21) |
-| 3 | EVE domain: schema, sanitizer, normalizer, `event_hash`, synthetic generator, registry | ⬜ |
+| 3 | EVE domain: schema, sanitizer, normalizer, `event_hash`, synthetic generator, registry | ✅ Verified locally (E-22); CI on the push carrying it |
 | 4 | Ingest service, first Dramatiq actor, rejects, idempotency | ⬜ |
 | 5 | Assets API, events read API | ⬜ |
 | 6 | Auth, RBAC, audit, rate limits, `SECURITY.md` | ⬜ |
@@ -99,6 +100,7 @@
 | `docs/api-milestone-1.md` | ✅ v0.1 |
 | `docs/delivery-plan.md` | ✅ v0.1 |
 | `docs/evaluation.md` | ✅ v0.1 plan; **results empty by design** |
+| `samples/README.md` | ✅ Chunk 3: datasets, registry fields, how a file is imported |
 | `docs/detection-rules.md` | ⬜ M2 |
 | `docs/perplexity-integration.md` | ⬜ M5 |
 | `docs/demo-script.md` | ⬜ M6 |
@@ -145,6 +147,6 @@
 ## Next actions
 
 1. Both workflows are green on the Node 24 action releases with no annotations, and the `ci` backend job saves its uv cache (E-16). The SonarCloud check, an external app rather than a workflow here, still fails its quality gate and the finding is visible only on the private dashboard (E-17): confirm the outcome of the sink-side neutralisation on the push carrying it; if the gate still fails, read the finding there or remove the app from the repository.
-2. Chunk 2 is confirmed in CI (E-21); nothing is outstanding for it.
-3. Chunk 3: EVE domain — Pydantic schema, sanitizer, normalizer, canonical `event_hash`, synthetic generator, dataset registry.
+2. Confirm CI is green on the push carrying Chunk 3; the backend job now also runs `lint-imports` and lints `tools/`.
+3. Chunk 4: ingest service — streaming NDJSON parse under the limits, per-line rejects into `ingest_rejects`, idempotent storage by `event_hash`, batch bookkeeping, the first Dramatiq actor with a `sync` path for tests, and the registry-driven import.
 4. Keep this file and `THREAT_MODEL.md` updated per chunk, not afterwards.

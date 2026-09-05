@@ -22,6 +22,7 @@ dependencies = [
   "redis>=5.1,<6.0",
   "dramatiq[redis]>=1.17,<2.0",
   "alembic>=1.19,<2.0",
+  "pyyaml>=6.0,<7.0",
 ]
 
 [tool.uv]
@@ -38,8 +39,8 @@ dev = [
   "httpx>=0.27,<0.28",
   "ruff>=0.6.9,<0.7",
   "mypy>=1.11,<2.0",
-  "pyyaml>=6.0,<7.0",
   "types-pyyaml>=6.0,<7.0",
+  "import-linter>=2.0,<3.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -64,6 +65,40 @@ ignore = [
 # Shelling out is forbidden in application code (THREAT_MODEL T-1.2). Ruff's S6xx rules
 # cover subprocess use; the ban is additionally documented in SECURITY.md.
 check-typed-exception = true
+
+# ---------------------------------------------------------------- import-linter
+# ARCHITECTURE §1: domain/ is pure. `uv run lint-imports` enforces it (Makefile lint, CI).
+[tool.importlinter]
+root_package = "aegisnet"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "domain imports no infrastructure"
+type = "forbidden"
+source_modules = ["aegisnet.domain"]
+forbidden_modules = [
+  "aegisnet.adapters",
+  "aegisnet.api",
+  "aegisnet.config",
+  "aegisnet.logging",
+  "aegisnet.main",
+  "aegisnet.version",
+  "alembic",
+  "asyncpg",
+  "dramatiq",
+  "fastapi",
+  "httpx",
+  "pydantic_settings",
+  "redis",
+  "sqlalchemy",
+  "starlette",
+  "yaml",
+]
+
+[[tool.importlinter.contracts]]
+name = "api over adapters over domain"
+type = "layers"
+layers = ["aegisnet.api", "aegisnet.adapters", "aegisnet.domain"]
 
 # ---------------------------------------------------------------- mypy
 [tool.mypy]

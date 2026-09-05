@@ -1,0 +1,12 @@
+{"timestamp":"2026-09-01T10:00:00.000000+0000","event_type":"dns","src_ip":"10.10.0.11","src_port":40000,"dest_ip":"10.10.0.53","dest_port":53,"proto":"UDP","dns":{"type":"query","rrname":"\u001b[2Jevil\n{\"level\":\"INFO\",\"message\":\"forged\"}\r.example.test","rrtype":"A\u0000"}}
+{"timestamp":"2026-09-01T10:00:01.000000+0000","event_type":"http","src_ip":"10.10.0.11","src_port":40001,"dest_ip":"203.0.113.10","dest_port":80,"proto":"TCP","http":{"hostname":"' OR 1=1 --evil.example.test","url":"/..%2f..%2fetc/passwd\u001b[31m","http_user_agent":"tab\tkept"}}
+{"event_type":"flow","src_ip":"10.10.0.11","dest_ip":"203.0.113.10"}
+{"timestamp":"2026-09-01T10:00:02.000000+0000","src_ip":"10.10.0.11","dest_ip":"203.0.113.10"}
+{"timestamp":"2026-09-01T10:00:03","event_type":"flow","src_ip":"10.10.0.11","dest_ip":"203.0.113.10"}
+{"timestamp":"2026-09-01T10:00:04.000000+0000","event_type":"stats","stats":{"uptime":100}}
+{"timestamp":"2026-09-01T10:00:05.000000+0000","event_type":"flow","src_ip":"not-an-ip","dest_ip":"203.0.113.10"}
+{"timestamp":"2026-09-01T10:00:06.000000+0000","event_type":"flow","src_ip":"10.10.0.11","dest_ip":"203.0.113.10","dest_port":70000}
+["timestamp","event_type"]
+{"timestamp":"2026-09-01T10:00:07.000000+0000","event_type":"flow"
+{"timestamp":"1999-01-01T00:00:00.000000+0000","event_type":"flow","src_ip":"10.10.0.11","dest_ip":"203.0.113.10"}
+{"timestamp":"2036-01-01T00:00:00.000000+0000","event_type":"flow","src_ip":"10.10.0.11","dest_ip":"203.0.113.10"}

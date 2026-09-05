@@ -4,13 +4,13 @@ A self-hosted, **defensive-only** platform for ingesting network security teleme
 detecting suspicious behaviour with deterministic heuristics, correlating findings into
 incidents, and generating evidence-based AI investigation briefs for human analysts.
 
-> **Status: Milestone 1, Chunk 2 — schema baseline.**
-> The five-service stack builds and reaches healthy from a clean clone, the API answers
-> liveness, readiness and version, `make migrate` creates the nine Milestone 1 tables under
-> the migrator role with least-privilege grants for the runtime role, and a hermetic suite
-> plus a database suite cover what exists. There is **no ingestion, no detection, no
-> authentication and no analyst UI yet**. [`docs/STATUS.md`](docs/STATUS.md) is the
-> authoritative record of what exists and what has been verified.
+> **Status: Milestone 1, Chunk 3 — EVE domain and synthetic corpus.**
+> The five-service stack builds and reaches healthy from a clean clone, `make migrate`
+> creates the nine Milestone 1 tables with least-privilege grants, and the pure EVE domain
+> validates, sanitises, hashes and normalises Suricata records against hand-built and
+> generated corpora — but nothing stores them yet. There is **no ingestion endpoint, no
+> detection, no authentication and no analyst UI yet**. [`docs/STATUS.md`](docs/STATUS.md)
+> is the authoritative record of what exists and what has been verified.
 
 ---
 
@@ -47,9 +47,11 @@ aspirational:
 | Dramatiq worker | Boots, authenticates to Redis, registers **zero** actors ([ADR-010](docs/adr/ADR-010-defer-scheduler.md)) |
 | Frontend | Health placeholder only: one page and `GET /api/health` |
 | Schema: Alembic baseline for the nine M1 tables (`users`, `service_tokens`, `refresh_tokens`, `audit_log`, `ingest_batches`, `events`, `ingest_rejects`, `assets`, `asset_networks`), ORM models, enum types, indexes incl. `UNIQUE (event_hash)` and `GIST (cidr inet_ops)`, least-privilege grants | Complete for Chunk 2; `make migrate` applies it, `make test-db` proves it ([ADR-012](docs/adr/ADR-012-migrations-in-package-and-role-grants.md)) |
+| EVE domain (`backend/src/aegisnet/domain/eve/`): parse limits, sanitiser, Pydantic schema, canonical `event_hash`, normaliser to `NormalizedEvent` or `Reject` | Complete for Chunk 3; pure and clock-free ([ADR-013](docs/adr/ADR-013-event-hash-payload-and-event-type-triage.md)) |
+| Dataset registry with id-only, symlink-free, checksum-verified resolution; seeded synthetic generator and the committed benign corpus (2000 events) | Complete for Chunk 3 ([`samples/README.md`](samples/README.md)) |
 | Tests | Hermetic suite (unit, integration, security), no database or Redis needed; plus an opt-in database suite (`make test-db`) that migrates, compares the ORM with the schema, and asserts the runtime role's privileges against an ephemeral PostgreSQL 16 |
 | CI and security workflows | Both green: `ci` including the stack gate on the runner, and `security` after the dependency upgrades its first run demanded. Every action now runs on the Node 24 runtime — see `docs/STATUS.md` |
-| EVE ingestion, detection, correlation, auth/RBAC/audit/rate limiting, AI briefs, dashboard | Not started — Chunk 3 onward and later milestones |
+| Ingest service and API, asset and event APIs, auth/RBAC/audit/rate limiting, detection, correlation, AI briefs, dashboard | Not started — Chunk 4 onward and later milestones |
 
 ---
 
@@ -102,7 +104,7 @@ they operate on, so the Makefile never advertises a command that cannot work.
 
 ```bash
 make backend-install   # uv sync --frozen
-make check             # verify-ignore + ruff + ruff format --check + mypy + pytest
+make check             # verify-ignore + ruff (backend, tools) + import contracts + format + mypy + pytest
 make test-cov          # the suite with a coverage report
 make compose-test      # the same suite inside the hermetic test-runner container
 make compose-config    # parse and interpolate both Compose manifests without starting anything
@@ -194,6 +196,7 @@ recorded per ingest batch.
 | [`docs/adr/`](docs/adr) | Architecture decision records |
 | [`backend/README.md`](backend/README.md) | What the backend package contains today |
 | [`frontend/README.md`](frontend/README.md) | The web placeholder |
+| [`samples/README.md`](samples/README.md) | Datasets, the registry, how a file gets imported |
 | [`CHANGELOG.md`](CHANGELOG.md) | Notable changes |
 
 `SECURITY.md` is added in the commit that introduces the first security controls it would

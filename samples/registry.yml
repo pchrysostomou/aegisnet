@@ -1,0 +1,23 @@
+# Dataset registry (THREAT_MODEL T-1.6, decision D-5).
+#
+# The import endpoint accepts a dataset *id* from this file, never a path. The registered
+# path is resolved under samples/ with symlinks refused, and the file's sha256 must match
+# before it is read. Update the checksum whenever a file changes; the integration suite
+# (backend/tests/integration/test_samples_corpus.py) fails when it does not.
+#
+# Only synthetic, reviewed corpora live under samples/synthetic/. Operator-fetched public
+# datasets belong under samples/external/, which is gitignored, and are registered here by
+# the operator together with their licence and required citation.
+version: 1
+datasets:
+  - id: synthetic-benign-baseline-01
+    path: synthetic/benign-baseline-01.ndjson
+    manifest: synthetic/benign-baseline-01.manifest.json
+    sha256: 5f1c7bd28dcd419da8bada22f51a3f586bf0ba65d68b7441c7b5c641907c6781
+    format: suricata_eve_ndjson
+    licence: MIT (generated in this repository by tools/gen_synthetic_eve.py)
+    citation: null
+    description: >-
+      Benign baseline lab traffic, 2000 events over two hours from seed 20260905:
+      flow, dns, http, tls, fileinfo, anomaly, and a few synthetic informational alerts.
+      RFC 1918 hosts, RFC 5737 external addresses, example.test and example.com names only.

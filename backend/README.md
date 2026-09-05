@@ -26,8 +26,13 @@ Application foundation only:
 - `adapters/db/migrations/` — the Alembic environment and revisions, shipped inside the
   package so the runtime image can run `alembic upgrade head` (ADR-012); `alembic.ini`
   at this directory's root points here and carries no URL
-- `domain/enums.py` — the schema enumerations, on the pure side so the ORM and the future
-  EVE normaliser can share them
+- `domain/enums.py` — the schema enumerations, on the pure side so the ORM and the EVE
+  normaliser can share them
+- `domain/models.py` — frozen value objects: `NormalizedEvent`, `Reject`
+- `domain/eve/` — parse limits, sanitiser, EVE schema, canonical `event_hash`, normaliser;
+  pure and clock-free (ADR-013)
+- `adapters/files/registry.py` — `samples/registry.yml` loader and id-only, symlink-free,
+  checksum-verified dataset resolution (T-1.6)
 - `adapters/queue/broker.py` — Dramatiq broker factory with an explicitly authenticated
   Redis client and no import-time side effects
 - `adapters/queue/worker.py` — the worker process entrypoint (`dramatiq
@@ -42,9 +47,9 @@ opt-in and needs the ephemeral PostgreSQL from `docker-compose.test.yml --profil
 
 | Directory | Marker | What it covers |
 |---|---|---|
-| `tests/unit/` | `unit` | settings, log hygiene, broker factory, `bootstrap_env.py` |
-| `tests/integration/` | `integration` | the assembled app in-process: health, readiness with faked probes, version, correlation IDs |
-| `tests/security/` | `security` | THREAT_MODEL mitigations: the error envelope (T-2.7), and the committed Compose files, Dockerfiles, `.env.example`, `.gitignore` and pre-commit config read as data (T-5.1, T-5.2, T-5.4) |
+| `tests/unit/` | `unit` | settings, log hygiene, broker factory, `bootstrap_env.py`; EVE sanitiser, limits, schema, hash and normaliser over `tests/fixtures/eve/`; the synthetic generator |
+| `tests/integration/` | `integration` | the assembled app in-process: health, readiness with faked probes, version, correlation IDs; the committed corpus, its manifest and the registry checksum |
+| `tests/security/` | `security` | THREAT_MODEL mitigations: the error envelope (T-2.7), and the committed Compose files, Dockerfiles, `.env.example`, `.gitignore` and pre-commit config read as data (T-5.1, T-5.2, T-5.4); payload limits (T-1.4, T-1.5); dataset path traversal (T-1.6) |
 | `tests/db/` | `db` (+ `integration` / `security`) | the baseline revision against a real PostgreSQL 16: the nine tables and enum types, ORM/schema agreement via `compare_metadata`, constraint behaviour, the runtime role's privilege matrix and the audit-log guarantee (T-2.5, T-5.3), downgrade to base |
 
 `conftest.py` sets `ENV=test` before the package is imported so that collection does not
@@ -56,7 +61,8 @@ depend on the developer's shell.
 uv sync --frozen                 # install the locked dependency set
 uv run ruff check src tests      # lint
 uv run ruff format --check src tests
-uv run mypy                      # typecheck
+uv run mypy                      # typecheck (strict on domain/)
+uv run lint-imports              # domain purity and layering contracts
 ENV=test uv run pytest           # the hermetic suite (database tests are skipped)
 ENV=test uv run pytest --cov=aegisnet --cov-report=term-missing
 uv run alembic heads             # the revision this build expects

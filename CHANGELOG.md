@@ -9,6 +9,28 @@ Nothing is released yet. There is no tagged version.
 ## [Unreleased]
 
 ### Added
+- **Chunk 3 — EVE domain and synthetic corpus.** `domain/eve/`: parse limits enforced
+  before parsing (byte cap, bracket-depth scan of the raw text, then depth, key and item
+  counts on the parsed shape), a sanitiser that strips C0/C1 control characters and caps
+  every string and key, a Pydantic schema for the EVE common fields and the `alert`, `dns`,
+  `http`, `flow`, `tls`, `fileinfo`, `anomaly` and `ssh` sub-objects with unknown keys kept,
+  a versioned canonical `event_hash`, and a pure, clock-free normaliser producing
+  `NormalizedEvent` or a `Reject` carrying one of the seven documented reason codes and no
+  input value (ADR-013). `domain/models.py` holds the frozen value objects.
+- `adapters/files/registry.py`: `samples/registry.yml` loader and dataset resolution by id
+  only — relative path confined under `samples/`, symlinks refused at every component,
+  sha256 verified before a byte is read, and error messages free of paths (T-1.6).
+- `tools/gen_synthetic_eve.py`, a standard-library, seeded generator; the committed corpus
+  `samples/synthetic/benign-baseline-01.ndjson` (2000 events, 937 KB, RFC 1918/5737
+  addresses and example.test/example.com names only) with its manifest, registered in
+  `samples/registry.yml`; `samples/README.md`; `make gen-synthetic`.
+- import-linter contracts (`domain` imports no infrastructure; `api` over `adapters` over
+  `domain`), run by `make lint` and the CI backend job. Ruff and the pre-commit hooks now
+  also cover `tools/`.
+- 125 new hermetic tests: sanitiser, limits, schema, hash and normaliser over hand-built
+  benign and hostile fixtures (`backend/tests/fixtures/eve/`), payload-limit and
+  path-traversal security suites, generator determinism and safety, and an integrity test
+  tying the committed corpus, its manifest and the registry checksum together.
 - **Chunk 2 — schema baseline.** Alembic revision `0001_m1_baseline` creates the nine
   Milestone 1 tables from `docs/data-model.md` (`users`, `service_tokens`, `refresh_tokens`,
   `audit_log`, `ingest_batches`, `events`, `ingest_rejects`, `assets`, `asset_networks`),

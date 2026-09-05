@@ -46,10 +46,13 @@ jobs:
         run: uv sync --frozen
 
       - name: Ruff (lint)
-        run: uv run ruff check --output-format=github src tests
+        run: uv run ruff check --config pyproject.toml --output-format=github src tests ../tools
 
       - name: Ruff (format)
-        run: uv run ruff format --check src tests
+        run: uv run ruff format --check --config pyproject.toml src tests ../tools
+
+      - name: Import contracts (domain purity, layering)
+        run: uv run lint-imports
 
       - name: mypy
         run: uv run mypy

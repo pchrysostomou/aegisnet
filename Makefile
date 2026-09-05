@@ -12,7 +12,7 @@ BACKEND := backend
 .PHONY: help bootstrap bootstrap-force verify-ignore require-env compose-config \
         build up down compose-ps compose-logs compose-down compose-test pin-digests clean \
         backend-install lint format format-check typecheck test test-cov check \
-        migrate migrate-status test-db
+        migrate migrate-status test-db gen-synthetic
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort | \
@@ -33,14 +33,17 @@ bootstrap-force: ## Regenerate .env, overwriting the existing file
 backend-install: ## Install the backend's locked dependency set
 	cd $(BACKEND) && $(UV) sync --frozen
 
-lint: ## Lint the backend sources and tests
-	cd $(BACKEND) && $(UV) run ruff check src tests
+# ruff covers the backend, the generator in tools/ and the bootstrap script; lint-imports
+# enforces the layering contracts in pyproject.toml (ARCHITECTURE §1: domain/ is pure).
+lint: ## Lint the backend, tools/ and infra/scripts, and check the import contracts
+	cd $(BACKEND) && $(UV) run ruff check --config pyproject.toml src tests ../tools
+	cd $(BACKEND) && $(UV) run lint-imports
 
-format: ## Reformat the backend in place
-	cd $(BACKEND) && $(UV) run ruff format src tests
+format: ## Reformat the backend and tools/ in place
+	cd $(BACKEND) && $(UV) run ruff format --config pyproject.toml src tests ../tools
 
-format-check: ## Fail if the backend is not formatted
-	cd $(BACKEND) && $(UV) run ruff format --check src tests
+format-check: ## Fail if the backend or tools/ is not formatted
+	cd $(BACKEND) && $(UV) run ruff format --check --config pyproject.toml src tests ../tools
 
 typecheck: ## Typecheck the backend
 	cd $(BACKEND) && $(UV) run mypy
@@ -137,6 +140,15 @@ test-db: require-env ## Run the database suite against an ephemeral PostgreSQL 1
 	status=$$?; \
 	$(COMPOSE) -f docker-compose.test.yml --profile db down --volumes --remove-orphans; \
 	exit $$status
+
+## ---------------------------------------------------------------- datasets
+
+# Regenerates the committed synthetic corpus byte-for-byte (seeded). After changing the
+# generator, run this, then update sha256 in samples/registry.yml; the integration suite
+# fails until the checksum matches.
+gen-synthetic: ## Regenerate samples/synthetic/benign-baseline-01 from its fixed seed
+	python3 tools/gen_synthetic_eve.py --seed 20260905 --events 2000 \
+		--out samples/synthetic/benign-baseline-01.ndjson
 
 # Decision F-5: images are pinned by minor tag, not digest. This prints the digests to paste
 # into docker-compose.yml when F-5 is applied; it does not edit any file.

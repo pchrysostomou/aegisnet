@@ -59,7 +59,7 @@ Last updated: 2026-08-28
 | T-2.3 | Tampering | Illegal workflow transition (e.g. `new → closed` skipping triage) | Server-side state machine; client cannot supply arbitrary next state | State-machine unit tests |
 | T-2.4 | Spoofing | Token theft / replay | Short-lived access tokens, rotating refresh with reuse detection, `Secure`/`HttpOnly`/`SameSite=Strict` cookies, logout revocation list in Redis | Token-rotation test |
 | T-2.5 | Repudiation | Analyst denies closing a case as false positive | Append-only audit log; no UPDATE/DELETE grant on audit table for the app role; no foreign key on `audit_log` so no referential action can rewrite a row | `backend/tests/db/test_grants.py` (Chunk 2): the app role's UPDATE, DELETE and TRUNCATE on `audit_log` are refused by PostgreSQL |
-| T-2.6 | DoS | Expensive query abuse (unbounded event drill-down) | Mandatory pagination with max page size, query timeouts, per-role rate limits | Load test in evaluation plan |
+| T-2.6 | DoS | Expensive query abuse (unbounded event drill-down) | Mandatory keyset pagination with max page size 200, explicit windows of at most 30 days, strictly validated opaque cursors, payload read only on request; query timeouts and per-role rate limits | `backend/tests/security/test_pagination_bounds.py` and `tests/unit/test_pagination.py` — Chunk 5 (bounds); rate limits — Chunk 6; load test in the evaluation plan |
 | T-2.7 | Info disclosure | Verbose errors leak schema/stack traces | Global exception handler → generic message + correlation id; tracebacks only to server logs; `DEBUG=false` default | Error-shape test |
 
 ### TB-3 — Outbound to Perplexity (highest-consequence boundary)

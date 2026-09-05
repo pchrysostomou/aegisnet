@@ -12,7 +12,7 @@ BACKEND := backend
 .PHONY: help bootstrap bootstrap-force verify-ignore require-env compose-config \
         build up down compose-ps compose-logs compose-down compose-test pin-digests clean \
         backend-install lint format format-check typecheck test test-cov check \
-        migrate migrate-status test-db gen-synthetic demo-ingest batch
+        migrate migrate-status test-db gen-synthetic demo-ingest batch seed
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort | \
@@ -156,6 +156,11 @@ demo-ingest: require-env ## Ingest the registered synthetic corpus (DATASET=, LA
 
 batch: require-env ## Show an ingest batch by id (ID=<uuid>)
 	$(COMPOSE) run --rm api python -m aegisnet.cli batch $(ID)
+
+# Upserts the lab inventory by hostname from samples/assets/$(SEED).yml (Chunk 5, ADR-015).
+SEED ?= lab-assets
+seed: require-env ## Seed the asset inventory (SEED=lab-assets)
+	$(COMPOSE) run --rm api python -m aegisnet.cli seed-assets $(SEED)
 
 # Regenerates the committed synthetic corpus byte-for-byte (seeded). After changing the
 # generator, run this, then update sha256 in samples/registry.yml; the integration suite

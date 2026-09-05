@@ -70,7 +70,7 @@ aegisnet/
 │   │   │   ├── auth_service.py    audit_service.py
 │   │   │
 │   │   ├── adapters/
-│   │   │   ├── db/               # engine, session, ORM models, ingest_store (port impl),
+│   │   │   ├── db/               # engine, session, ORM models, ingest/asset/event stores (port impls),
 │   │   │   │                     # migrations/ (Alembic env + versions, in-package: ADR-012)
 │   │   │   ├── queue/            # dramatiq broker factory, queue/actor names, enqueuers
 │   │   │   │                     # (actors themselves live in workers/: ADR-014)

@@ -11,11 +11,11 @@
 
 | | |
 |---|---|
-| Phase | **M1 — Chunk 4 (ingest service, first actor, CLI demo path) complete and verified locally; Chunk 5 (assets and events) not started** |
-| Application code written | Settings, JSON logging, error envelope, `/healthz`, `/readyz`, `/api/v1/meta/version`, DB/Redis connectivity adapters, Dramatiq broker with zero actors; Alembic baseline `0001_m1_baseline` for the nine M1 tables, ORM models, schema enums in `domain/`, `schema_revision()` (ADR-012); EVE domain — limits, sanitiser, schema, canonical hash, normaliser — dataset registry adapter, synthetic generator and committed corpus (ADR-013); ingest service, SQL ingest store, `import_dataset` actor in the `workers` layer, operator CLI (ADR-014) |
+| Phase | **M1 — Chunk 5 (asset inventory, event reads) complete and verified locally; Chunk 6 (auth, RBAC, audit, rate limits, HTTP routes) not started** |
+| Application code written | Settings, JSON logging, error envelope, `/healthz`, `/readyz`, `/api/v1/meta/version`, DB/Redis connectivity adapters, Dramatiq broker with zero actors; Alembic baseline `0001_m1_baseline` for the nine M1 tables, ORM models, schema enums in `domain/`, `schema_revision()` (ADR-012); EVE domain — limits, sanitiser, schema, canonical hash, normaliser — dataset registry adapter, synthetic generator and committed corpus (ADR-013); ingest service, SQL ingest store, `import_dataset` actor in the `workers` layer, operator CLI (ADR-014); asset inventory with overlap rules and CIDR resolution, event read queries with keyset pagination, revision 0002, `make seed` (ADR-015) |
 | Frontend | Health placeholder: one page, `GET /api/health` |
-| Tests written | 287 hermetic (unit, integration, security) plus 24 database tests (marker `db`, opt-in, real PostgreSQL) |
-| Tests run | **Yes, locally** — hermetic suite E-24; database suite E-25 (native) and E-26 (Compose); stack demo E-27 |
+| Tests written | 381 hermetic (unit, integration, security) plus 39 database tests (marker `db`, opt-in, real PostgreSQL) |
+| Tests run | **Yes, locally** — hermetic suite E-29; database suite E-30 (native); Compose and stack paths E-31, E-32 |
 | Docker stack | **Built and started locally; all five services healthy** — see evidence E-3 |
 | Database | Roles `aegisnet_migrator` / `aegisnet_app` created at init; **nine tables created by `make migrate`** under the migrator role, runtime-role privileges proven exact by the database suite (E-18); `/api/v1/meta/version` reports the packaged head |
 | Perplexity integration | **Not implemented; no API call has been made** |
@@ -52,6 +52,10 @@
 | E-26 | 2026-09-05, Docker Desktop 29.4 / Compose v5.1: `make test-db` | ✅ `24 passed` inside `tests-db` against `db-test`, teardown clean |
 | E-27 | Same day: `make up && make migrate`, then the CLI inside the api image: `import-dataset synthetic-benign-baseline-01` (sync) twice, once more with `--mode async`, `batch <id>` polled, worker log read, `make down` | ✅ first run `stored 2000, duplicate 0`; second run `stored 0, duplicate 2000`; the async run returned `{"status": "received", "message_id": …}` at once and the worker finished it two seconds later (`worker_started … "actors_registered": ["import_dataset"]`, then `ingest_batch_finished` and `import_dataset_done` with `duplicate 2000`); `SELECT count(*) FROM events` as the app role = 2000 across three `complete` batches; stack torn down |
 | E-28 | Push b8791bc (Chunk 4): GitHub Actions `ci` run **33953478893** and `security` run | ✅ all five `ci` jobs green with no annotation — `migrations` now includes the ingest store tests and the actor through a `StubBroker` (45s), `stack` migrates and probes (1m46s); `security` green. SonarCloud unchanged: *Quality Gate failed* on the same single condition (E-17) |
+| E-29 | 2026-09-05: `ruff check`, `ruff format --check`, `mypy` (50 files), `lint-imports`, `ENV=test uv run pytest --cov=aegisnet --cov-fail-under=85` | clean; both contracts kept; `381 passed, 39 skipped`; coverage 94% with the SQL stores and the worker excluded from the hermetic gate (they run in E-30) |
+| E-30 | 2026-09-05, native PostgreSQL 16.15: `AEGISNET_DB_TESTS=1 uv run pytest -m db -v` | `39 passed`: revision 0002 applies and downgrades; the grants matrix shows DELETE on `asset_networks` only; asset store create/lookup/atomic bulk/update-replaces-networks/list filters and cursors/resolution precedence proven with owner-inserted overlaps; the committed seed file seeds 14 then updates 14; event read filters (type, CIDR, address, port, flow, batch, asset), a 4-page keyset walk over 13 rows with no gap or repeat, payload only on request, stats by type and hour; batch and reject listing with cursors |
+| E-31 | 2026-09-05, Docker Desktop: `make test-db` | ✅ `39 passed` inside `tests-db` against `db-test`, teardown clean |
+| E-32 | Same day: `make up && make migrate`, then the CLI inside the api image: `seed-assets lab-assets` twice, `resolve 10.10.0.53` and `resolve 192.0.2.99`, `import-dataset synthetic-benign-baseline-01`, `assets -q resolver`, `events --asset-id <resolver> --type dns --limit 2`, `event-stats`, `batches --limit 1`, the version endpoint, `make down` | ✅ `alembic` applied `0001_m1_baseline` then `0002_asset_network_delete_grant`; seed reported `created 14, updated 0` then `created 0, updated 14`; the resolver address matched `resolver.lab.example.test` (criticality 4) and the documentation address returned `{"matched": false}`; ingest stored 2000; the asset-scoped DNS query returned events whose destination is a lab host with `dns_rcode NOERROR`; stats reported `total 2000` with per-type counts equal to the corpus manifest and two hourly buckets (1256, 744); the version endpoint reported `"schema_revision":"0002_asset_network_delete_grant"`; stack torn down |
 | E-23 | Push cae5d5d (Chunk 3): GitHub Actions `ci` run **33952182281** and `security` run **33952182289** | ✅ all five `ci` jobs green with no annotation, including the backend job's new `lint-imports` step and ruff over `tools/`; `security` green. SonarCloud unchanged: *Quality Gate failed* on the same single condition (E-17) |
 | E-21 | Push 2d3a437: GitHub Actions `ci` run **33950753099** and `security` run **33950753033** | ✅ all five `ci` jobs green with no annotation — `backend`, `frontend`, `manifests`, **`migrations` (upgrade, grants, downgrade on PostgreSQL 16, 32s)** and **`stack` (compose up --build reaches healthy, migrate, 1m53s)**; `security` green. SonarCloud still reports *Quality Gate failed* on the same single condition (E-17) |
 | E-17 | SonarCloud Code Analysis check (`sonarqubecloud` app) on 9ef3024, 89f8dae, a8e9510, e712429, fc53775 | ❌ every one "Quality Gate failed"; the only failing condition is **Security Rating on New Code C** (required A). The project is private on sonarcloud.io, the check carries no annotation and no notification e-mail exists, so the exact finding could not be read. The two request-derived flows Sonar's Python taint rules cover are now neutralised at the sink (`untrusted_text` in the unhandled-exception log call; `canonical_correlation_id` before the response header); 135 tests, 96% coverage. Result recorded on the push carrying it |
@@ -61,7 +65,7 @@
 | Milestone | Status | Evidence | Notes |
 |---|---|---|---|
 | M0 Planning | ✅ Complete | This doc set | PRD, architecture, threat model, data model, M1 API, delivery plan, evaluation plan |
-| M1 Foundation / ingest / normalize / assets | 🟡 In progress — Chunks 1–4 done | E-1 – E-8, E-18 – E-28 | Next: Chunk 5 assets and events |
+| M1 Foundation / ingest / normalize / assets | 🟡 In progress — Chunks 1–5 done | E-1 – E-8, E-18 – E-32 | Next: Chunk 6 auth, RBAC, audit, rate limits, routes |
 | M2 Five detectors + labelled fixtures | ⬜ Not started | — | Blocked on M1 |
 | M3 Correlation / incidents / workflow | ⬜ Not started | — | Blocked on M2 |
 | M4 Analyst dashboard | ⬜ Not started | — | Blocked on M3 |
@@ -76,7 +80,7 @@
 | 2 | Alembic baseline migration, ORM models, DB grants incl. `audit_log` | ✅ Verified locally (native E-18, Compose and stack paths E-20) and in CI (E-21) |
 | 3 | EVE domain: schema, sanitizer, normalizer, `event_hash`, synthetic generator, registry | ✅ Verified locally (E-22) and in CI (E-23) |
 | 4 | Ingest service, first Dramatiq actor, rejects, idempotency | ✅ Verified locally (E-24 – E-27) and in CI (E-28) |
-| 5 | Assets API, events read API | ⬜ |
+| 5 | Assets API, events read API | ✅ Services, stores and CLI verified locally (E-29 – E-32); HTTP routes with Chunk 6 |
 | 6 | Auth, RBAC, audit, rate limits, `SECURITY.md` | ⬜ |
 | 7 | Docs update at the M1 gate with CI evidence | ⬜ |
 
@@ -153,6 +157,6 @@
 ## Next actions
 
 1. Both workflows are green on the Node 24 action releases with no annotations, and the `ci` backend job saves its uv cache (E-16). The SonarCloud check, an external app rather than a workflow here, still fails its quality gate and the finding is visible only on the private dashboard (E-17): confirm the outcome of the sink-side neutralisation on the push carrying it; if the gate still fails, read the finding there or remove the app from the repository.
-2. Chunk 4 is confirmed in CI (E-28); nothing is outstanding for it.
-3. Chunk 5: asset inventory — service, CIDR resolution with most-specific-match, bulk seed (`make seed`) — and the event read queries with keyset pagination. Their HTTP routes land together with authentication in Chunk 6 (ADR-014).
+2. Confirm CI is green on the push carrying Chunk 5.
+3. Chunk 6: Argon2id users and login, short-lived JWT access tokens, rotating refresh tokens with reuse detection, service tokens for ingest, the deny-by-default permission dependency on every route, Redis rate limits, audit-log writes, `SECURITY.md`, and the HTTP routes for ingest, batches, assets and events over the existing services (ADR-014, ADR-015).
 4. Keep this file and `THREAT_MODEL.md` updated per chunk, not afterwards.

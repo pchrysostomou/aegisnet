@@ -13,7 +13,11 @@ from sqlalchemy import text
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from aegisnet.adapters.db.models import APP_ROLE_READ_WRITE_TABLES, M1_TABLES
+from aegisnet.adapters.db.models import (
+    APP_ROLE_DELETE_TABLES,
+    APP_ROLE_READ_WRITE_TABLES,
+    M1_TABLES,
+)
 from aegisnet.config import Settings
 
 pytestmark = [pytest.mark.db, pytest.mark.security]
@@ -48,7 +52,10 @@ async def _expect_denied(connection: AsyncConnection, statement: str) -> None:
 async def test_app_role_privilege_matrix(app_engine: AsyncEngine) -> None:
     async with app_engine.connect() as connection:
         for table in APP_ROLE_READ_WRITE_TABLES:
-            assert await _privileges(connection, table) == {"SELECT", "INSERT", "UPDATE"}, table
+            expected = {"SELECT", "INSERT", "UPDATE"}
+            if table in APP_ROLE_DELETE_TABLES:
+                expected.add("DELETE")
+            assert await _privileges(connection, table) == expected, table
         assert await _privileges(connection, "audit_log") == {"SELECT", "INSERT"}
         assert await _privileges(connection, "alembic_version") == {"SELECT"}
 
@@ -99,11 +106,14 @@ async def test_app_role_cannot_rewrite_or_erase_audit_rows(app_engine: AsyncEngi
         await transaction.rollback()
 
 
-async def test_app_role_has_no_delete_on_any_table(app_engine: AsyncEngine) -> None:
+async def test_app_role_has_no_delete_except_on_asset_networks(app_engine: AsyncEngine) -> None:
     async with app_engine.connect() as connection:
         transaction = await connection.begin()
         for table in M1_TABLES:
+            if table in APP_ROLE_DELETE_TABLES:
+                continue
             await _expect_denied(connection, f"DELETE FROM {table}")  # noqa: S608 - literal names
+        await connection.execute(text("DELETE FROM asset_networks WHERE false"))
         await transaction.rollback()
 
 

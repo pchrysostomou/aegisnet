@@ -12,14 +12,23 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import insert, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from aegisnet.adapters.db.models import Event, IngestBatch, IngestReject
-from aegisnet.domain.enums import IngestStatus
+from aegisnet.domain.enums import IngestStatus, RejectReason
 from aegisnet.domain.models import NormalizedEvent
-from aegisnet.domain.ports import BatchCounts, BatchProvenance, BatchSummary, RejectedLine
+from aegisnet.domain.pagination import decode_int, decode_time_id, encode_int, encode_time_id
+from aegisnet.domain.ports import (
+    BatchCounts,
+    BatchFilter,
+    BatchProvenance,
+    BatchSummary,
+    Page,
+    RejectedLine,
+    RejectRow,
+)
 
 
 def event_row(batch_id: UUID, event: NormalizedEvent, ingested_at: datetime) -> dict[str, Any]:
@@ -137,13 +146,8 @@ class SqlIngestStore:
                 )
             )
 
-    async def get_batch(self, batch_id: UUID) -> BatchSummary | None:
-        async with self._sessions() as session:
-            row = (
-                await session.execute(select(IngestBatch).where(IngestBatch.id == batch_id))
-            ).scalar_one_or_none()
-        if row is None:
-            return None
+    @staticmethod
+    def _summary(row: IngestBatch) -> BatchSummary:
         return BatchSummary(
             batch_id=row.id,
             status=IngestStatus(row.status),
@@ -158,3 +162,59 @@ class SqlIngestStore:
             started_at=row.started_at,
             finished_at=row.finished_at,
         )
+
+    async def get_batch(self, batch_id: UUID) -> BatchSummary | None:
+        async with self._sessions() as session:
+            row = (
+                await session.execute(select(IngestBatch).where(IngestBatch.id == batch_id))
+            ).scalar_one_or_none()
+        return None if row is None else self._summary(row)
+
+    async def list_batches(self, query: BatchFilter) -> Page[BatchSummary]:
+        statement = select(IngestBatch)
+        if query.status is not None:
+            statement = statement.where(IngestBatch.status == query.status)
+        if query.source_label is not None:
+            statement = statement.where(IngestBatch.source_label == query.source_label)
+        if query.time_from is not None:
+            statement = statement.where(IngestBatch.started_at >= query.time_from)
+        if query.time_to is not None:
+            statement = statement.where(IngestBatch.started_at <= query.time_to)
+        if query.cursor is not None:
+            moment, last_id = decode_time_id(query.cursor)
+            statement = statement.where(
+                tuple_(IngestBatch.started_at, IngestBatch.id) < (moment, last_id)
+            )
+        statement = statement.order_by(IngestBatch.started_at.desc(), IngestBatch.id.desc()).limit(
+            query.limit + 1
+        )
+        async with self._sessions() as session:
+            rows = list((await session.execute(statement)).scalars())
+        has_more = len(rows) > query.limit
+        rows = rows[: query.limit]
+        next_cursor = encode_time_id(rows[-1].started_at, rows[-1].id) if has_more else None
+        return Page(items=tuple(self._summary(row) for row in rows), next_cursor=next_cursor)
+
+    async def list_rejects(
+        self, batch_id: UUID, *, limit: int, cursor: str | None
+    ) -> Page[RejectRow]:
+        statement = select(IngestReject).where(IngestReject.batch_id == batch_id)
+        if cursor is not None:
+            statement = statement.where(IngestReject.line_number > decode_int(cursor))
+        statement = statement.order_by(IngestReject.line_number).limit(limit + 1)
+        async with self._sessions() as session:
+            rows = list((await session.execute(statement)).scalars())
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        items = tuple(
+            RejectRow(
+                line_number=row.line_number,
+                reason=RejectReason(row.reason_code),
+                detail=row.detail,
+                raw_excerpt=row.raw_excerpt,
+                created_at=row.created_at,
+            )
+            for row in rows
+        )
+        next_cursor = encode_int(rows[-1].line_number) if has_more else None
+        return Page(items=items, next_cursor=next_cursor)

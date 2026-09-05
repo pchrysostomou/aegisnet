@@ -9,6 +9,28 @@ Nothing is released yet. There is no tagged version.
 ## [Unreleased]
 
 ### Added
+- **Chunk 5 — asset inventory and event reads.** `domain/assets.py`: validated
+  `AssetSpec`/`AssetPatch` (hostname grammar, tags, criticality 1–5, strict CIDRs, one
+  primary network), cross-asset overlap detection and the reference `resolve_ip`
+  (longest prefix, then primary, then oldest). `services/asset_service.py`: create, bulk
+  create (atomic, ≤500), upsert-by-hostname seeding, get, filtered keyset-paginated list,
+  partial update that replaces networks, soft-delete, resolve. `services/
+  event_read_service.py`: window ≤30 days, page size ≤200, cursor validation, payload on
+  request only; `stats` by type and hour. Batches and rejects are listable with cursors
+  (ADR-015).
+- `domain/pagination.py`: opaque base64url keyset cursors, strictly validated (T-2.6).
+- SQL stores `adapters/db/asset_store.py` (resolution as an `ORDER BY`, hostname
+  uniqueness mapped to `HostnameConflictError`) and `adapters/db/event_read_store.py`
+  (keyset on `(event_time, id)`, address/CIDR/port/flow/batch/asset filters, stats).
+- Revision `0002_asset_network_delete_grant`: the runtime role may DELETE from
+  `asset_networks` so a PATCH can replace them; nothing else gains DELETE.
+- Seed file `samples/assets/lab-assets.yml` (14 lab hosts matching the synthetic corpus)
+  and `make seed`; CLI commands `seed-assets`, `assets`, `asset`, `resolve`, `events`,
+  `event-stats`, `batches`, `rejects`.
+- 94 new hermetic tests (domain rules, cursors, both services against fakes, CLI parsing
+  and the seed loader, the T-2.6 pagination-bounds suite) and 15 database tests (the
+  asset store incl. resolution precedence and atomic bulk create; the event read store
+  incl. a full pagination walk, the asset filter, stats; batch and reject listing).
 - **Chunk 4 — ingest service.** `services/ingest_service.py` streams NDJSON line by line
   through the normaliser, writes events in chunks with `INSERT … ON CONFLICT (event_hash)
   DO NOTHING` so a re-ingest stores nothing and reports every line as a duplicate, writes
@@ -153,6 +175,9 @@ Nothing is released yet. There is no tagged version.
   the runner — and `security` failed on the genuine dependency findings fixed below.
 
 ### Changed
+- The hermetic coverage gate now also excludes the SQL stores and the worker package,
+  which the database suite and the stack exercise; both results are recorded in
+  `docs/STATUS.md`.
 - The worker entrypoint moved from `adapters/queue/worker.py` to `aegisnet.workers.main`;
   the Compose `worker` command and liveness probe follow. `adapters/queue` keeps the broker
   factory plus the queue and actor names (ADR-014).

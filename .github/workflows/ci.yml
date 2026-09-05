@@ -190,7 +190,7 @@ jobs:
           echo
           version=$(curl --fail --silent --show-error http://127.0.0.1:8000/api/v1/meta/version)
           echo "$version"
-          echo "$version" | grep -q '"schema_revision":"0001_m1_baseline"'
+          echo "$version" | grep -q '"schema_revision":"0002_asset_network_delete_grant"'
           curl --fail --silent --show-error http://127.0.0.1:3000/api/health
           echo
 

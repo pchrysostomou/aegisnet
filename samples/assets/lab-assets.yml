@@ -1,0 +1,106 @@
+# Asset inventory for the imaginary lab that tools/gen_synthetic_eve.py describes.
+# `make seed` (python -m aegisnet.cli seed-assets lab-assets) upserts these by hostname.
+# Every address is RFC 1918; every name is under example.test. Nothing here is real.
+assets:
+  - hostname: gw.lab.example.test
+    environment: lab
+    owner: platform-team
+    criticality: 4
+    tags: [gateway, infra]
+    description: Lab default gateway
+    networks:
+      - {cidr: 10.10.0.1/32, is_primary: true}
+  - hostname: resolver.lab.example.test
+    environment: lab
+    owner: platform-team
+    criticality: 4
+    tags: [dns, infra]
+    description: Lab DNS resolver
+    networks:
+      - {cidr: 10.10.0.53/32, is_primary: true}
+  - hostname: ws-10.lab.example.test
+    environment: lab
+    owner: analyst-team
+    criticality: 2
+    tags: [workstation]
+    networks:
+      - {cidr: 10.10.0.10/32, is_primary: true}
+  - hostname: ws-11.lab.example.test
+    environment: lab
+    owner: analyst-team
+    criticality: 2
+    tags: [workstation]
+    networks:
+      - {cidr: 10.10.0.11/32, is_primary: true}
+  - hostname: ws-12.lab.example.test
+    environment: lab
+    owner: analyst-team
+    criticality: 2
+    tags: [workstation]
+    networks:
+      - {cidr: 10.10.0.12/32, is_primary: true}
+  - hostname: ws-13.lab.example.test
+    environment: lab
+    owner: analyst-team
+    criticality: 2
+    tags: [workstation]
+    networks:
+      - {cidr: 10.10.0.13/32, is_primary: true}
+  - hostname: ws-14.lab.example.test
+    environment: lab
+    owner: analyst-team
+    criticality: 2
+    tags: [workstation]
+    networks:
+      - {cidr: 10.10.0.14/32, is_primary: true}
+  - hostname: ws-15.lab.example.test
+    environment: lab
+    owner: analyst-team
+    criticality: 2
+    tags: [workstation]
+    networks:
+      - {cidr: 10.10.0.15/32, is_primary: true}
+  - hostname: ws-16.lab.example.test
+    environment: lab
+    owner: analyst-team
+    criticality: 2
+    tags: [workstation]
+    networks:
+      - {cidr: 10.10.0.16/32, is_primary: true}
+  - hostname: ws-17.lab.example.test
+    environment: lab
+    owner: analyst-team
+    criticality: 2
+    tags: [workstation]
+    networks:
+      - {cidr: 10.10.0.17/32, is_primary: true}
+  - hostname: ws-18.lab.example.test
+    environment: lab
+    owner: analyst-team
+    criticality: 2
+    tags: [workstation]
+    networks:
+      - {cidr: 10.10.0.18/32, is_primary: true}
+  - hostname: ws-19.lab.example.test
+    environment: lab
+    owner: analyst-team
+    criticality: 2
+    tags: [workstation]
+    networks:
+      - {cidr: 10.10.0.19/32, is_primary: true}
+  - hostname: srv-20.lab.example.test
+    environment: lab
+    owner: platform-team
+    criticality: 3
+    tags: [server, ssh]
+    description: Lab SSH jump host
+    networks:
+      - {cidr: 10.10.0.20/32, is_primary: true}
+  - hostname: files-21.lab.example.test
+    environment: lab
+    owner: platform-team
+    criticality: 3
+    tags: [server, smb]
+    description: Lab file server
+    networks:
+      - {cidr: 10.10.0.21/32, is_primary: true}

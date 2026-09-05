@@ -144,9 +144,17 @@ markers = [
 [tool.coverage.run]
 source = ["src/aegisnet"]
 branch = true
-# The migration environment and revisions are exercised by the database suite
-# (`make test-db`), which runs against a real PostgreSQL rather than under this gate.
-omit = ["*/__init__.py", "*/adapters/db/migrations/*", "*/workers/main.py"]
+# The migration environment, the SQL stores and the worker actor are exercised by the
+# database suite (`make test-db`) against a real PostgreSQL, and the worker entrypoint by the
+# stack, rather than under this hermetic gate.
+omit = [
+  "*/__init__.py",
+  "*/adapters/db/migrations/*",
+  "*/adapters/db/asset_store.py",
+  "*/adapters/db/event_read_store.py",
+  "*/adapters/db/ingest_store.py",
+  "*/workers/*",
+]
 
 [tool.coverage.report]
 show_missing = true

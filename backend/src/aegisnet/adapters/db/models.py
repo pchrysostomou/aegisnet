@@ -401,6 +401,10 @@ M1_TABLES: tuple[str, ...] = (
 """The nine tables the Milestone 1 baseline creates, in dependency order."""
 
 APP_ROLE_READ_WRITE_TABLES: tuple[str, ...] = tuple(t for t in M1_TABLES if t != "audit_log")
-"""Tables on which the runtime role receives SELECT, INSERT and UPDATE. No DELETE anywhere
-yet: soft-delete is the rule for assets, events are append-only, and the retention job that
-will need DELETE arrives in a later milestone with its own revision."""
+"""Tables on which the runtime role receives SELECT, INSERT and UPDATE. Soft-delete is the
+rule for assets and events are append-only; the retention job that will need DELETE on
+events arrives in a later milestone with its own revision."""
+
+APP_ROLE_DELETE_TABLES: tuple[str, ...] = ("asset_networks",)
+"""Tables on which the runtime role also holds DELETE: an asset's networks are attributes
+that a PATCH replaces wholesale (revision 0002)."""

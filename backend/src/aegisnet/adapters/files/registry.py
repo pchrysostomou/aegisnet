@@ -140,6 +140,13 @@ def _contained_real_path(samples_dir: Path, relative: str) -> Path:
     return real
 
 
+def contained_path(samples_dir: Path, relative: str) -> Path:
+    """Public form of the confinement rule for other files under ``samples/`` (seed files)."""
+    if any(part in ("", ".", "..") for part in relative.split("/")) or relative.startswith("/"):
+        raise UnsafeDatasetPathError("path must be relative with no '.' or '..' components")
+    return _contained_real_path(samples_dir, relative)
+
+
 def sha256_of_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:

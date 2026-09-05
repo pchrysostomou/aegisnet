@@ -38,8 +38,14 @@ Application foundation only:
 - `adapters/queue/broker.py` — Dramatiq broker factory with an explicitly authenticated
   Redis client and no import-time side effects; `names.py` (queue and actor names) and
   `ingest_queue.py` (enqueue by name, ids only)
-- `domain/ports.py` — the `IngestStore` Protocol and batch value objects (ADR-014)
-- `services/ingest_service.py` — the ingest use-case: streaming, chunked, idempotent
+- `domain/ports.py` — the `IngestStore`, `AssetStore` and `EventReadStore` Protocols and
+  their value objects (ADR-014, ADR-015); `domain/pagination.py` — bounded keyset cursors
+- `domain/assets.py` — asset specs, overlap detection and the reference CIDR resolver
+- `services/ingest_service.py` — the ingest use-case: streaming, chunked, idempotent;
+  batch and reject listing
+- `services/asset_service.py`, `services/event_read_service.py` — the inventory and the
+  bounded event reads; `adapters/db/asset_store.py`, `adapters/db/event_read_store.py`
+  implement their ports
 - `workers/main.py`, `workers/actors.py` — the worker entrypoint (`dramatiq
   aegisnet.workers.main`) and the `import_dataset` actor
 - `cli.py` — `python -m aegisnet.cli datasets | import-dataset | batch`
@@ -53,10 +59,10 @@ opt-in and needs the ephemeral PostgreSQL from `docker-compose.test.yml --profil
 
 | Directory | Marker | What it covers |
 |---|---|---|
-| `tests/unit/` | `unit` | settings, log hygiene, broker factory, `bootstrap_env.py`; EVE sanitiser, limits, schema, hash and normaliser over `tests/fixtures/eve/`; the synthetic generator; the ingest service against an in-memory store; the CLI |
+| `tests/unit/` | `unit` | settings, log hygiene, broker factory, `bootstrap_env.py`; EVE sanitiser, limits, schema, hash and normaliser over `tests/fixtures/eve/`; the synthetic generator; the ingest, asset and event read services against in-memory stores; asset rules, cursors, the CLI and the seed loader |
 | `tests/integration/` | `integration` | the assembled app in-process: health, readiness with faked probes, version, correlation IDs; the committed corpus, its manifest and the registry checksum |
-| `tests/security/` | `security` | THREAT_MODEL mitigations: the error envelope (T-2.7), and the committed Compose files, Dockerfiles, `.env.example`, `.gitignore` and pre-commit config read as data (T-5.1, T-5.2, T-5.4); payload limits (T-1.4, T-1.5); dataset path traversal (T-1.6) |
-| `tests/db/` | `db` (+ `integration` / `security`) | the baseline revision against a real PostgreSQL 16: the nine tables and enum types, ORM/schema agreement via `compare_metadata`, constraint behaviour, the runtime role's privilege matrix and the audit-log guarantee (T-2.5, T-5.3), downgrade to base; the SQL ingest store (idempotent corpus import, provenance, rejects, promoted columns) and the `import_dataset` actor through a `StubBroker` |
+| `tests/security/` | `security` | THREAT_MODEL mitigations: the error envelope (T-2.7), and the committed Compose files, Dockerfiles, `.env.example`, `.gitignore` and pre-commit config read as data (T-5.1, T-5.2, T-5.4); payload limits (T-1.4, T-1.5); dataset path traversal (T-1.6); pagination bounds (T-2.6) |
+| `tests/db/` | `db` (+ `integration` / `security`) | the baseline revision against a real PostgreSQL 16: the nine tables and enum types, ORM/schema agreement via `compare_metadata`, constraint behaviour, the runtime role's privilege matrix and the audit-log guarantee (T-2.5, T-5.3), downgrade to base; the SQL ingest store (idempotent corpus import, provenance, rejects, promoted columns), the `import_dataset` actor through a `StubBroker`, the asset store (resolution precedence, atomic bulk, seeding) and the event read store (filters, a full keyset walk, stats, batch and reject listing) |
 
 `conftest.py` sets `ENV=test` before the package is imported so that collection does not
 depend on the developer's shell.

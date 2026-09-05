@@ -4,14 +4,15 @@ A self-hosted, **defensive-only** platform for ingesting network security teleme
 detecting suspicious behaviour with deterministic heuristics, correlating findings into
 incidents, and generating evidence-based AI investigation briefs for human analysts.
 
-> **Status: Milestone 1, Chunk 4 — ingest service.**
+> **Status: Milestone 1, Chunk 5 — asset inventory and event reads.**
 > The five-service stack builds and reaches healthy from a clean clone, `make migrate`
-> creates the nine Milestone 1 tables with least-privilege grants, and `make demo-ingest`
-> stores the committed synthetic corpus idempotently — a second run stores nothing and
-> reports every line as a duplicate — either inline or through the worker's first actor.
-> There is **no HTTP ingest endpoint, no detection, no authentication and no analyst UI
-> yet**. [`docs/STATUS.md`](docs/STATUS.md) is the authoritative record of what exists and
-> what has been verified.
+> creates the schema with least-privilege grants, `make seed` loads the lab inventory,
+> `make demo-ingest` stores the committed synthetic corpus idempotently, and the CLI
+> resolves addresses to assets and queries events with bounded keyset pagination. There
+> is **no HTTP API beyond health and version, no detection, no authentication and no
+> analyst UI yet**; the routes arrive with authentication in Chunk 6.
+> [`docs/STATUS.md`](docs/STATUS.md) is the authoritative record of what exists and what
+> has been verified.
 
 ---
 
@@ -51,9 +52,10 @@ aspirational:
 | EVE domain (`backend/src/aegisnet/domain/eve/`): parse limits, sanitiser, Pydantic schema, canonical `event_hash`, normaliser to `NormalizedEvent` or `Reject` | Complete for Chunk 3; pure and clock-free ([ADR-013](docs/adr/ADR-013-event-hash-payload-and-event-type-triage.md)) |
 | Dataset registry with id-only, symlink-free, checksum-verified resolution; seeded synthetic generator and the committed benign corpus (2000 events) | Complete for Chunk 3 ([`samples/README.md`](samples/README.md)) |
 | Ingest service: streaming NDJSON, per-line rejects with reason codes, idempotent storage by `event_hash`, batch provenance and counts; operator CLI and `make demo-ingest` | Complete for Chunk 4 ([ADR-014](docs/adr/ADR-014-ingest-entrypoints-ports-and-worker-layer.md)); HTTP routes arrive with authentication in Chunk 6 |
+| Asset inventory: validated specs, cross-asset overlap refusal, most-specific CIDR resolution, upsert seeding (`make seed`), filtered keyset-paginated lists; event reads with bounded windows, cursors, filters incl. by asset, and stats | Complete for Chunk 5 ([ADR-015](docs/adr/ADR-015-asset-inventory-and-event-reads.md)); HTTP routes arrive with authentication in Chunk 6 |
 | Tests | Hermetic suite (unit, integration, security), no database or Redis needed; plus an opt-in database suite (`make test-db`) that migrates, compares the ORM with the schema, and asserts the runtime role's privileges against an ephemeral PostgreSQL 16 |
 | CI and security workflows | Both green: `ci` including the stack gate on the runner, and `security` after the dependency upgrades its first run demanded. Every action now runs on the Node 24 runtime — see `docs/STATUS.md` |
-| HTTP ingest, asset and event APIs, auth/RBAC/audit/rate limiting, detection, correlation, AI briefs, dashboard | Not started — Chunk 5 onward and later milestones |
+| HTTP routes for ingest, assets and events, auth/RBAC/audit/rate limiting, detection, correlation, AI briefs, dashboard | Not started — Chunk 6 and later milestones |
 
 ---
 
@@ -88,17 +90,27 @@ make up
 make migrate
 make migrate-status                             # revision held by the database vs. the head this build expects
 
-# 4. Ingest the registered synthetic corpus (2000 events). Run it twice: the second run
-#    stores nothing and reports every line as a duplicate (FR-1.4).
+# 4. Seed the lab inventory (14 hosts, idempotent by hostname), then ingest the registered
+#    synthetic corpus (2000 events). Run the ingest twice: the second run stores nothing
+#    and reports every line as a duplicate (FR-1.4).
+make seed
 make demo-ingest
 make demo-ingest LABEL=second-run
 make demo-ingest MODE=async LABEL=via-worker     # enqueues for the worker; prints the batch id
 make batch ID=<uuid>                            # poll it
 
+# Explore through the operator CLI (JSON out; the HTTP routes arrive with auth in Chunk 6).
+docker compose run --rm api python -m aegisnet.cli resolve 10.10.0.53
+docker compose run --rm api python -m aegisnet.cli assets -q resolver
+docker compose run --rm api python -m aegisnet.cli events --from 2026-09-01T00:00:00Z \
+    --to 2026-09-02T00:00:00Z --type dns --limit 5
+docker compose run --rm api python -m aegisnet.cli event-stats --from 2026-09-01T00:00:00Z \
+    --to 2026-09-02T00:00:00Z
+
 # 5. Probe it. Everything is bound to 127.0.0.1.
 curl http://127.0.0.1:8000/healthz              # {"status":"ok"}
 curl http://127.0.0.1:8000/readyz               # {"status":"ok"} once PostgreSQL and Redis answer
-curl http://127.0.0.1:8000/api/v1/meta/version  # includes "schema_revision":"0001_m1_baseline"
+curl http://127.0.0.1:8000/api/v1/meta/version  # includes "schema_revision":"0002_asset_network_delete_grant"
 curl http://127.0.0.1:3000/api/health           # {"status":"ok"}
 open http://127.0.0.1:8000/docs                 # OpenAPI UI (disabled when ENV=production)
 

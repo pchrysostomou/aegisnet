@@ -32,22 +32,31 @@ from aegisnet.domain.enums import IngestMethod, IngestStatus, SourceType
 from aegisnet.domain.eve.limits import ParseLimits
 from aegisnet.domain.eve.normalizer import TimestampWindow, normalize_line
 from aegisnet.domain.models import NormalizedEvent, Reject
+from aegisnet.domain.pagination import check_limit, decode_int, decode_time_id
 from aegisnet.domain.ports import (
     BatchCounts,
+    BatchFilter,
     BatchProvenance,
     BatchSummary,
     IngestStore,
+    Page,
     RejectedLine,
+    RejectRow,
 )
 from aegisnet.logging import get_logger
 
 logger = get_logger(__name__)
 
 DEFAULT_CHUNK_SIZE: Final = 500
+DEFAULT_LIMIT_ROWS: Final = 50
 
 
 class IngestLimitExceededError(Exception):
     """The batch broke a batch-level limit (line count). Per-line limits never raise."""
+
+
+class BatchNotFoundError(Exception):
+    pass
 
 
 def utc_now() -> datetime:
@@ -84,6 +93,22 @@ class IngestService:
 
     async def get_batch(self, batch_id: UUID) -> BatchSummary | None:
         return await self._store.get_batch(batch_id)
+
+    async def list_batches(self, query: BatchFilter) -> Page[BatchSummary]:
+        check_limit(query.limit)
+        if query.cursor is not None:
+            decode_time_id(query.cursor)
+        return await self._store.list_batches(query)
+
+    async def list_rejects(
+        self, batch_id: UUID, *, limit: int = DEFAULT_LIMIT_ROWS, cursor: str | None = None
+    ) -> Page[RejectRow]:
+        check_limit(limit)
+        if cursor is not None:
+            decode_int(cursor)
+        if await self._store.get_batch(batch_id) is None:
+            raise BatchNotFoundError("unknown batch")
+        return await self._store.list_rejects(batch_id, limit=limit, cursor=cursor)
 
     async def ingest(
         self,

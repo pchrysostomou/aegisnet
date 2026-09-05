@@ -56,7 +56,9 @@ def _http(
     body: bytes | None = None,
     port: int = 8080,
 ) -> int:
-    conn = http.client.HTTPConnection(TARGET_HOST, port, timeout=10)
+    # Clear-text on purpose: see the note in target/service.py. The destination is the lab's
+    # own container on a network with no route out. NOSONAR: S5332.
+    conn = http.client.HTTPConnection(TARGET_HOST, port, timeout=10)  # NOSONAR
     try:
         conn.request("POST" if body is not None else "GET", path, body=body, headers=headers or {})
         response = conn.getresponse()

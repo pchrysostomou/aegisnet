@@ -250,6 +250,9 @@ Nothing is released yet. There is no tagged version.
   not been written.
 
 ### Security
+- The echoed `X-Correlation-ID` is rebuilt from the parsed UUID's integer, never from the
+  inbound string; the unhandled-error log records the matched route template and a
+  fixed-set method instead of the request path and method (E-40).
 - Chunk 6: no route answers without a permission dependency; a present-but-invalid
   credential is `401`, never anonymous; refresh-token reuse revokes the chain and clears
   the cookie; refused uploads and permission denials are audited; login and ingest rate

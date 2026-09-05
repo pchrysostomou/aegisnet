@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import re
 import sys
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -1136,10 +1137,33 @@ def render(case: Case) -> tuple[bytes, str]:
     return body.encode("utf-8"), labels_for(case)
 
 
+# A directory name this generator is allowed to create: letters, digits and hyphens. Case
+# names come from the definitions above rather than from a caller, but they are still turned
+# into filesystem paths, and the rule this repository follows for that is the one in
+# `adapters/files/registry.py` — validate the segment, then prove the result stayed inside the
+# root — rather than trusting where a name came from.
+SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,63}$")
+
+
+def contained(root: Path, *parts: str) -> Path:
+    """``root`` joined with ``parts``, refusing anything that is not a plain name and proving
+    the result is still under ``root``."""
+    for part in parts:
+        if not SEGMENT.match(part):
+            raise ValueError(f"unsafe path segment: {part!r}")
+    candidate = root.joinpath(*parts)
+    if not candidate.resolve().is_relative_to(root.resolve()):
+        raise ValueError(f"path escapes the fixtures root: {candidate}")
+    return candidate
+
+
 def write_all(out: Path) -> list[Path]:
     written = []
+    out.mkdir(parents=True, exist_ok=True)
     for case in CASES:
-        directory = out / f"{case.rule_id}-{RULE_DIRS[case.rule_id]}" / case.kind / case.name
+        directory = contained(
+            out, f"{case.rule_id}-{RULE_DIRS[case.rule_id]}", case.kind, case.name
+        )
         directory.mkdir(parents=True, exist_ok=True)
         events, labels = render(case)
         (directory / "events.ndjson").write_bytes(events)

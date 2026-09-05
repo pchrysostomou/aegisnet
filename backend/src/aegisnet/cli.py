@@ -28,7 +28,8 @@ Commands:
     detector-runs                  recent detector runs
     recompute-baselines            summarise each asset's outbound history into asset_baselines
     baselines                      list the stored baselines
-    eval-detectors                 score the rules on the labelled cases and the benign corpus
+    eval-detectors                 score the rules on the labelled cases and the benign corpus;
+                                   run inside the checkout, no paths accepted
 
 Every result is one JSON object on stdout; exit status 0 on success, 1 on a failure the
 operator can act on (failed batch, registry or inventory error), 2 on usage errors.
@@ -101,9 +102,13 @@ from aegisnet.services.detection_service import (
     validate_interval,
 )
 from aegisnet.services.evaluation_service import (
+    CASES_DIR,
+    CORPUS_FILE,
+    RESULTS_DOC,
     EvaluationError,
     render,
     replace_results,
+    repository_root,
     run_evaluation,
 )
 from aegisnet.services.event_read_service import EventQueryError, EventReadService
@@ -337,12 +342,11 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("baselines", help="list the stored baselines")
 
     evaluation = commands.add_parser(
-        "eval-detectors", help="T1/T2 metrics for docs/evaluation.md §8 (no database needed)"
+        "eval-detectors",
+        help="T1/T2 metrics into docs/evaluation.md §8; run inside the checkout, no database",
     )
-    evaluation.add_argument("--fixtures", type=Path, required=True, help="labelled cases root")
-    evaluation.add_argument("--corpus", type=Path, required=True, help="benign NDJSON corpus")
     evaluation.add_argument(
-        "--write", type=Path, default=None, help="rewrite this document's eval block in place"
+        "--no-write", action="store_true", help="print the block without touching the document"
     )
     evaluation.add_argument("--json", action="store_true", help="emit the report as JSON")
     return parser
@@ -713,21 +717,22 @@ def cmd_baselines(settings: Settings) -> int:
 
 
 def cmd_eval(args: argparse.Namespace) -> int:
-    """Exit 1 when a labelled case misses its label, after writing the report anyway: the
-    document must show the regression, not hide it."""
+    """No path is accepted: the cases, the corpus and the document sit at fixed places under
+    the repository root found above the working directory. Exit 1 when a labelled case
+    misses its label, after writing the report anyway: the document must show the
+    regression, not hide it."""
     try:
-        report = run_evaluation(args.fixtures, args.corpus)
+        root = repository_root(Path.cwd())
+        report = run_evaluation(root / CASES_DIR, root / CORPUS_FILE)
+        block = render(report)
+        if not args.no_write:
+            document = root / RESULTS_DOC
+            document.write_text(
+                replace_results(document.read_text(encoding="utf-8"), block), encoding="utf-8"
+            )
     except (EvaluationError, LabelledCaseError, OSError) as error:
         print(f"error: {error}", file=sys.stderr)  # noqa: T201 - CLI output
         return 1
-    block = render(report)
-    if args.write is not None:
-        document = args.write.read_text(encoding="utf-8")
-        try:
-            args.write.write_text(replace_results(document, block), encoding="utf-8")
-        except EvaluationError as error:
-            print(f"error: {error}", file=sys.stderr)  # noqa: T201 - CLI output
-            return 1
     if args.json:
         _emit(
             {

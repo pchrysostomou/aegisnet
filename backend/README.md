@@ -84,8 +84,8 @@ Application foundation only:
   `batches`, `rejects`, `seed-assets`, `assets`, `asset`, `resolve`, `events`,
   `event-stats`, `create-user`, `users`, `create-service-token`, `revoke-service-token`,
   `service-tokens`, `run-detectors`, `alerts`, `alert`, `detector-runs`,
-  `recompute-baselines`, `baselines`, `eval-detectors` (files in, files out: needs no
-  database and no settings)
+  `recompute-baselines`, `baselines`, `eval-detectors` (files in, files out at fixed places
+  under the checkout: no paths, no database, no settings)
 
 `SECURITY.md` at the repository root describes what the auth layer enforces and what it
 still lacks.

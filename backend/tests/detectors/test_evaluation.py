@@ -3,6 +3,8 @@ and the pin that keeps docs/evaluation.md §8 equal to what the harness produces
 
 from __future__ import annotations
 
+import json
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -22,11 +24,15 @@ from aegisnet.domain.detectors.evaluation import (
 from aegisnet.domain.enums import EntityType
 from aegisnet.services.evaluation_service import (
     BEGIN,
+    CASES_DIR,
+    CORPUS_FILE,
     END,
+    RESULTS_DOC,
     EvaluationError,
     evaluate_benign,
     render,
     replace_results,
+    repository_root,
     run_evaluation,
 )
 from tests.conftest import REPO_ROOT
@@ -148,31 +154,55 @@ def test_run_evaluation_refuses_missing_inputs(tmp_path: Path) -> None:
         run_evaluation(LABELLED, tmp_path / "missing.ndjson")
 
 
-def test_the_cli_writes_the_block_and_needs_no_settings(
+def _checkout(tmp_path: Path) -> Path:
+    """A miniature repository layout: the real cases and corpus, a tiny results document."""
+    shutil.copytree(LABELLED, tmp_path / CASES_DIR)
+    (tmp_path / CORPUS_FILE).parent.mkdir(parents=True)
+    shutil.copyfile(CORPUS, tmp_path / CORPUS_FILE)
+    (tmp_path / RESULTS_DOC).parent.mkdir(parents=True)
+    (tmp_path / RESULTS_DOC).write_text(f"intro\n{BEGIN}\nstale\n{END}\n", encoding="utf-8")
+    return tmp_path
+
+
+def test_repository_root_is_found_above_the_working_directory(tmp_path: Path) -> None:
+    root = _checkout(tmp_path)
+    assert repository_root(root / "backend" / "src") == root
+    assert repository_root(root) == root
+    with pytest.raises(EvaluationError, match="not inside a repository checkout"):
+        repository_root(Path("/"))
+
+
+def test_the_cli_takes_no_paths_writes_the_block_and_needs_no_settings(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     for name in ("SECRET_KEY", "POSTGRES_APP_PASSWORD", "REDIS_PASSWORD", "ENV"):
         monkeypatch.delenv(name, raising=False)
-    target = tmp_path / "evaluation.md"
-    target.write_text(f"intro\n{BEGIN}\nstale\n{END}\n", encoding="utf-8")
-    code = main(
-        [
-            "eval-detectors",
-            "--fixtures",
-            str(LABELLED),
-            "--corpus",
-            str(CORPUS),
-            "--write",
-            str(target),
-        ]
-    )
-    assert code == 0
-    written = target.read_text(encoding="utf-8")
+    root = _checkout(tmp_path)
+    monkeypatch.chdir(root / "backend")
+    assert main(["eval-detectors"]) == 0
+    written = (root / RESULTS_DOC).read_text(encoding="utf-8")
     assert "stale" not in written and "| D-005 |" in written and written.startswith("intro\n")
     assert "Every labelled case met its label." in capsys.readouterr().out
-    assert (
-        main(["eval-detectors", "--fixtures", str(tmp_path / "none"), "--corpus", str(CORPUS)]) == 1
-    )
-    assert "no labelled cases" in capsys.readouterr().err
+    # --no-write leaves the document alone; --json reports the same numbers as data.
+    (root / RESULTS_DOC).write_text("untouched", encoding="utf-8")
+    assert main(["eval-detectors", "--no-write", "--json"]) == 0
+    assert (root / RESULTS_DOC).read_text(encoding="utf-8") == "untouched"
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["failures"] == [] and payload["corpus"]["events"] == 2000
+    assert {m["rule_id"] for m in payload["metrics"]} == {
+        "D-001",
+        "D-002",
+        "D-003",
+        "D-004",
+        "D-005",
+    }
+
+
+def test_the_cli_refuses_to_run_outside_a_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["eval-detectors"]) == 1
+    assert "not inside a repository checkout" in capsys.readouterr().err
     window = EventWindow(BUCKET, BUCKET.replace(minute=10), ())
     assert get_detector("D-001").run(window) == []

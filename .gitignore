@@ -99,3 +99,6 @@ Thumbs.db
 docs/screenshots/*.tmp
 tmp/
 scratch/
+
+# Local sonar-scanner run against a developer's own SonarQube
+.scannerwork/

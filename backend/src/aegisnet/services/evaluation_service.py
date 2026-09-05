@@ -31,9 +31,28 @@ BEGIN = "<!-- eval:begin -->"
 END = "<!-- eval:end -->"
 _BLOCK = re.compile(re.escape(BEGIN) + r".*?" + re.escape(END), re.DOTALL)
 
+# Where the harness reads and writes, relative to the repository root. The command takes
+# no paths: like a dataset import, it resolves fixed names under a root it finds itself.
+CASES_DIR = Path("backend/tests/fixtures/labelled")
+CORPUS_FILE = Path("samples/synthetic/benign-baseline-01.ndjson")
+RESULTS_DOC = Path("docs/evaluation.md")
+LAYOUT = (CASES_DIR, CORPUS_FILE, RESULTS_DOC)
+
 
 class EvaluationError(ValueError):
     pass
+
+
+def repository_root(start: Path) -> Path:
+    """The nearest directory at or above ``start`` that holds the whole layout."""
+    for candidate in (start, *start.parents):
+        if all((candidate / relative).exists() for relative in LAYOUT):
+            return candidate
+    raise EvaluationError(
+        "not inside a repository checkout: "
+        + ", ".join(str(relative) for relative in LAYOUT)
+        + " were not all found at or above the working directory"
+    )
 
 
 @dataclass(frozen=True, slots=True)

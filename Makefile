@@ -226,12 +226,10 @@ gen-fixtures: ## Regenerate backend/tests/fixtures/labelled from the case defini
 	python3 tools/gen_labelled_fixtures.py --out backend/tests/fixtures/labelled
 
 # T1 = the labelled cases, T2 = the benign synthetic corpus; rewrites the marked block in
-# docs/evaluation.md §8. A test pins that block, so run this after touching a rule.
+# docs/evaluation.md §8. A test pins that block, so run this after touching a rule. The
+# command takes no paths: it finds the checkout above its working directory.
 eval: ## Score the rules on the labelled cases and the benign corpus; refresh docs/evaluation.md §8
-	cd $(BACKEND) && uv run python -m aegisnet.cli eval-detectors \
-	  --fixtures tests/fixtures/labelled \
-	  --corpus ../samples/synthetic/benign-baseline-01.ndjson \
-	  --write ../docs/evaluation.md
+	cd $(BACKEND) && uv run python -m aegisnet.cli eval-detectors
 
 # Regenerates the committed synthetic corpus byte-for-byte (seeded). After changing the
 # generator, run this, then update sha256 in samples/registry.yml; the integration suite

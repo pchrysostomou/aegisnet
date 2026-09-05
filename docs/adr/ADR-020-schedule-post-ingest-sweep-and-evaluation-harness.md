@@ -54,7 +54,9 @@ events sit.
 
 ### `make eval` writes the first metrics table and a test pins it
 
-`aegisnet eval-detectors` (no database, no settings, no secrets) runs every labelled case
+`aegisnet eval-detectors` (no database, no settings, no secrets, and no path arguments: like a
+dataset import it resolves fixed names under a root, here the checkout it finds above its
+working directory) runs every labelled case
 through its own rule (T1) and every rule over the benign corpus on that rule's grid (T2),
 then rewrites the block between `<!-- eval:begin -->` and `<!-- eval:end -->` in
 `docs/evaluation.md` §8. The verdicts are strict: a positive case is a true positive only when

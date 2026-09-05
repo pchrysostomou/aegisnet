@@ -21,7 +21,6 @@ from __future__ import annotations
 import argparse
 import os
 import secrets
-import stat
 import sys
 from pathlib import Path
 
@@ -49,15 +48,6 @@ def _generate(line: str) -> str:
     while PLACEHOLDER in line:
         line = line.replace(PLACEHOLDER, secrets.token_urlsafe(SECRET_BYTES), 1)
     return line
-
-
-def _restrict_permissions(path: Path) -> bool:
-    """Best-effort 0600. Returns True when the mode was applied."""
-    try:
-        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    except (OSError, NotImplementedError):
-        return False
-    return True
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -105,12 +95,10 @@ def main(argv: list[str] | None = None) -> int:
     except Exception:  # pragma: no cover - surfaced to the operator
         raise
 
-    restricted = _restrict_permissions(args.out)
-
     print(f"wrote {args.out.name} with {generated} generated development-only secret(s)")
-    if not restricted:
+    if os.name != "posix":
         print(
-            "warning: could not set 0600 permissions on this platform — "
+            "warning: file permissions are not enforced on this platform — "
             "restrict access to .env manually",
             file=sys.stderr,
         )

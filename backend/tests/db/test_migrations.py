@@ -40,6 +40,9 @@ EXPECTED_ENUMS: dict[str, tuple[str, ...]] = {
     "detector_run_status": tuple(enums.DetectorRunStatus),
     "alert_status": tuple(enums.AlertStatus),
     "baseline_metric": tuple(enums.BaselineMetric),
+    "incident_status": tuple(enums.IncidentStatus),
+    "timeline_entry_type": tuple(enums.TimelineEntryType),
+    "incident_alert_source": tuple(enums.IncidentAlertSource),
 }
 
 
@@ -74,7 +77,7 @@ async def test_the_revisions_create_exactly_the_fifteen_tables(
 async def test_alembic_version_matches_the_packaged_head(migrator_engine: AsyncEngine) -> None:
     async with migrator_engine.connect() as connection:
         applied = (await connection.execute(text("SELECT version_num FROM alembic_version"))).all()
-    assert [row[0] for row in applied] == [schema_revision()] == ["0003_detection_tables"]
+    assert [row[0] for row in applied] == [schema_revision()] == ["0004_incident_tables"]
 
 
 async def test_orm_metadata_matches_the_migrated_schema(migrator_engine: AsyncEngine) -> None:
@@ -216,6 +219,6 @@ def test_downgrade_to_base_leaves_nothing_behind(db_settings: Settings, migrated
 
     tables, enum_names, citext, versions = asyncio.run(snapshot())
     assert tables == set(ALL_TABLES) | {"alembic_version"}
-    assert versions == ["0003_detection_tables"]
+    assert versions == ["0004_incident_tables"]
     assert enum_names == set(EXPECTED_ENUMS)
     assert citext is True

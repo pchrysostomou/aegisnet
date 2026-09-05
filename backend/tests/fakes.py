@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 from argon2 import PasswordHasher
@@ -33,11 +35,14 @@ from aegisnet.domain.enums import (
     BaselineMetric,
     DetectorRunStatus,
     EventType,
+    IncidentAlertSource,
+    IncidentStatus,
     IngestStatus,
     SampleRole,
     ServiceTokenRole,
     UserRole,
 )
+from aegisnet.domain.incidents import case_number, is_closed
 from aegisnet.domain.models import NormalizedEvent
 from aegisnet.domain.pagination import decode_time_id, encode_time_id
 from aegisnet.domain.ports import (
@@ -58,8 +63,13 @@ from aegisnet.domain.ports import (
     EventQuery,
     EventRow,
     EventStats,
+    IncidentDetail,
+    IncidentFilter,
+    IncidentRecord,
     NetworkView,
     NewAlert,
+    NewIncident,
+    NewTimelineEntry,
     Page,
     RateLimitDecision,
     RefreshTokenRecord,
@@ -68,6 +78,7 @@ from aegisnet.domain.ports import (
     ResolvedAsset,
     RuleRecord,
     ServiceTokenRecord,
+    TimelineEntryRecord,
     UserRecord,
 )
 from aegisnet.services.asset_service import AssetService
@@ -639,6 +650,163 @@ class FakeDetectorRunStore:
 
     async def list(self, *, limit: int) -> tuple[DetectorRunRecord, ...]:
         return tuple(reversed(self.rows))[:limit]
+
+
+class FakeIncidentStore:
+    """The incident store in memory, with the two constraints that matter kept honest: an
+    alert belongs to one case, and a case says the same thing about an alert once."""
+
+    def __init__(self) -> None:
+        self.rows: dict[UUID, IncidentRecord] = {}
+        self.alerts: dict[UUID, UUID] = {}
+        """alert id -> incident id, which is the UNIQUE that makes a re-run a no-op."""
+        self.timeline: dict[UUID, list[TimelineEntryRecord]] = {}
+        self.ordinal = 0
+
+    async def open_case(
+        self,
+        incident: NewIncident,
+        entries: Sequence[NewTimelineEntry],
+        *,
+        now: datetime,
+        source: IncidentAlertSource = IncidentAlertSource.correlation_engine,
+    ) -> IncidentRecord:
+        self.ordinal += 1
+        record = IncidentRecord(
+            id=uuid4(),
+            case_number=case_number(now.year, self.ordinal),
+            title=incident.title,
+            severity=incident.severity,
+            severity_rationale=dict(incident.severity_rationale),
+            status=IncidentStatus.new,
+            primary_asset_id=incident.primary_asset_id,
+            correlation_key=incident.correlation_key,
+            window_start=incident.window_start,
+            window_end=incident.window_end,
+            distinct_rule_count=incident.distinct_rule_count,
+            assigned_to=None,
+            closed_at=None,
+            closure_reason=None,
+            created_at=now,
+            updated_at=now,
+        )
+        self.rows[record.id] = record
+        self.timeline[record.id] = []
+        self._link(record.id, incident.alert_ids)
+        self._append(record.id, entries, now)
+        return record
+
+    async def newest_open_for_key(self, correlation_key: str) -> IncidentRecord | None:
+        candidates = [
+            row
+            for row in self.rows.values()
+            if row.correlation_key == correlation_key and not is_closed(row.status)
+        ]
+        return max(candidates, key=lambda r: (r.window_end, r.created_at), default=None)
+
+    async def newest_closed_for_key(self, correlation_key: str) -> IncidentRecord | None:
+        candidates = [
+            row
+            for row in self.rows.values()
+            if row.correlation_key == correlation_key and is_closed(row.status)
+        ]
+        return max(candidates, key=lambda r: (r.window_end, r.created_at), default=None)
+
+    async def extend(
+        self,
+        incident_id: UUID,
+        alert_ids: Sequence[UUID],
+        entries: Sequence[NewTimelineEntry],
+        *,
+        severity: int,
+        severity_rationale: dict[str, Any],
+        title: str,
+        window_end: datetime,
+        distinct_rule_count: int,
+        now: datetime,
+        source: IncidentAlertSource = IncidentAlertSource.correlation_engine,
+    ) -> int:
+        linked = self._link(incident_id, alert_ids)
+        self._append(incident_id, entries, now)
+        if linked:
+            current = self.rows[incident_id]
+            self.rows[incident_id] = replace(
+                current,
+                severity=severity,
+                severity_rationale=dict(severity_rationale),
+                title=title,
+                window_end=max(current.window_end, window_end),
+                distinct_rule_count=distinct_rule_count,
+                updated_at=now,
+            )
+        return linked
+
+    async def already_linked(self, alert_ids: Sequence[UUID]) -> set[UUID]:
+        return {alert_id for alert_id in alert_ids if alert_id in self.alerts}
+
+    async def list(self, query: IncidentFilter) -> Page[IncidentRecord]:
+        rows = list(self.rows.values())
+        if query.status is not None:
+            rows = [r for r in rows if r.status is query.status]
+        if query.open_only:
+            rows = [r for r in rows if not is_closed(r.status)]
+        if query.severity_min is not None:
+            rows = [r for r in rows if r.severity >= query.severity_min]
+        if query.correlation_key is not None:
+            rows = [r for r in rows if r.correlation_key == query.correlation_key]
+        rows.sort(key=lambda r: (r.created_at, r.id.int), reverse=True)
+        return Page(items=tuple(rows[: query.limit]), next_cursor=None)
+
+    async def get(self, incident_id: UUID) -> IncidentDetail | None:
+        row = self.rows.get(incident_id)
+        return None if row is None else self._detail(row)
+
+    async def get_by_case_number(self, case_number_value: str) -> IncidentDetail | None:
+        for row in self.rows.values():
+            if row.case_number == case_number_value:
+                return self._detail(row)
+        return None
+
+    # ---- internals
+
+    def _detail(self, row: IncidentRecord) -> IncidentDetail:
+        alerts = tuple(a for a, incident in self.alerts.items() if incident == row.id)
+        return IncidentDetail(
+            incident=row,
+            alert_ids=alerts,
+            timeline=tuple(sorted(self.timeline[row.id], key=lambda e: e.occurred_at)),
+        )
+
+    def _link(self, incident_id: UUID, alert_ids: Sequence[UUID]) -> int:
+        linked = 0
+        for alert_id in alert_ids:
+            if alert_id in self.alerts:
+                continue
+            self.alerts[alert_id] = incident_id
+            linked += 1
+        return linked
+
+    def _append(
+        self, incident_id: UUID, entries: Sequence[NewTimelineEntry], now: datetime
+    ) -> None:
+        existing = {(e.entry_type, e.alert_id) for e in self.timeline.get(incident_id, [])}
+        for entry in entries:
+            if (entry.entry_type, entry.alert_id) in existing:
+                continue
+            existing.add((entry.entry_type, entry.alert_id))
+            self.timeline.setdefault(incident_id, []).append(
+                TimelineEntryRecord(
+                    id=uuid4(),
+                    incident_id=incident_id,
+                    occurred_at=entry.occurred_at,
+                    entry_type=entry.entry_type,
+                    summary=entry.summary,
+                    detail=dict(entry.detail),
+                    alert_id=entry.alert_id,
+                    actor_user_id=entry.actor_user_id,
+                    created_at=now,
+                )
+            )
 
 
 class FakeAlertStore:

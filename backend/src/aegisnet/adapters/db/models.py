@@ -56,12 +56,15 @@ from aegisnet.domain.enums import (
     DetectorRunStatus,
     EntityType,
     EventType,
+    IncidentAlertSource,
+    IncidentStatus,
     IngestMethod,
     IngestStatus,
     RejectReason,
     SampleRole,
     ServiceTokenRole,
     SourceType,
+    TimelineEntryType,
     UserRole,
 )
 
@@ -98,6 +101,9 @@ SAMPLE_ROLE = _enum(SampleRole, "alert_event_role")
 ALERT_ASSET_ROLE = _enum(AlertAssetRole, "alert_asset_role")
 DETECTOR_RUN_STATUS = _enum(DetectorRunStatus, "detector_run_status")
 ALERT_STATUS = _enum(AlertStatus, "alert_status")
+INCIDENT_STATUS = _enum(IncidentStatus, "incident_status")
+TIMELINE_ENTRY_TYPE = _enum(TimelineEntryType, "timeline_entry_type")
+INCIDENT_ALERT_SOURCE = _enum(IncidentAlertSource, "incident_alert_source")
 BASELINE_METRIC = _enum(BaselineMetric, "baseline_metric")
 
 ENUM_TYPES = (
@@ -116,6 +122,9 @@ ENUM_TYPES = (
     DETECTOR_RUN_STATUS,
     ALERT_STATUS,
     BASELINE_METRIC,
+    INCIDENT_STATUS,
+    TIMELINE_ENTRY_TYPE,
+    INCIDENT_ALERT_SOURCE,
 )
 
 
@@ -557,6 +566,130 @@ M1_TABLES: tuple[str, ...] = (
 )
 """The nine tables the Milestone 1 baseline creates, in dependency order."""
 
+
+class Incident(Base):
+    """A case: the alerts about one entity that tell one story (ADR-023)."""
+
+    __tablename__ = "incidents"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    case_number: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    severity: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    severity_rationale: Mapped[dict[str, Any]] = mapped_column(pg.JSONB, nullable=False)
+    status: Mapped[IncidentStatus] = mapped_column(
+        INCIDENT_STATUS, nullable=False, server_default=IncidentStatus.new.value
+    )
+    primary_asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("assets.id", ondelete="SET NULL"), nullable=True
+    )
+    correlation_key: Mapped[str] = mapped_column(Text, nullable=False)
+    window_start: Mapped[datetime] = mapped_column(nullable=False)
+    window_end: Mapped[datetime] = mapped_column(nullable=False)
+    distinct_rule_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    assigned_to: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    closed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    closure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = _now()
+    updated_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        CheckConstraint("severity BETWEEN 1 AND 5", name="ck_incidents_severity_range"),
+        CheckConstraint("window_end >= window_start", name="ck_incidents_window_order"),
+        CheckConstraint(
+            "distinct_rule_count >= 1", name="ck_incidents_distinct_rule_count_positive"
+        ),
+        CheckConstraint(
+            "(status IN ('closed_true_positive', 'closed_false_positive', 'closed_benign'))"
+            " = (closed_at IS NOT NULL)",
+            name="ck_incidents_closed_at_matches_status",
+        ),
+        Index("ix_incidents_created_at", text("created_at DESC")),
+        Index("ix_incidents_status", "status"),
+        # The lookup correlation makes on every run: the open case for this entity, most
+        # recent first. Partial, because a closed case never absorbs a new alert (ADR-023).
+        Index(
+            "ix_incidents_open_by_key",
+            "correlation_key",
+            text("window_end DESC"),
+            postgresql_where=text(
+                "status NOT IN ('closed_true_positive', 'closed_false_positive', 'closed_benign')"
+            ),
+        ),
+    )
+
+
+class IncidentAlert(Base):
+    """Which alerts are in which case. One alert belongs to one case, which is what keeps a
+    re-run from fanning a case out into several."""
+
+    __tablename__ = "incident_alerts"
+
+    incident_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("incidents.id", ondelete="CASCADE"), primary_key=True
+    )
+    alert_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("alerts.id", ondelete="CASCADE"), primary_key=True, unique=True
+    )
+    added_at: Mapped[datetime] = _now()
+    added_by: Mapped[IncidentAlertSource] = mapped_column(INCIDENT_ALERT_SOURCE, nullable=False)
+
+
+class IncidentTimelineEntry(Base):
+    """The case's story, append-only."""
+
+    __tablename__ = "incident_timeline"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    incident_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False
+    )
+    occurred_at: Mapped[datetime] = mapped_column(nullable=False)
+    entry_type: Mapped[TimelineEntryType] = mapped_column(TIMELINE_ENTRY_TYPE, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    detail: Mapped[dict[str, Any]] = mapped_column(
+        pg.JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    alert_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("alerts.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        UniqueConstraint(
+            "incident_id", "entry_type", "alert_id", name="uq_incident_timeline_alert_entry"
+        ),
+        Index("ix_incident_timeline_incident_id", "incident_id", "occurred_at"),
+    )
+
+
+class IncidentNote(Base):
+    """What an analyst wrote. No edits in v1: a note is a record of what was thought at the
+    time, and rewriting it would make the timeline a worse witness."""
+
+    __tablename__ = "incident_notes"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    incident_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False
+    )
+    author_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        CheckConstraint("length(body) BETWEEN 1 AND 8000", name="ck_incident_notes_body_length"),
+        Index("ix_incident_notes_incident_id", "incident_id", "created_at"),
+    )
+
+
 M2_TABLES: tuple[str, ...] = (
     "detection_rules",
     "detector_runs",
@@ -567,7 +700,14 @@ M2_TABLES: tuple[str, ...] = (
 )
 """The six detection tables revision 0003 adds (Milestone 2, Chunk 9), in dependency order."""
 
-ALL_TABLES: tuple[str, ...] = M1_TABLES + M2_TABLES
+M3_TABLES: tuple[str, ...] = (
+    "incidents",
+    "incident_alerts",
+    "incident_timeline",
+    "incident_notes",
+)
+
+ALL_TABLES: tuple[str, ...] = M1_TABLES + M2_TABLES + M3_TABLES
 
 
 APP_ROLE_READ_WRITE_TABLES: tuple[str, ...] = tuple(t for t in ALL_TABLES if t != "audit_log")

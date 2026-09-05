@@ -9,7 +9,8 @@ COMPOSE ?= docker compose
 UV ?= uv
 BACKEND := backend
 
-.PHONY: lab-preflight lab-up lab-traffic lab-capture lab-export lab-sanitize lab-down lab-clean eval-lab test-security \
+.PHONY: correlate incidents incident test-correlation \
+        lab-preflight lab-up lab-traffic lab-capture lab-export lab-sanitize lab-down lab-clean eval-lab test-security \
         test-detectors gen-fixtures eval run-detectors alerts recompute-baselines baselines create-user users create-service-token revoke-service-token service-tokens \
         help bootstrap bootstrap-force verify-ignore require-env compose-config \
         build up down compose-ps compose-logs compose-down compose-test pin-digests clean \
@@ -289,6 +290,19 @@ run-detectors: require-env ## Run every detection rule over [FROM, TO) (MODE=syn
 WINDOW_DAYS ?= 7
 recompute-baselines: require-env ## Summarise each asset's outbound history into asset_baselines (WINDOW_DAYS=7, MODE=sync|async)
 	$(COMPOSE) run --rm api python -m aegisnet.cli recompute-baselines --window-days $(WINDOW_DAYS) --mode $(MODE)
+
+correlate: require-env ## Group uncorrelated alerts into incidents (FROM=... TO=...)
+	$(COMPOSE) run --rm api python -m aegisnet.cli correlate --from $(FROM) --to $(TO)
+
+incidents: require-env ## List incidents, newest first (OPEN=1 hides closed cases)
+	$(COMPOSE) run --rm api python -m aegisnet.cli incidents $(if $(OPEN),--open,)
+
+incident: require-env ## Show one incident by case number or id (REF=AEG-2026-0001)
+	$(COMPOSE) run --rm api python -m aegisnet.cli incident $(REF)
+
+test-correlation: ## The correlation suite alone: the grouping policy, the workflow, the service
+	cd $(BACKEND) && ENV=test $(UV) run pytest tests/unit/test_correlation_domain.py \
+	  tests/unit/test_correlation_service.py
 
 baselines: require-env ## List the stored baselines
 	$(COMPOSE) run --rm api python -m aegisnet.cli baselines

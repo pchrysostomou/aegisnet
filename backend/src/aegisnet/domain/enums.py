@@ -129,3 +129,41 @@ class BaselineMetric(StrEnum):
     outbound_bytes_per_hour = "outbound_bytes_per_hour"
     distinct_dest_per_hour = "distinct_dest_per_hour"
     dns_queries_per_hour = "dns_queries_per_hour"
+
+
+@unique
+class IncidentStatus(StrEnum):
+    """Where a case is. Three closed states because *why* a case closed is the part an analyst
+    needs later, and a single `closed` would throw it away. The legal moves between them are
+    in `domain/incidents.py`, which is where the workflow lives."""
+
+    new = "new"
+    triaging = "triaging"
+    investigating = "investigating"
+    contained_recommended = "contained_recommended"
+    closed_true_positive = "closed_true_positive"
+    closed_false_positive = "closed_false_positive"
+    closed_benign = "closed_benign"
+
+
+@unique
+class TimelineEntryType(StrEnum):
+    """What a line in an incident's story can be. The timeline is append-only, so this is the
+    whole grammar of what a case can say about itself."""
+
+    alert_fired = "alert_fired"
+    observation = "observation"
+    status_change = "status_change"
+    note_added = "note_added"
+    brief_generated = "brief_generated"
+    report_exported = "report_exported"
+    asset_linked = "asset_linked"
+
+
+@unique
+class IncidentAlertSource(StrEnum):
+    """Who put an alert in a case. A rule's arithmetic and an analyst's judgement are both
+    legitimate, and telling them apart later matters more than either."""
+
+    correlation_engine = "correlation_engine"
+    analyst = "analyst"

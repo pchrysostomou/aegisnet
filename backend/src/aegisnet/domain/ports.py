@@ -10,7 +10,7 @@ domain) holds in both directions (ADR-014). The ingest service writes through
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Generic, Protocol, TypeVar
 from uuid import UUID
@@ -25,12 +25,15 @@ from aegisnet.domain.enums import (
     DetectorRunStatus,
     EntityType,
     EventType,
+    IncidentAlertSource,
+    IncidentStatus,
     IngestMethod,
     IngestStatus,
     RejectReason,
     SampleRole,
     ServiceTokenRole,
     SourceType,
+    TimelineEntryType,
     UserRole,
 )
 from aegisnet.domain.models import NormalizedEvent, Reject
@@ -406,6 +409,139 @@ class AlertStore(Protocol):
     async def list(self, query: AlertFilter) -> Page[AlertRecord]: ...
 
     async def get(self, alert_id: UUID) -> AlertDetail | None: ...
+
+
+# ---------------------------------------------------------------- incidents (M3, ADR-023)
+
+
+@dataclass(frozen=True, slots=True)
+class IncidentRecord:
+    id: UUID
+    case_number: str
+    title: str
+    severity: int
+    severity_rationale: dict[str, Any]
+    status: IncidentStatus
+    primary_asset_id: UUID | None
+    correlation_key: str
+    window_start: datetime
+    window_end: datetime
+    distinct_rule_count: int
+    assigned_to: UUID | None
+    closed_at: datetime | None
+    closure_reason: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class NewTimelineEntry:
+    """A line to append to a case's story. `alert_id` is set for `alert_fired`, which is what
+    the UNIQUE constraint uses to keep a re-run from saying the same thing twice."""
+
+    occurred_at: datetime
+    entry_type: TimelineEntryType
+    summary: str
+    detail: dict[str, Any] = field(default_factory=dict)
+    alert_id: UUID | None = None
+    actor_user_id: UUID | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NewIncident:
+    """A case to open, with the alerts that justify it. The case number is allocated by the
+    store from a sequence, because two runs asking for "the next one" must not both get it."""
+
+    correlation_key: str
+    title: str
+    severity: int
+    severity_rationale: dict[str, Any]
+    window_start: datetime
+    window_end: datetime
+    distinct_rule_count: int
+    alert_ids: tuple[UUID, ...]
+    primary_asset_id: UUID | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TimelineEntryRecord:
+    id: UUID
+    incident_id: UUID
+    occurred_at: datetime
+    entry_type: TimelineEntryType
+    summary: str
+    detail: dict[str, Any]
+    alert_id: UUID | None
+    actor_user_id: UUID | None
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class IncidentDetail:
+    incident: IncidentRecord
+    alert_ids: tuple[UUID, ...]
+    timeline: tuple[TimelineEntryRecord, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class IncidentFilter:
+    status: IncidentStatus | None = None
+    open_only: bool = False
+    severity_min: int | None = None
+    correlation_key: str | None = None
+    limit: int = DEFAULT_LIMIT
+    cursor: str | None = None
+
+
+class IncidentStore(Protocol):
+    async def open_case(
+        self,
+        incident: NewIncident,
+        entries: Sequence[NewTimelineEntry],
+        *,
+        now: datetime,
+        source: IncidentAlertSource = IncidentAlertSource.correlation_engine,
+    ) -> IncidentRecord:
+        """Allocate a case number, create the case, link its alerts and write its story."""
+        ...
+
+    async def newest_open_for_key(self, correlation_key: str) -> IncidentRecord | None:
+        """The most recent case for this entity that is still open, or ``None``. A closed case
+        is never returned: it must not absorb new alerts (ADR-023)."""
+        ...
+
+    async def newest_closed_for_key(self, correlation_key: str) -> IncidentRecord | None:
+        """The most recent *closed* case for this entity, or ``None``. Never extended — a new
+        case is opened beside it and names it, so the judgement somebody already made stays
+        where they left it (ADR-023)."""
+        ...
+
+    async def extend(
+        self,
+        incident_id: UUID,
+        alert_ids: Sequence[UUID],
+        entries: Sequence[NewTimelineEntry],
+        *,
+        severity: int,
+        severity_rationale: dict[str, Any],
+        title: str,
+        window_end: datetime,
+        distinct_rule_count: int,
+        now: datetime,
+        source: IncidentAlertSource = IncidentAlertSource.correlation_engine,
+    ) -> int:
+        """Add alerts to an open case and grow it; returns how many links were new."""
+        ...
+
+    async def already_linked(self, alert_ids: Sequence[UUID]) -> set[UUID]:
+        """Of these alerts, the ones already in some case. One alert belongs to one case."""
+        ...
+
+    async def list(self, query: IncidentFilter) -> Page[IncidentRecord]: ...
+
+    async def get(self, incident_id: UUID) -> IncidentDetail | None: ...
+
+    async def get_by_case_number(self, case_number: str) -> IncidentDetail | None: ...
 
 
 @dataclass(frozen=True, slots=True)

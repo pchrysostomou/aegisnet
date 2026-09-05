@@ -186,15 +186,26 @@ Indexes: `UNIQUE (dedup_key)`, `(severity DESC, first_seen DESC)`, `(entity_type
 | `assigned_to` | uuid FK users NULL | |
 | `closed_at` | timestamptz NULL | |
 | `closure_reason` | text NULL | |
+| `severity_rationale` | jsonb | the arithmetic that produced `severity`, so it can be re-derived rather than believed (ADR-023) |
+| `created_at` / `updated_at` | timestamptz | |
+
+Indexes: `(created_at DESC)`, `(status)`, and a partial `(correlation_key, window_end DESC)`
+over open cases only — the lookup correlation makes on every run, and partial because a closed
+case never absorbs a new alert. Check constraints: severity 1..5, `window_end >= window_start`,
+`distinct_rule_count >= 1`, and a closed status carries `closed_at` exactly when it is closed.
+`case_number` comes from the `incident_case_seq` sequence (ADR-023).
 
 `incident_alerts`: `incident_id`, `alert_id` (composite PK), `added_at`, `added_by` enum(`correlation_engine`,`analyst`).
+`alert_id` is additionally UNIQUE: an alert belongs to exactly one case, which is what makes a
+correlation re-run a no-op rather than a second opinion (ADR-023).
 
 ### `incident_timeline`
 Ordered, typed narrative. Append-only.
 
 `id`, `incident_id` FK, `occurred_at` timestamptz, `entry_type` enum(`alert_fired`,`observation`,`status_change`,`note_added`,`brief_generated`,`report_exported`,`asset_linked`),
 `summary` text, `detail` jsonb, `actor_user_id` uuid NULL, `alert_id` uuid NULL, `created_at`.
-Index: `(incident_id, occurred_at)`.
+Index: `(incident_id, occurred_at)`. UNIQUE `(incident_id, entry_type, alert_id)`: a case says
+the same thing about an alert once, however often correlation runs.
 
 ### `incident_notes`
 `id`, `incident_id`, `author_id`, `body` text (markdown, rendered via SafeMarkdown), `created_at`. No edits in v1.

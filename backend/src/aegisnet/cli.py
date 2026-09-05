@@ -28,6 +28,9 @@ Commands:
     detector-runs                  recent detector runs
     recompute-baselines            summarise each asset's outbound history into asset_baselines
     baselines                      list the stored baselines
+    correlate --from --to          group uncorrelated alerts into incidents
+    incidents                      list incidents, newest first
+    incident REF                   one incident by case number or id
     eval-detectors                 score the rules on the labelled cases and the benign corpus;
                                    run inside the checkout, no paths accepted
 
@@ -70,6 +73,7 @@ from aegisnet.adapters.db.detection_store import (
     SqlRuleStore,
 )
 from aegisnet.adapters.db.event_read_store import SqlEventReadStore
+from aegisnet.adapters.db.incident_store import SqlIncidentStore
 from aegisnet.adapters.db.ingest_store import SqlIngestStore
 from aegisnet.adapters.db.session import make_session_factory
 from aegisnet.adapters.files.labelled import LabelledCaseError
@@ -87,6 +91,7 @@ from aegisnet.domain.ports import (
     AssetFilter,
     BatchFilter,
     EventQuery,
+    IncidentFilter,
     ServiceTokenRecord,
     UserRecord,
 )
@@ -95,6 +100,10 @@ from aegisnet.services.asset_service import AssetService
 from aegisnet.services.audit_service import AuditService
 from aegisnet.services.auth_service import AuthPolicy, AuthService
 from aegisnet.services.baseline_service import BaselineService
+from aegisnet.services.correlation_service import (
+    CorrelationService,
+    summarise,
+)
 from aegisnet.services.detection_service import (
     AlertNotFoundError,
     DetectionService,
@@ -158,6 +167,8 @@ class Services:
             baselines=baseline_store,
         )
         self.baselines = BaselineService(asset_store, events_store, baseline_store)
+        self.incidents = SqlIncidentStore(sessions)
+        self.correlation = CorrelationService(self.incidents, SqlAlertStore(sessions))
         self.auth = AuthService(
             SqlUserStore(sessions),
             SqlRefreshTokenStore(sessions),
@@ -339,6 +350,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--window-days", type=int, default=7, choices=range(1, 91), metavar="1..90"
     )
     recompute.add_argument("--mode", choices=["sync", "async"], default="sync")
+    correlate = commands.add_parser(
+        "correlate", help="group uncorrelated alerts in an interval into incidents"
+    )
+    correlate.add_argument("--from", dest="time_from", type=_timestamp, required=True)
+    correlate.add_argument("--to", dest="time_to", type=_timestamp, required=True)
+
+    incidents = commands.add_parser("incidents", help="list incidents, newest first")
+    incidents.add_argument(
+        "--open", dest="open_only", action="store_true", help="hide closed cases"
+    )
+    incidents.add_argument("--severity-min", type=int, default=None)
+    incidents.add_argument("--limit", type=int, default=DEFAULT_LIMIT)
+    incidents.add_argument("--cursor", default=None)
+
+    incident = commands.add_parser("incident", help="show one incident by case number or id")
+    incident.add_argument("reference", help="AEG-2026-0001 or a uuid")
+
     commands.add_parser("baselines", help="list the stored baselines")
 
     evaluation = commands.add_parser(
@@ -659,6 +687,44 @@ def cmd_run_detectors(settings: Settings, args: argparse.Namespace) -> int:
     return EXIT_FAILED if any(run.status.value == "error" for run in outcome.runs) else EXIT_OK
 
 
+def cmd_correlate(settings: Settings, args: argparse.Namespace) -> int:
+    """Group the uncorrelated alerts in an interval into cases (ADR-023). Re-running an
+    interval is a no-op, so this is safe to repeat."""
+    outcome = _run(settings, lambda s: s.correlation.correlate(args.time_from, args.time_to))
+    _emit(summarise(outcome))
+    return EXIT_OK
+
+
+def cmd_incidents(settings: Settings, args: argparse.Namespace) -> int:
+    query = IncidentFilter(
+        open_only=args.open_only,
+        severity_min=args.severity_min,
+        limit=args.limit,
+        cursor=args.cursor,
+    )
+    page = _run(settings, lambda s: s.incidents.list(query))
+    _emit({"incidents": list(page.items), "next_cursor": page.next_cursor})
+    return EXIT_OK
+
+
+def cmd_incident(settings: Settings, reference: str) -> int:
+    """One case by number (`AEG-2026-0001`) or by id, with its alerts and its timeline."""
+
+    async def lookup(services: Services) -> object:
+        try:
+            incident_id = UUID(reference)
+        except ValueError:
+            return await services.incidents.get_by_case_number(reference)
+        return await services.incidents.get(incident_id)
+
+    detail = _run(settings, lookup)
+    if detail is None:
+        _emit({"error": f"no incident {reference}"})
+        return EXIT_FAILED
+    _emit(detail)
+    return EXIT_OK
+
+
 def cmd_alerts(settings: Settings, args: argparse.Namespace) -> int:
     query = AlertFilter(
         severity_min=args.severity_min, rule_id=args.rule, limit=args.limit, cursor=args.cursor
@@ -798,6 +864,12 @@ def dispatch(settings: Settings, samples_dir: Path, args: argparse.Namespace) ->
             return cmd_detector_runs(settings, args.limit)
         case "recompute-baselines":
             return cmd_recompute_baselines(settings, args)
+        case "correlate":
+            return cmd_correlate(settings, args)
+        case "incidents":
+            return cmd_incidents(settings, args)
+        case "incident":
+            return cmd_incident(settings, args.reference)
         case "baselines":
             return cmd_baselines(settings)
     return EXIT_USAGE  # pragma: no cover - argparse enforces the command set

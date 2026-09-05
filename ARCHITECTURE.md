@@ -1,9 +1,24 @@
 # AegisNet — System Architecture
 
-Status: **Proposal (planning phase). No code written yet.**
-Last updated: 2026-08-28
+Status: **Target design, reviewed at the Milestone 1 gate (2026-09-05).** Section 0 says what is implemented;
+the rest describes the design the milestones build towards.
+Last updated: 2026-09-05
 
 ---
+
+## 0. Implementation status at the Milestone 1 gate
+
+| Part of this document | State on `main` (evidence in `docs/STATUS.md`) |
+|---|---|
+| §1 layering and `domain/` purity | Implemented and enforced by import-linter in CI (two contracts) |
+| §2 `api`, `worker`, `db`, `broker/cache`, `web` | Running: FastAPI api with auth, RBAC, audit and rate limits; Dramatiq worker with `import_dataset` and `import_upload`; PostgreSQL 16; Redis 7 as broker, limiter and denylist; Next.js 15 placeholder |
+| §2 `scheduler` (periodiq) | Deferred to M2 (ADR-010); not in the M1 stack |
+| §2 `perplexity` client | Not started (M5); no outbound call exists |
+| §3 ingest → validate → persist → enqueue | Implemented: HTTP and registry import, capped spool, per-line rejects, idempotent `event_hash`, audit per batch |
+| §3 detectors, baselines, correlation, redaction, briefs, export | Not started (M2 – M5) |
+| §4 trust boundaries TB-1, TB-2, TB-5, TB-6 | Mitigations in place with named tests (`THREAT_MODEL.md`); TB-3/TB-4 have no code yet |
+| §6 topology | Five services, loopback only, samples mounted read-only, `ingest_spool` volume shared by api and worker |
+| §7 failure modes | Redis down: login and ingest refuse (`429`), reads proceed; malformed lines become rejects; the rest awaits M2 – M5 |
 
 ## 1. Architectural style
 
@@ -32,10 +47,10 @@ against fixtures with no database.
 
 | Component | Tech | Responsibility |
 |---|---|---|
-| `web` | Next.js 14 (App Router), TypeScript, Tailwind | Analyst dashboard; server components for lists, client components for interactive timeline |
+| `web` | Next.js 15 (App Router), TypeScript; Tailwind planned | Analyst dashboard (M4); a health placeholder in M1 |
 | `api` | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 (async), Alembic | REST API, auth/RBAC, validation, rate limiting, audit logging, enqueue jobs |
 | `worker` | Dramatiq | Normalization, detector sweeps, correlation, baseline recompute, Perplexity brief generation |
-| `scheduler` | periodiq (Dramatiq companion) | Periodic detector sweep + nightly baseline recompute |
+| `scheduler` | periodiq (Dramatiq companion) | Periodic detector sweep + nightly baseline recompute — **deferred to M2 (ADR-010)** |
 | `db` | PostgreSQL 16 | System of record; JSONB for event payloads and evidence |
 | `broker/cache` | Redis 7 | Dramatiq broker, rate-limit counters, Perplexity response cache |
 | `perplexity` | External HTTPS | Sole external egress, via a single hardened client module |
@@ -168,8 +183,9 @@ bypassed.
 
 ## 6. Deployment topology (Docker Compose)
 
-Services: `db`, `redis`, `api`, `worker`, `scheduler`, `web`. All on one internal bridge network; only `web`
-(3000) and `api` (8000) publish ports. No service is exposed on a routable interface by default, and the compose
+Services in Milestone 1: `db`, `redis`, `api`, `worker`, `web` (`scheduler` joins in M2, ADR-010). All on one
+internal bridge network; only `web` (3000) and `api` (8000) publish ports. `api` and `worker` mount `./samples`
+read-only and share the `ingest_spool` named volume where uploads wait between the request and the actor (ADR-016). No service is exposed on a routable interface by default, and the compose
 file binds published ports to `127.0.0.1`. Healthchecks gate `api` on `db` + `redis`, and `web` on `api`.
 Secrets come from `.env` (never committed); `.env.example` is the documented template.
 
@@ -180,7 +196,7 @@ an internal-only network with no default route, so lab traffic generation can ne
 
 | Failure | Behaviour |
 |---|---|
-| Redis down | Ingest accepted and persisted; jobs queue on recovery; API returns `202` with a queued status |
+| Redis down | Login and ingest answer `429` (limits fail closed, ADR-016); reads and the default group proceed and log an error; a queued import waits for the broker to return |
 | Perplexity unreachable / 429 / 5xx | Retry with backoff, then mark brief `failed`; incident fully usable; error surfaced non-blockingly in UI |
 | Perplexity returns unparseable output | Brief rejected, `schema_validation_failed` recorded, no partial brief shown |
 | Malformed EVE lines | Per-line reject into `ingest_rejects`; batch still succeeds; counts reported |

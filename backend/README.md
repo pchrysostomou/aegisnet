@@ -16,7 +16,8 @@ Application foundation only:
   still a `.env.example` placeholder outside the test environment
 - `logging.py` — JSON logging, correlation IDs, secret scrubbing, control-character
   neutralisation for untrusted content
-- `api/errors.py` — one error envelope for every failure, with no internals disclosed
+- `api/errors.py` — one error envelope for every failure, with no internals disclosed; a
+  rejected `dataset_id` on the import route is audited with the field name only (Chunk 7)
 - `api/v1/health.py` — `/healthz` liveness and `/readyz` readiness, where readiness means
   PostgreSQL and Redis reachability and nothing else
 - `api/v1/meta.py` — `/api/v1/meta/version` (requires `meta.read` since Chunk 6)

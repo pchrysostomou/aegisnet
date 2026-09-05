@@ -11,7 +11,7 @@ Last updated: 2026-08-28
 **Goal.** A reviewer clones the repo, runs one command, gets a healthy stack, ingests committed synthetic
 Suricata EVE JSON, and queries normalized events and assets through an authenticated API.
 
-**Deliverables.** Docker Compose (db, redis, api, worker, scheduler, web placeholder) · `.env.example` ·
+**Deliverables.** Docker Compose (db, redis, api, worker, web placeholder; the scheduler moved to M2 by ADR-010) · `.env.example` ·
 config via pydantic-settings with `SecretStr` · structured logging with secret scrubbing · Alembic baseline
 migration for `ingest_batches`, `events`, `ingest_rejects`, `assets`, `asset_networks`, `users`,
 `service_tokens`, `refresh_tokens`, `audit_log` · EVE Pydantic schema + normalizer + sanitizer · idempotent
@@ -28,13 +28,13 @@ driven, proven entirely by the committed deterministic synthetic corpus.
 **Security risks addressed.** T-1.1 – T-1.9, T-2.1, T-2.7, T-5.2, T-5.4.
 
 **Acceptance criteria.**
-- [ ] `docker compose up --build` reaches healthy on a clean clone; `GET /readyz` returns `200`.
-- [ ] `make seed && make demo-ingest` stores the synthetic batch; a second run adds zero new events.
-- [ ] `events` row counts and `event_type` distribution match the generator's manifest exactly.
-- [ ] Malformed-line, oversized-body, deep-JSON, and path-traversal tests all pass.
-- [ ] Every route has a permission dependency (enumeration test passes).
-- [ ] Ruff, mypy (strict on `domain/`), and pytest green in GitHub Actions.
-- [ ] No secret appears anywhere in the repo (CI secret scan passes).
+- [x] `docker compose up --build` reaches healthy on a clean clone; `GET /readyz` returns `200` — the CI `stack` job on every push (`docs/STATUS.md` E-38).
+- [x] `make seed && make demo-ingest` stores the synthetic batch; a second run adds zero new events — E-32, E-37.
+- [x] `events` row counts and `event_type` distribution match the generator's manifest exactly — E-25, E-32 (stats total 2000, per-type counts equal to the manifest).
+- [x] Malformed-line, oversized-body, deep-JSON, and path-traversal tests all pass — `tests/security/test_payload_limits.py`, `test_path_traversal.py`, `tests/integration/test_ingest_routes.py` (E-34, E-42).
+- [x] Every route has a permission dependency (enumeration test passes) — `tests/security/test_rbac.py` (E-34).
+- [x] Ruff, mypy (strict on `domain/`), and pytest green in GitHub Actions — every `ci` run since E-10; latest E-38, E-43.
+- [x] No secret appears anywhere in the repo (CI secret scan passes) — the `security` workflow's gitleaks job (E-38).
 
 **Commands.** `cp .env.example .env` → `docker compose up --build -d` → `make migrate` → `make seed` →
 `make demo-ingest` → `make test` → `make lint typecheck`.

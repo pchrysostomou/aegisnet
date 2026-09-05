@@ -1,8 +1,9 @@
 # AegisNet — Safe Local Evaluation Plan
 
 Status: **Plan only. No results yet — every results table below is a placeholder and must not be read as an
-outcome.** Results are populated by `make eval` from M2 onward.
-Last updated: 2026-08-28
+outcome.** Results are populated by `make eval` from M2 onward. At the Milestone 1 gate (2026-09-05) no detector
+exists, so detector accuracy is **unmeasured** and AegisNet makes no claim about it.
+Last updated: 2026-09-05
 
 ---
 

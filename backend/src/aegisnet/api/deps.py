@@ -97,16 +97,21 @@ async def optional_principal(
 ) -> Principal | None:
     """Bearer access token or service token; ``None`` when neither header is present.
     A present-but-invalid credential is refused, never downgraded to anonymous."""
+    principal: Principal | None = None
     authorization = request.headers.get("Authorization")
+    service_token = request.headers.get(INGEST_TOKEN_HEADER)
     if authorization:
         scheme, _, token = authorization.partition(" ")
         if scheme.lower() != "bearer" or not token.strip():
             raise NotAuthenticatedError("unsupported authorization scheme")
-        return await svc.auth.authenticate_access(token.strip())
-    service_token = request.headers.get(INGEST_TOKEN_HEADER)
-    if service_token:
-        return await svc.auth.authenticate_service_token(service_token.strip())
-    return None
+        principal = await svc.auth.authenticate_access(token.strip())
+    elif service_token:
+        principal = await svc.auth.authenticate_service_token(service_token.strip())
+    # Exception handlers cannot see dependency results; the validation handler reads this
+    # to attribute a refused import to its caller (api-milestone-1 acceptance: traversal
+    # attempts are audited).
+    request.state.principal = principal
+    return principal
 
 
 def require(permission: Permission) -> Callable[..., Awaitable[Principal]]:

@@ -9,6 +9,13 @@ Nothing is released yet. There is no tagged version.
 ## [Unreleased]
 
 ### Added
+- **Chunk 7 — the documents at the Milestone 1 gate.** A `dataset_id` that fails its grammar
+  on `POST /api/v1/ingest/import` is now audited as `ingest.refused` with the caller and the
+  field name (never the value), which closes the last API acceptance criterion. The
+  delivery plan's M1 acceptance boxes point at their evidence; `ARCHITECTURE.md` gained an
+  implementation-status section and reflects the M1 topology; `THREAT_MODEL.md` carries the
+  gate review; `docs/evaluation.md` states that no detector exists and accuracy is
+  unmeasured; `docs/STATUS.md` reconciles the Definition-of-Done checklist.
 - **Chunk 6 — authentication, RBAC, audit, rate limits and the HTTP routes.**
   `domain/auth.py`: the permission set, the role matrix (`viewer ⊂ analyst ⊂ admin`,
   `ingest_service` = ingest + version), principals, the length-only password policy,

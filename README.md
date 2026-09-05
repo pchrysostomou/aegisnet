@@ -11,12 +11,13 @@ correlating findings into incidents, and producing evidence-based investigation 
 human analysts. Everything runs on one machine with `docker compose`, binds to loopback,
 and can be exercised end to end with the committed synthetic corpus.
 
-> **Status: Milestone 1, Chunk 6 of 7 complete.** The stack builds and reaches healthy
+> **Status: Milestone 1 complete (Chunks 1–7).** The stack builds and reaches healthy
 > from a clean clone; the schema is created with least-privilege grants; users, roles,
-> service tokens, rate limits and an append-only audit trail are in place; and the HTTP API
-> ingests telemetry, manages the asset inventory and serves bounded event reads. **There is
-> no detection, no correlation, no AI brief and no analyst UI yet** — those are Milestones
-> 2 to 5. [`docs/STATUS.md`](docs/STATUS.md) is the authoritative record of what exists and
+> service tokens, rate limits and an append-only audit trail are in place; the HTTP API
+> ingests telemetry, manages the asset inventory and serves bounded event reads; and every
+> Milestone 1 acceptance criterion in [`docs/delivery-plan.md`](docs/delivery-plan.md) points
+> at its evidence. **There is no detection, no correlation, no AI brief and no analyst UI
+> yet** — those are Milestones 2 to 5. [`docs/STATUS.md`](docs/STATUS.md) is the authoritative record of what exists and
 > what has been verified, with the evidence for every claim below.
 
 ---
@@ -69,7 +70,7 @@ aspirational:
 | Asset inventory: validated specs, cross-asset CIDR overlap refusal, most-specific-prefix resolution, bulk create, soft delete, seed file | ✅ [ADR-015](docs/adr/ADR-015-asset-inventory-and-event-reads.md) |
 | Event reads: windows of at most 30 days, keyset cursors, page size ≤ 200, filters by type, address, CIDR, port, flow, batch and asset; stats by type and hour; payloads only for roles allowed to see them | ✅ [ADR-015](docs/adr/ADR-015-asset-inventory-and-event-reads.md) |
 | Authentication and authorisation: Argon2id users with lockout, 15-minute HS256 access tokens, rotating refresh cookies with reuse detection, hashed service tokens for sensors, deny-by-default permission on every route | ✅ [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md), [`SECURITY.md`](SECURITY.md) |
-| Audit trail (append-only, bounded detail, admin read API) and Redis rate limits that fail closed for login and ingest | ✅ [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md) |
+| Audit trail (append-only, bounded detail, admin read API) covering logins, denials, refused uploads and rejected import ids, and Redis rate limits that fail closed for login and ingest | ✅ [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md) |
 | Operator CLI (`python -m aegisnet.cli`) for datasets, batches, assets, events, users and service tokens; `make` targets for every operator task | ✅ |
 | Tests: 566 hermetic tests (unit, integration, security) with a 94 % coverage gate, 44 database tests against a real PostgreSQL, a CI stack job that logs in and ingests over HTTP | ✅ [`docs/STATUS.md`](docs/STATUS.md) |
 | Detectors, correlation and incidents, analyst dashboard, AI investigation briefs | ⬜ Milestones 2–5 ([roadmap](#roadmap)) |
@@ -396,7 +397,7 @@ reporting, as described in [`SECURITY.md`](SECURITY.md).
 
 | Milestone | Scope | State |
 |---|---|---|
-| M1 | Foundation, ingest, normalisation, asset inventory, auth and audit | 🟡 Chunks 1–6 done; Chunk 7 (documents at the gate) next |
+| M1 | Foundation, ingest, normalisation, asset inventory, auth and audit | ✅ Complete; acceptance criteria and evidence in [`docs/delivery-plan.md`](docs/delivery-plan.md) and [`docs/STATUS.md`](docs/STATUS.md) |
 | M2 | Five deterministic detectors (port scan, auth-failure burst, DNS anomaly, periodic beaconing, outbound volume anomaly) with labelled fixtures; the isolated Suricata lab | ⬜ |
 | M3 | Correlation into incidents, timeline, analyst workflow | ⬜ |
 | M4 | Analyst dashboard (Next.js) | ⬜ |

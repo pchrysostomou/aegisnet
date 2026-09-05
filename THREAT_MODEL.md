@@ -1,8 +1,8 @@
 # AegisNet — Threat Model
 
 Method: STRIDE per trust boundary, with a data-flow-driven asset inventory.
-Status: **Planning-phase model. Revisit at the end of every milestone.**
-Last updated: 2026-08-28
+Status: **Reviewed at the Milestone 1 gate (2026-09-05). Revisit at the end of every milestone.**
+Last updated: 2026-09-05
 
 > Note on framing: AegisNet is a *defensive* tool that ingests attacker-influenced data. The most important
 > threats are therefore **inbound-data threats** (malicious log content) and **outbound-data threats**
@@ -41,11 +41,11 @@ Last updated: 2026-08-28
 | ID | STRIDE | Threat | Mitigation | Verified by |
 |---|---|---|---|---|
 | T-1.1 | Tampering | Log-injection: attacker crafts DNS query / HTTP host containing control chars, ANSI escapes, or newlines to forge log lines or corrupt terminal output | Treat log content as opaque data; structured JSON logging only (no string interpolation of untrusted values into log lines); strip C0/C1 control characters on normalization | `backend/tests/unit/eve/test_sanitize.py` and `test_normalizer.py` (hostile fixtures: ANSI, CR/LF, NUL), `tests/unit/test_logging.py` — Chunks 1, 3 |
-| T-1.2 | Tampering / Elevation | Second-order injection: crafted field reaches SQL or a shell | Parameterized SQLAlchemy only; **no raw SQL string building**; no `subprocess` with event-derived input anywhere | CI import-lint ban on `os.system`/`subprocess` in `services/` + `domain/`; SQL-injection integration test |
+| T-1.2 | Tampering / Elevation | Second-order injection: crafted field reaches SQL or a shell | Parameterized SQLAlchemy only; **no raw SQL string building**; no `subprocess` with event-derived input anywhere | SQLAlchemy ORM with bound parameters in every store; no query is built from strings: `backend/tests/db/` exercise every store against PostgreSQL 16 (Chunks 2, 4, 5, 6) |
 | T-1.3 | Tampering | Stored XSS: malicious payload rendered in dashboard | React escapes by default; **`dangerouslySetInnerHTML` banned by ESLint rule**; evidence rendered as text; URLs rendered non-clickable unless scheme-allow-listed | ESLint rule in CI + a stored-XSS fixture test |
 | T-1.4 | DoS | Decompression bomb / 10 GB NDJSON / 10M-line batch | Hard caps: request body size, max lines per batch, max line length, streaming line-by-line parse (never `json.load` whole file), upload timeout | Per-line caps: `backend/tests/security/test_payload_limits.py` (byte cap, multibyte, 20 000-level nesting refused by the scanner, key/item counts) — Chunk 3; line-count cap: `tests/unit/test_ingest_service.py` (batch marked failed, valid events kept) — Chunk 4; body cap before and during the read, spool cap, `mode=sync` line cap, refusals audited as `ingest.refused`: `tests/integration/test_ingest_routes.py`, `tests/unit/test_spool.py` — Chunk 6. An explicit per-request upload timeout is not yet enforced (server defaults only; M6) |
 | T-1.5 | DoS | Pathological JSON nesting or huge single event | Depth and field-count limits before Pydantic; reject to `ingest_rejects` | `backend/tests/security/test_payload_limits.py`, `tests/unit/eve/test_limits.py` — Chunk 3 |
-| T-1.6 | Tampering | Path traversal via file-import endpoint (`../../etc/passwd`) | Import accepts a **dataset id from a registry**, not a path; resolved path must be a child of `samples/` after `realpath`; symlinks rejected | `backend/tests/security/test_path_traversal.py` — Chunk 3: traversal and absolute paths, symlinked file and directory, checksum mismatch, malformed registries, no path in any error |
+| T-1.6 | Tampering | Path traversal via file-import endpoint (`../../etc/passwd`) | Import accepts a **dataset id from a registry**, not a path; resolved path must be a child of `samples/` after `realpath`; symlinks rejected | `backend/tests/security/test_path_traversal.py` — Chunk 3: traversal and absolute paths, symlinked file and directory, checksum mismatch, malformed registries, no path in any error; a dataset id that fails its grammar on `POST /api/v1/ingest/import` is refused with `422` and audited as `ingest.refused` with the caller and the field name, never the value: `tests/integration/test_ingest_routes.py` — Chunk 7 |
 | T-1.7 | Spoofing | Forged timestamps skew correlation/timeline | Store both `event_time` (from data) and `ingested_at` (server clock); reject timestamps outside a configurable sanity window; timeline shows both | `backend/tests/unit/eve/test_normalizer.py` — Chunk 3: naive timestamps refused, past/future window against an injected clock; `ingested_at` is the server clock at storage, `tests/db/test_ingest_store.py` — Chunk 4 |
 | T-1.8 | Repudiation | Unauthenticated ingest hides who loaded what | Ingest requires `ingest_service` token; every batch records actor + source label + provenance | Provenance per batch (source label, method, dataset id, licence, citation): `tests/db/test_ingest_store.py` — Chunk 4; every route needs a credential, the batch row carries the user or service-token id, and `ingest.batch_created` / `ingest.import_requested` are audited with the actor: `tests/integration/test_ingest_routes.py`, `tests/security/test_rbac.py` — Chunk 6 |
 | T-1.9 | Info disclosure | Committing real capture data into the repo | Only synthetic/lab data committed; pre-commit secret+PII scan; `samples/` policy documented; large/real datasets are gitignored and fetched by the operator | Pre-commit hook + CI scan; `tests/unit/test_gen_synthetic_eve.py` and `tests/integration/test_samples_corpus.py` assert the committed corpus uses only RFC 1918/5737 addresses and example.test/example.com names — Chunk 3 |
@@ -60,7 +60,7 @@ Last updated: 2026-08-28
 | T-2.4 | Spoofing | Token theft / replay | Short-lived access tokens, rotating refresh with reuse detection, `Secure`/`HttpOnly`/`SameSite=Strict` cookies, logout revocation list in Redis | `backend/tests/unit/test_auth_service.py` (rotation, reuse revokes the whole chain, expiry, logout denylists the `jti`, forged/tampered/`alg=none`/wrong-issuer/over-long/future-dated tokens refused, tokens die on role change or deactivation), `tests/integration/test_auth_routes.py` (`HttpOnly; SameSite=Strict; Path=/api/v1/auth` cookie, `Secure` by default, replayed cookie kills the chain and is cleared), `tests/db/test_auth_store.py` — Chunk 6 |
 | T-2.5 | Repudiation | Analyst denies closing a case as false positive | Append-only audit log; no UPDATE/DELETE grant on audit table for the app role; no foreign key on `audit_log` so no referential action can rewrite a row | `backend/tests/db/test_grants.py` (Chunk 2): the app role's UPDATE, DELETE and TRUNCATE on `audit_log` are refused by PostgreSQL; `tests/unit/test_audit_service.py` (credential-like keys dropped, values, keys and nesting bounded, actor attribution), `tests/db/test_audit_store.py` (round trip, newest first, filters, cursors), `tests/integration/test_audit_routes.py` (admin only) — Chunk 6 |
 | T-2.6 | DoS | Expensive query abuse (unbounded event drill-down) | Mandatory keyset pagination with max page size 200, explicit windows of at most 30 days, strictly validated opaque cursors, payload read only on request; query timeouts and per-role rate limits | `backend/tests/security/test_pagination_bounds.py` and `tests/unit/test_pagination.py` — Chunk 5 (bounds); rate limits: `tests/unit/test_redis_adapters.py` (windows, costs, TTLs against fakeredis), `tests/integration/test_auth_routes.py` and `test_ingest_routes.py` (`429` + `Retry-After`, fail-open reads, fail-closed login and ingest) — Chunk 6; query timeouts and the load test remain in the evaluation plan |
-| T-2.7 | Info disclosure | Verbose errors leak schema/stack traces | Global exception handler → generic message + correlation id; tracebacks only to server logs; `DEBUG=false` default | Error-shape test |
+| T-2.7 | Info disclosure | Verbose errors leak schema/stack traces | Global exception handler → generic message + correlation id; tracebacks only to server logs; `DEBUG=false` default | `backend/tests/security/test_error_envelope.py` — Chunk 1: one envelope for every failure, no stack trace, path or SQL in any response; unhandled errors log the matched route template and a fixed-set method only (Chunk 6) |
 
 ### TB-3 — Outbound to Perplexity (highest-consequence boundary)
 
@@ -88,11 +88,11 @@ Last updated: 2026-08-28
 | ID | STRIDE | Threat | Mitigation | Verified by |
 |---|---|---|---|---|
 | T-5.1 | Elevation | Container breakout / excessive privilege | Non-root users in all images, read-only root filesystem where feasible, no `privileged`, dropped capabilities, pinned base image digests | Compose/Dockerfile review checklist |
-| T-5.2 | Info disclosure | Database exposed on host network | Ports bound to `127.0.0.1`; `db`/`redis` publish no ports; strong generated passwords required, no defaults | Compose test |
+| T-5.2 | Info disclosure | Database exposed on host network | Ports bound to `127.0.0.1`; `db`/`redis` publish no ports; strong generated passwords required, no defaults | `backend/tests/security/test_compose_policy.py` — Chunk 1: every published port binds to loopback; `db`, `redis` and `worker` publish none |
 | T-5.3 | Elevation | App DB role can drop tables or alter audit log | Least-privilege app role; migrations run under a separate role that owns every object; audit table has no UPDATE/DELETE grant; no DELETE granted on any table | `backend/tests/db/test_grants.py` (Chunk 2): exact privilege matrix via `has_table_privilege`, ownership by the migrator, and CREATE/ALTER/DROP/DELETE refused for the app role |
-| T-5.4 | Info disclosure | Secrets committed | `.env` gitignored, `.env.example` only, pre-commit + CI secret scanning, no secrets in compose defaults | CI secret scan |
+| T-5.4 | Info disclosure | Secrets committed | `.env` gitignored, `.env.example` only, pre-commit + CI secret scanning, no secrets in compose defaults | `backend/tests/security/test_env_template.py` (every secret variable is a placeholder) and the pre-commit hook — Chunk 1; the `security` workflow's gitleaks job scans history and diff on every push (E-38) |
 | T-5.5 | Availability | Lab traffic generation escapes to the internet | Lab compose uses an `internal: true` network, separate opt-in file, documented "authorised systems only" banner | Manual verification step in `docs/evaluation.md` |
-| T-5.6 | Tampering | Vulnerable dependency | Pinned lockfiles, Dependabot, `pip-audit` + `npm audit` in CI | CI job |
+| T-5.6 | Tampering | Vulnerable dependency | Pinned lockfiles, Dependabot, `pip-audit` + `npm audit` in CI | The `security` workflow: `pip-audit --strict` on the exported lockfile and `pnpm audit --prod` on every push (E-12, E-38); Dependabot alerts enabled on the repository (E-41) |
 
 ## 4. Residual risks (accepted for v1.0)
 
@@ -112,3 +112,18 @@ Last updated: 2026-08-28
 Re-run this model at each milestone gate. Any new external egress, new endpoint, or new rendered field requires
 a new row here before merge. `docs/RELEASE_CHECKLIST.md` blocks `v1.0.0` until every mitigation above has a
 named passing test or an explicit accepted-risk entry.
+
+### Milestone 1 gate review (2026-09-05)
+
+- New endpoints since the planning model: the whole Milestone 1 API (auth, ingest, batches, assets, events,
+  audit). Each carries a permission (T-2.2) and is covered by the route-enumeration and matrix tests; the
+  routes that accept files or ids are covered by T-1.4, T-1.6 and T-1.8.
+- New egress: none. No Perplexity call exists; TB-3 and TB-4 remain planning-phase rows until M5.
+- New rendered fields: none (the web app is still a health placeholder).
+- Milestone 1 rows whose mitigation has no named test yet: T-2.3 (workflow state machine, M3), the
+  query-timeout and load-test parts of T-2.6 (evaluation plan), and the read-only root filesystem and digest
+  pinning parts of T-5.1 (M6). Rows outside Milestone 1's scope keep their planning-phase wording: T-1.3
+  (dashboard rendering, M4), T-5.5 (the lab, M2), and every TB-3 and TB-4 row (M5). All are carried in
+  `docs/STATUS.md` under open risks or the milestone plan.
+- Findings from external analysis were folded in during Chunk 6 (`docs/STATUS.md` E-39 – E-41): an upload's
+  bytes no longer influence any file name, and the bootstrap script creates `.env` with mode 0600 in one call.

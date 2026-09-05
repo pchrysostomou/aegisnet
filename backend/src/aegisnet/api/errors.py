@@ -25,7 +25,7 @@ from aegisnet.adapters.files.registry import (
     UnsafeDatasetPathError,
 )
 from aegisnet.adapters.files.spool import SpoolTooLargeError
-from aegisnet.api.deps import RateLimitedError
+from aegisnet.api.deps import RateLimitedError, client_ip, correlation_id
 from aegisnet.domain.assets import (
     AssetNotFoundError,
     BulkTooLargeError,
@@ -39,6 +39,7 @@ from aegisnet.domain.auth import (
     PermissionDeniedError,
     RefreshReuseError,
 )
+from aegisnet.domain.enums import AuditResult
 from aegisnet.domain.pagination import InvalidCursorError
 from aegisnet.logging import correlation_id_var, get_logger
 from aegisnet.services.event_read_service import EventNotFoundError, EventQueryError
@@ -92,6 +93,31 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
     )
 
 
+AUDITED_FIELDS: Final = {"/api/v1/ingest/import": ("dataset_id",)}
+"""Route → body fields whose rejection is worth an audit entry: a dataset id that fails its
+grammar is the shape a path-traversal attempt takes (T-1.6)."""
+
+
+async def _audit_rejected_fields(request: Request, fields: list[str]) -> None:
+    matched = request.scope.get("route")
+    watched = AUDITED_FIELDS.get(getattr(matched, "path", ""), ())
+    hits = sorted({f.split(".")[-1] for f in fields if f.split(".")[-1] in watched})
+    if not hits:
+        return
+    services = getattr(request.app.state, "services", None)
+    if services is None:
+        return
+    await services.audit.record(
+        "ingest.refused",
+        target_type="ingest",
+        result=AuditResult.denied,
+        detail={"reason": "invalid_field", "fields": hits},  # the values are never recorded
+        principal=getattr(request.state, "principal", None),
+        actor_ip=client_ip(request),
+        correlation_id=correlation_id(),
+    )
+
+
 async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
@@ -102,6 +128,7 @@ async def validation_exception_handler(
         }
         for error in exc.errors()
     ]
+    await _audit_rejected_fields(request, [str(d["field"]) for d in details])
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content=_envelope("validation_failed", "Request failed validation.", details),

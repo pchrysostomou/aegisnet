@@ -226,6 +226,17 @@ def test_import_enqueues_a_registered_dataset_only(
         IMPORT, json={"dataset_id": "../registry", "source_label": "lab"}, headers=admin_headers
     )
     assert traversal.status_code == 422
+    refused = wiring.audit_store.entries[-1]
+    assert refused.action == "ingest.refused" and refused.actor_user_id is not None
+    assert refused.detail == {"reason": "invalid_field", "fields": ["dataset_id"]}
+    assert "registry" not in repr(refused)  # the offending value is never recorded
+    unauthenticated = client.post(IMPORT, json={"dataset_id": "../x", "source_label": "lab"})
+    assert unauthenticated.status_code == 401
+    assert wiring.audit_store.entries[-1] is refused  # no principal, nothing to attribute
+    bad_label = client.post(
+        IMPORT, json={"dataset_id": DATASET, "source_label": "bad label!"}, headers=admin_headers
+    )
+    assert bad_label.status_code == 422 and wiring.audit_store.entries[-1] is refused
     forbidden = client.post(
         IMPORT, json={"dataset_id": DATASET, "source_label": "lab"}, headers=service_headers
     )

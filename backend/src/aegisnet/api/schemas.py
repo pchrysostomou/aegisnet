@@ -15,23 +15,32 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from aegisnet.domain.assets import MAX_BULK, AssetSpec
 from aegisnet.domain.enums import (
+    AlertAssetRole,
+    AlertStatus,
     AssetEnvironment,
     AuditResult,
+    DetectorRunStatus,
+    EntityType,
     EventType,
     IngestMethod,
     IngestStatus,
     RejectReason,
+    SampleRole,
     SourceType,
 )
 from aegisnet.domain.ports import (
+    AlertDetail,
+    AlertRecord,
     AssetRecord,
     AuditRow,
     BatchSummary,
+    DetectorRunRecord,
     EventRow,
     EventStats,
     Page,
     RejectRow,
     ResolvedAsset,
+    RuleRecord,
     UserRecord,
 )
 
@@ -320,6 +329,152 @@ class StatsOut(BaseModel):
         )
 
 
+# ---------------------------------------------------------------- detection (M2)
+
+RULE_ID: Final = re.compile(r"^D-\d{3}$")
+
+
+class AlertOut(BaseModel):
+    id: UUID
+    rule_id: str
+    rule_version: int
+    severity: int
+    confidence: float
+    severity_rationale: dict[str, Any]
+    entity_type: EntityType
+    entity_value: str
+    first_seen: datetime
+    last_seen: datetime
+    evidence: dict[str, Any]
+    event_count: int
+    status: AlertStatus
+    dedup_key: str
+    created_at: datetime
+
+    @classmethod
+    def from_record(cls, record: AlertRecord) -> AlertOut:
+        return cls(
+            id=record.id,
+            rule_id=record.rule_id,
+            rule_version=record.rule_version,
+            severity=record.severity,
+            confidence=record.confidence,
+            severity_rationale=record.severity_rationale,
+            entity_type=record.entity_type,
+            entity_value=record.entity_value,
+            first_seen=record.first_seen,
+            last_seen=record.last_seen,
+            evidence=record.evidence,
+            event_count=record.event_count,
+            status=record.status,
+            dedup_key=record.dedup_key,
+            created_at=record.created_at,
+        )
+
+
+class AlertEventLink(BaseModel):
+    event_id: UUID
+    role: SampleRole
+
+
+class AlertAssetLink(BaseModel):
+    asset_id: UUID
+    role: AlertAssetRole
+
+
+class AlertDetailOut(AlertOut):
+    events: list[AlertEventLink]
+    assets: list[AlertAssetLink]
+
+    @classmethod
+    def from_detail(cls, detail: AlertDetail) -> AlertDetailOut:
+        base = AlertOut.from_record(detail.alert).model_dump()
+        return cls(
+            **base,
+            events=[AlertEventLink(event_id=e, role=r) for e, r in detail.events],
+            assets=[AlertAssetLink(asset_id=a, role=r) for a, r in detail.assets],
+        )
+
+
+class AlertPage(BaseModel):
+    items: list[AlertOut]
+    next_cursor: str | None
+
+    @classmethod
+    def from_page(cls, page: Page[AlertRecord]) -> AlertPage:
+        return cls(
+            items=[AlertOut.from_record(a) for a in page.items], next_cursor=page.next_cursor
+        )
+
+
+class RuleOut(BaseModel):
+    rule_id: str
+    name: str
+    version: int
+    enabled: bool
+    base_severity: int
+    window_seconds: int
+    params: dict[str, Any]
+    description: str
+    mitre_hint: str | None
+    updated_at: datetime
+
+    @classmethod
+    def from_record(cls, record: RuleRecord) -> RuleOut:
+        return cls(
+            rule_id=record.rule_id,
+            name=record.name,
+            version=record.version,
+            enabled=record.enabled,
+            base_severity=record.base_severity,
+            window_seconds=record.window_seconds,
+            params=record.params,
+            description=record.description,
+            mitre_hint=record.mitre_hint,
+            updated_at=record.updated_at,
+        )
+
+
+class DetectorRunOut(BaseModel):
+    id: UUID
+    rule_id: str
+    window_start: datetime
+    window_end: datetime
+    events_examined: int
+    alerts_created: int
+    status: DetectorRunStatus
+    error_detail: str | None
+    duration_ms: int
+    created_at: datetime
+
+    @classmethod
+    def from_record(cls, record: DetectorRunRecord) -> DetectorRunOut:
+        return cls(
+            id=record.id,
+            rule_id=record.rule_id,
+            window_start=record.window_start,
+            window_end=record.window_end,
+            events_examined=record.events_examined,
+            alerts_created=record.alerts_created,
+            status=record.status,
+            error_detail=record.error_detail,
+            duration_ms=record.duration_ms,
+            created_at=record.created_at,
+        )
+
+
+class SweepRequest(Inbound):
+    time_from: datetime = Field(alias="from")
+    time_to: datetime = Field(alias="to")
+
+
+class SweepAccepted(BaseModel):
+    window_start: datetime
+    window_end: datetime
+    queued: Literal[True] = True
+    message_id: str
+
+
 # ---------------------------------------------------------------- audit
 
 
@@ -360,6 +515,13 @@ class AuditPage(BaseModel):
 
 
 __all__ = [
+    "AlertDetailOut",
+    "AlertOut",
+    "AlertPage",
+    "DetectorRunOut",
+    "RuleOut",
+    "SweepAccepted",
+    "SweepRequest",
     "AssetOut",
     "AssetPage",
     "AuditOut",

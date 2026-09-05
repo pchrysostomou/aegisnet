@@ -25,9 +25,22 @@ from aegisnet.domain.assets import (
     NetworkRecord,
     resolve_ip,
 )
-from aegisnet.domain.enums import EventType, IngestStatus, ServiceTokenRole, UserRole
+from aegisnet.domain.enums import (
+    AlertAssetRole,
+    AlertStatus,
+    DetectorRunStatus,
+    EventType,
+    IngestStatus,
+    SampleRole,
+    ServiceTokenRole,
+    UserRole,
+)
 from aegisnet.domain.models import NormalizedEvent
+from aegisnet.domain.pagination import decode_time_id, encode_time_id
 from aegisnet.domain.ports import (
+    AlertDetail,
+    AlertFilter,
+    AlertRecord,
     AssetFilter,
     AssetRecord,
     AuditEntry,
@@ -37,22 +50,26 @@ from aegisnet.domain.ports import (
     BatchFilter,
     BatchProvenance,
     BatchSummary,
+    DetectorRunRecord,
     EventQuery,
     EventRow,
     EventStats,
     NetworkView,
+    NewAlert,
     Page,
     RateLimitDecision,
     RefreshTokenRecord,
     RejectedLine,
     RejectRow,
     ResolvedAsset,
+    RuleRecord,
     ServiceTokenRecord,
     UserRecord,
 )
 from aegisnet.services.asset_service import AssetService
 from aegisnet.services.audit_service import AuditReadService, AuditService
 from aegisnet.services.auth_service import AuthPolicy, AuthService
+from aegisnet.services.detection_service import DetectionService
 from aegisnet.services.event_read_service import EventReadService
 from aegisnet.services.ingest_service import IngestService, limits_from_settings
 
@@ -280,6 +297,15 @@ class FakeEventStore:
             return None
         return row if include_payload else event_row_stub(row.id, None)
 
+    async def load(
+        self, start: datetime, end: datetime, *, max_events: int
+    ) -> tuple[tuple[EventRow, ...], bool]:
+        rows = sorted(
+            (r for r in self.rows.values() if start <= r.event_time < end),
+            key=lambda r: (r.event_time, r.id.int),
+        )
+        return tuple(rows[:max_events]), len(rows) > max_events
+
     async def stats(self, query: EventQuery) -> EventStats:
         self.queries.append(query)
         return EventStats(total=len(self.rows), by_type=(("dns", len(self.rows)),), by_hour=())
@@ -506,6 +532,156 @@ class FakeDenylist:
         return token_id in self.denied
 
 
+class FakeRuleStore:
+    def __init__(self) -> None:
+        self.rows: dict[str, RuleRecord] = {}
+
+    async def upsert(
+        self,
+        *,
+        rule_id: str,
+        name: str,
+        version: int,
+        base_severity: int,
+        window_seconds: int,
+        params: dict[str, object],
+        description: str,
+        mitre_hint: str | None,
+        now: datetime,
+    ) -> RuleRecord:
+        current = self.rows.get(rule_id)
+        record = RuleRecord(
+            id=current.id if current else uuid4(),
+            rule_id=rule_id,
+            name=name,
+            version=version,
+            enabled=current.enabled if current else True,
+            base_severity=base_severity,
+            window_seconds=window_seconds,
+            params=dict(params),
+            description=description,
+            mitre_hint=mitre_hint,
+            updated_at=now,
+        )
+        self.rows[rule_id] = record
+        return record
+
+    async def list(self) -> tuple[RuleRecord, ...]:
+        return tuple(self.rows[k] for k in sorted(self.rows))
+
+    def set_enabled(self, rule_id: str, enabled: bool) -> None:
+        current = self.rows[rule_id]
+        values = {f: getattr(current, f) for f in current.__dataclass_fields__}
+        values["enabled"] = enabled
+        self.rows[rule_id] = RuleRecord(**values)  # type: ignore[arg-type]
+
+
+class FakeDetectorRunStore:
+    def __init__(self) -> None:
+        self.rows: list[DetectorRunRecord] = []
+
+    async def record(
+        self,
+        *,
+        rule_id: str,
+        window_start: datetime,
+        window_end: datetime,
+        events_examined: int,
+        alerts_created: int,
+        status: DetectorRunStatus,
+        error_detail: str | None,
+        duration_ms: int,
+        now: datetime,
+    ) -> DetectorRunRecord:
+        record = DetectorRunRecord(
+            uuid4(),
+            rule_id,
+            window_start,
+            window_end,
+            events_examined,
+            alerts_created,
+            status,
+            error_detail,
+            duration_ms,
+            now,
+        )
+        self.rows.append(record)
+        return record
+
+    async def list(self, *, limit: int) -> tuple[DetectorRunRecord, ...]:
+        return tuple(reversed(self.rows))[:limit]
+
+
+class FakeAlertStore:
+    def __init__(self) -> None:
+        self.rows: dict[UUID, AlertRecord] = {}
+        self.links: dict[
+            UUID,
+            tuple[tuple[tuple[UUID, SampleRole], ...], tuple[tuple[UUID, AlertAssetRole], ...]],
+        ] = {}
+
+    async def create_many(self, alerts: Sequence[NewAlert], now: datetime) -> int:
+        existing = {row.dedup_key for row in self.rows.values()}
+        created = 0
+        for alert in alerts:
+            if alert.dedup_key in existing:
+                continue
+            record = AlertRecord(
+                id=uuid4(),
+                rule_id=alert.rule_id,
+                rule_version=alert.rule_version,
+                dedup_key=alert.dedup_key,
+                severity=alert.severity,
+                confidence=alert.confidence,
+                severity_rationale=dict(alert.severity_rationale),
+                entity_type=alert.entity_type,
+                entity_value=alert.entity_value,
+                first_seen=alert.first_seen,
+                last_seen=alert.last_seen,
+                evidence=dict(alert.evidence),
+                event_count=alert.event_count,
+                status=AlertStatus.open,
+                created_at=now,
+            )
+            self.rows[record.id] = record
+            self.links[record.id] = (alert.samples, alert.assets)
+            existing.add(alert.dedup_key)
+            created += 1
+        return created
+
+    async def list(self, query: AlertFilter) -> Page[AlertRecord]:
+        rows = list(self.rows.values())
+        if query.severity_min is not None:
+            rows = [r for r in rows if r.severity >= query.severity_min]
+        if query.rule_id is not None:
+            rows = [r for r in rows if r.rule_id == query.rule_id]
+        if query.entity_type is not None:
+            rows = [r for r in rows if r.entity_type is query.entity_type]
+        if query.entity_value is not None:
+            rows = [r for r in rows if r.entity_value == query.entity_value]
+        if query.status is not None:
+            rows = [r for r in rows if r.status is query.status]
+        if query.time_from is not None:
+            rows = [r for r in rows if r.first_seen >= query.time_from]
+        if query.time_to is not None:
+            rows = [r for r in rows if r.first_seen < query.time_to]
+        rows.sort(key=lambda r: (r.first_seen, r.id.int), reverse=True)
+        if query.cursor is not None:
+            moment, last_id = decode_time_id(query.cursor)
+            rows = [r for r in rows if (r.first_seen, r.id.int) < (moment, last_id.int)]
+        has_more = len(rows) > query.limit
+        rows = rows[: query.limit]
+        cursor = encode_time_id(rows[-1].first_seen, rows[-1].id) if has_more and rows else None
+        return Page(items=tuple(rows), next_cursor=cursor)
+
+    async def get(self, alert_id: UUID) -> AlertDetail | None:
+        record = self.rows.get(alert_id)
+        if record is None:
+            return None
+        events, assets = self.links[alert_id]
+        return AlertDetail(alert=record, events=events, assets=assets)
+
+
 class FakeWiring:
     """Everything the app needs, in memory, plus what tests need to inspect it."""
 
@@ -539,6 +715,18 @@ class FakeWiring:
         )
         self.assets = AssetService(self.asset_store, clock=self.clock)
         self.events = EventReadService(self.event_store)
+        self.rule_store = FakeRuleStore()
+        self.run_store = FakeDetectorRunStore()
+        self.alert_store = FakeAlertStore()
+        self.detection = DetectionService(
+            self.rule_store,
+            self.run_store,
+            self.alert_store,
+            self.event_store,
+            self.assets,
+            clock=self.clock,
+        )
+        self.sweeps: list[tuple[datetime, datetime]] = []
 
     def services(self) -> AppServices:
         async def enqueue_upload(batch_id: UUID, spool_name: str, source_label: str) -> str:
@@ -548,6 +736,10 @@ class FakeWiring:
         async def enqueue_import(batch_id: UUID, dataset_id: str, source_label: str) -> str:
             self.enqueued.append(("import_dataset", batch_id, dataset_id, source_label))
             return f"msg-{len(self.enqueued)}"
+
+        async def enqueue_sweep(start: datetime, end: datetime) -> str:
+            self.sweeps.append((start, end))
+            return f"sweep-{len(self.sweeps)}"
 
         return AppServices(
             settings=self.settings,
@@ -561,6 +753,8 @@ class FakeWiring:
             spool=self.spool,
             enqueue_upload=enqueue_upload,
             enqueue_import=enqueue_import,
+            detection=self.detection,
+            enqueue_sweep=enqueue_sweep,
         )
 
     def factory(self) -> object:

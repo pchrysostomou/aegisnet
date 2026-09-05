@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
@@ -30,12 +31,14 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Identity,
     Index,
     Integer,
     LargeBinary,
     MetaData,
+    Numeric,
     SmallInteger,
     Text,
     UniqueConstraint,
@@ -45,12 +48,18 @@ from sqlalchemy.dialects import postgresql as pg
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from aegisnet.domain.enums import (
+    AlertAssetRole,
+    AlertStatus,
     AssetEnvironment,
     AuditResult,
+    BaselineMetric,
+    DetectorRunStatus,
+    EntityType,
     EventType,
     IngestMethod,
     IngestStatus,
     RejectReason,
+    SampleRole,
     ServiceTokenRole,
     SourceType,
     UserRole,
@@ -84,6 +93,12 @@ ASSET_ENVIRONMENT = _enum(AssetEnvironment, "asset_environment")
 USER_ROLE = _enum(UserRole, "user_role")
 SERVICE_TOKEN_ROLE = _enum(ServiceTokenRole, "service_token_role")
 AUDIT_RESULT = _enum(AuditResult, "audit_result")
+ENTITY_TYPE = _enum(EntityType, "entity_type")
+SAMPLE_ROLE = _enum(SampleRole, "alert_event_role")
+ALERT_ASSET_ROLE = _enum(AlertAssetRole, "alert_asset_role")
+DETECTOR_RUN_STATUS = _enum(DetectorRunStatus, "detector_run_status")
+ALERT_STATUS = _enum(AlertStatus, "alert_status")
+BASELINE_METRIC = _enum(BaselineMetric, "baseline_metric")
 
 ENUM_TYPES = (
     SOURCE_TYPE,
@@ -95,6 +110,12 @@ ENUM_TYPES = (
     USER_ROLE,
     SERVICE_TOKEN_ROLE,
     AUDIT_RESULT,
+    ENTITY_TYPE,
+    SAMPLE_ROLE,
+    ALERT_ASSET_ROLE,
+    DETECTOR_RUN_STATUS,
+    ALERT_STATUS,
+    BASELINE_METRIC,
 )
 
 
@@ -387,6 +408,142 @@ class AssetNetwork(Base):
     )
 
 
+# ---------------------------------------------------------------- detection (M2, revision 0003)
+
+
+class DetectionRule(Base):
+    """Registry so alerts are reproducible against the exact rule version that fired."""
+
+    __tablename__ = "detection_rules"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    rule_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    base_severity: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    window_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    params: Mapped[dict[str, Any]] = mapped_column(pg.JSONB, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    mitre_hint: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        CheckConstraint("base_severity BETWEEN 1 AND 5", name="base_severity_range"),
+        CheckConstraint("window_seconds > 0", name="window_seconds_positive"),
+        CheckConstraint("version >= 1", name="version_positive"),
+    )
+
+
+class DetectorRun(Base):
+    """One row per rule per sweep: observability and failure isolation (ARCHITECTURE §7)."""
+
+    __tablename__ = "detector_runs"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    rule_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("detection_rules.id", ondelete="CASCADE"), nullable=False
+    )
+    window_start: Mapped[datetime] = mapped_column(nullable=False)
+    window_end: Mapped[datetime] = mapped_column(nullable=False)
+    events_examined: Mapped[int] = mapped_column(Integer, nullable=False)
+    alerts_created: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[DetectorRunStatus] = mapped_column(DETECTOR_RUN_STATUS, nullable=False)
+    error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        CheckConstraint("window_end > window_start", name="window_order"),
+        Index("ix_detector_runs_created_at", text("created_at DESC")),
+    )
+
+
+class Alert(Base):
+    __tablename__ = "alerts"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    rule_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("detection_rules.id", ondelete="RESTRICT"), nullable=False
+    )
+    rule_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    dedup_key: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    severity: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    confidence: Mapped[Decimal] = mapped_column(Numeric(3, 2), nullable=False)
+    severity_rationale: Mapped[dict[str, Any]] = mapped_column(pg.JSONB, nullable=False)
+    entity_type: Mapped[EntityType] = mapped_column(ENTITY_TYPE, nullable=False)
+    entity_value: Mapped[str] = mapped_column(Text, nullable=False)
+    first_seen: Mapped[datetime] = mapped_column(nullable=False)
+    last_seen: Mapped[datetime] = mapped_column(nullable=False)
+    evidence: Mapped[dict[str, Any]] = mapped_column(pg.JSONB, nullable=False)
+    event_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[AlertStatus] = mapped_column(
+        ALERT_STATUS, nullable=False, server_default=text("'open'")
+    )
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        CheckConstraint("severity BETWEEN 1 AND 5", name="severity_range"),
+        CheckConstraint("confidence BETWEEN 0 AND 1", name="confidence_range"),
+        CheckConstraint("event_count >= 1", name="event_count_positive"),
+        CheckConstraint("last_seen >= first_seen", name="seen_order"),
+        Index("ix_alerts_severity_first_seen", text("severity DESC"), text("first_seen DESC")),
+        Index("ix_alerts_entity", "entity_type", "entity_value", "first_seen"),
+        Index("ix_alerts_first_seen_id", text("first_seen DESC"), text("id DESC")),
+        Index("ix_alerts_evidence", "evidence", postgresql_using="gin"),
+    )
+
+
+class AlertEvent(Base):
+    """Sampled, capped links from an alert to the events behind it."""
+
+    __tablename__ = "alert_events"
+
+    alert_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("alerts.id", ondelete="CASCADE"), primary_key=True
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("events.id", ondelete="CASCADE"), primary_key=True
+    )
+    role: Mapped[SampleRole] = mapped_column(SAMPLE_ROLE, nullable=False)
+
+
+class AlertAsset(Base):
+    __tablename__ = "alert_assets"
+
+    alert_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("alerts.id", ondelete="CASCADE"), primary_key=True
+    )
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("assets.id", ondelete="CASCADE"), primary_key=True
+    )
+    role: Mapped[AlertAssetRole] = mapped_column(ALERT_ASSET_ROLE, nullable=False)
+
+
+class AssetBaseline(Base):
+    """Rolling statistics for D-005 and later rules, recomputed on a schedule and never
+    inside detector logic."""
+
+    __tablename__ = "asset_baselines"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("assets.id", ondelete="CASCADE"), nullable=False
+    )
+    metric: Mapped[BaselineMetric] = mapped_column(BASELINE_METRIC, nullable=False)
+    window_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    mean: Mapped[float] = mapped_column(Float, nullable=False)
+    stddev: Mapped[float] = mapped_column(Float, nullable=False)
+    p95: Mapped[float] = mapped_column(Float, nullable=False)
+    sample_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    computed_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        UniqueConstraint("asset_id", "metric", "window_days", name="uq_asset_baselines_asset_id"),
+        CheckConstraint("window_days > 0", name="window_days_positive"),
+    )
+
+
 M1_TABLES: tuple[str, ...] = (
     "users",
     "service_tokens",
@@ -400,7 +557,20 @@ M1_TABLES: tuple[str, ...] = (
 )
 """The nine tables the Milestone 1 baseline creates, in dependency order."""
 
-APP_ROLE_READ_WRITE_TABLES: tuple[str, ...] = tuple(t for t in M1_TABLES if t != "audit_log")
+M2_TABLES: tuple[str, ...] = (
+    "detection_rules",
+    "detector_runs",
+    "alerts",
+    "alert_events",
+    "alert_assets",
+    "asset_baselines",
+)
+"""The six detection tables revision 0003 adds (Milestone 2, Chunk 9), in dependency order."""
+
+ALL_TABLES: tuple[str, ...] = M1_TABLES + M2_TABLES
+
+
+APP_ROLE_READ_WRITE_TABLES: tuple[str, ...] = tuple(t for t in ALL_TABLES if t != "audit_log")
 """Tables on which the runtime role receives SELECT, INSERT and UPDATE. Soft-delete is the
 rule for assets and events are append-only; the retention job that will need DELETE on
 events arrives in a later milestone with its own revision."""

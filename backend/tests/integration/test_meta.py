@@ -56,7 +56,7 @@ def test_version_reports_build_metadata(
         "git_sha": "abc1234",
         "schema_revision": schema_revision(),
     }
-    assert body["schema_revision"] == "0002_asset_network_delete_grant"
+    assert body["schema_revision"] == "0003_detection_tables"
 
 
 async def test_git_sha_is_withheld_in_production(

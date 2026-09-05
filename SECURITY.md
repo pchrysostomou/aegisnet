@@ -67,13 +67,16 @@ never downgraded to anonymous. A denial is `403 forbidden` and is audited as
 | `auth.self` — `/auth/me`, `/auth/logout` | ✓ | ✓ | ✓ | |
 | `assets.read` — list, get, resolve | ✓ | ✓ | ✓ | |
 | `events.read` — list, stats (no payload) | ✓ | ✓ | ✓ | |
+| `alerts.read` — alerts, alert detail, the rule registry | ✓ | ✓ | ✓ | |
 | `assets.write` — create, patch | | ✓ | ✓ | |
 | `events.payload` — payload in lists, `GET /events/{id}` | | ✓ | ✓ | |
 | `ingest.read` — batches, rejects | | ✓ | ✓ | |
+| `detections.read` — detector runs | | ✓ | ✓ | |
 | `assets.admin` — bulk create, deactivate | | | ✓ | |
 | `ingest.write` — `POST /ingest/eve` | | | ✓ | ✓ |
 | `ingest.import` — `POST /ingest/import` | | | ✓ | |
 | `audit.read` — `GET /audit` | | | ✓ | |
+| `detections.run` — `POST /detections/sweeps` | | | ✓ | |
 
 Roles nest (viewer ⊂ analyst ⊂ admin) and a service token is not a user: it cannot read
 its own batches. The matrix is `ROLE_PERMISSIONS` in `backend/src/aegisnet/domain/auth.py`
@@ -92,7 +95,8 @@ at 512 characters, at most 32 keys and one level of nesting are kept.
 Actions written today: `auth.login_success`, `auth.login_failed`, `auth.refresh`,
 `auth.refresh_reuse_detected`, `auth.logout`, `rbac.denied`, `ingest.batch_created`,
 `ingest.import_requested`, `ingest.refused`, `asset.created`, `asset.updated`,
-`asset.deactivated`, `user.created`, `service_token.created`, `service_token.revoked`.
+`asset.deactivated`, `user.created`, `service_token.created`, `service_token.revoked`,
+`detection.sweep_requested`.
 Admins read the trail at `GET /api/v1/audit` (newest first, filters, keyset cursors).
 
 ## Rate limits

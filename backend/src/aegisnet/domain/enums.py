@@ -79,3 +79,53 @@ class AuditResult(StrEnum):
     success = "success"
     denied = "denied"
     error = "error"
+
+
+# ---------------------------------------------------------------- detection (M2)
+
+
+@unique
+class EntityType(StrEnum):
+    """What an alert is about; the correlation key type (``alerts.entity_type``)."""
+
+    asset = "asset"
+    src_ip = "src_ip"
+    dest_ip = "dest_ip"
+    domain = "domain"
+
+
+@unique
+class SampleRole(StrEnum):
+    """Why a contributing event was kept as a sample (``alert_events.role``)."""
+
+    first = "first"
+    last = "last"
+    peak = "peak"
+    sample = "sample"
+
+
+@unique
+class AlertAssetRole(StrEnum):
+    source = "source"
+    destination = "destination"
+
+
+@unique
+class DetectorRunStatus(StrEnum):
+    success = "success"
+    error = "error"
+    skipped = "skipped"
+
+
+@unique
+class AlertStatus(StrEnum):
+    open = "open"
+    correlated = "correlated"
+    suppressed = "suppressed"
+
+
+@unique
+class BaselineMetric(StrEnum):
+    outbound_bytes_per_hour = "outbound_bytes_per_hour"
+    distinct_dest_per_hour = "distinct_dest_per_hour"
+    dns_queries_per_hour = "dns_queries_per_hour"

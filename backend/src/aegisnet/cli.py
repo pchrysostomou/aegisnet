@@ -22,6 +22,10 @@ Commands:
     create-service-token NAME      mint an ingest service token; the token is printed once
     revoke-service-token TOKEN_ID  revoke a service token
     service-tokens                 list service tokens (never hashes)
+    run-detectors --from T --to T  run every detection rule over an interval (sync or async)
+    alerts                         list alerts, newest first
+    alert ALERT_ID                 show one alert with its sampled events and linked assets
+    detector-runs                  recent detector runs
 
 Every result is one JSON object on stdout; exit status 0 on success, 1 on a failure the
 operator can act on (failed batch, registry or inventory error), 2 on usage errors.
@@ -55,11 +59,13 @@ from aegisnet.adapters.db.auth_store import (
     SqlServiceTokenStore,
     SqlUserStore,
 )
+from aegisnet.adapters.db.detection_store import SqlAlertStore, SqlDetectorRunStore, SqlRuleStore
 from aegisnet.adapters.db.event_read_store import SqlEventReadStore
 from aegisnet.adapters.db.ingest_store import SqlIngestStore
 from aegisnet.adapters.db.session import make_session_factory
 from aegisnet.adapters.files.registry import RegistryError, contained_path, load_registry
 from aegisnet.adapters.queue.broker import install as install_broker
+from aegisnet.adapters.queue.detection_queue import RedisDetectionQueue
 from aegisnet.adapters.queue.ingest_queue import RedisIngestQueue
 from aegisnet.config import Settings, get_settings
 from aegisnet.domain.assets import AssetError, AssetSpec
@@ -67,6 +73,7 @@ from aegisnet.domain.auth import check_password_policy
 from aegisnet.domain.enums import AssetEnvironment, EventType, IngestStatus, UserRole
 from aegisnet.domain.pagination import DEFAULT_LIMIT, InvalidCursorError
 from aegisnet.domain.ports import (
+    AlertFilter,
     AssetFilter,
     BatchFilter,
     EventQuery,
@@ -77,6 +84,12 @@ from aegisnet.logging import configure_logging
 from aegisnet.services.asset_service import AssetService
 from aegisnet.services.audit_service import AuditService
 from aegisnet.services.auth_service import AuthPolicy, AuthService
+from aegisnet.services.detection_service import (
+    AlertNotFoundError,
+    DetectionService,
+    describe,
+    validate_interval,
+)
 from aegisnet.services.event_read_service import EventQueryError, EventReadService
 from aegisnet.services.ingest_service import (
     BatchNotFoundError,
@@ -111,7 +124,15 @@ class Services:
         sessions = make_session_factory(self._engine)
         self.ingest = IngestService(SqlIngestStore(sessions), limits_from_settings(settings))
         self.assets = AssetService(SqlAssetStore(sessions))
-        self.events = EventReadService(SqlEventReadStore(sessions))
+        events_store = SqlEventReadStore(sessions)
+        self.events = EventReadService(events_store)
+        self.detection = DetectionService(
+            SqlRuleStore(sessions),
+            SqlDetectorRunStore(sessions),
+            SqlAlertStore(sessions),
+            events_store,
+            self.assets,
+        )
         self.auth = AuthService(
             SqlUserStore(sessions),
             SqlRefreshTokenStore(sessions),
@@ -272,6 +293,20 @@ def build_parser() -> argparse.ArgumentParser:
     revoke = commands.add_parser("revoke-service-token", help="revoke a service token by id")
     revoke.add_argument("token_id", type=UUID)
     commands.add_parser("service-tokens", help="list service tokens (never hashes)")
+
+    sweep = commands.add_parser("run-detectors", help="run every detection rule over an interval")
+    sweep.add_argument("--from", dest="time_from", type=_timestamp, required=True)
+    sweep.add_argument("--to", dest="time_to", type=_timestamp, required=True)
+    sweep.add_argument("--mode", choices=["sync", "async"], default="sync")
+    alerts = commands.add_parser("alerts", help="list alerts, newest first")
+    alerts.add_argument("--limit", type=int, default=DEFAULT_LIMIT)
+    alerts.add_argument("--severity-min", type=int, default=None, choices=range(1, 6))
+    alerts.add_argument("--rule", default=None, help="rule id such as D-001")
+    alerts.add_argument("--cursor", default=None)
+    alert = commands.add_parser("alert", help="show one alert")
+    alert.add_argument("alert_id", type=UUID)
+    runs = commands.add_parser("detector-runs", help="recent detector runs, newest first")
+    runs.add_argument("--limit", type=int, default=20)
     return parser
 
 
@@ -559,6 +594,56 @@ def cmd_service_tokens(settings: Settings) -> int:
     return EXIT_OK
 
 
+# ---------------------------------------------------------------- detection
+
+
+def cmd_run_detectors(settings: Settings, args: argparse.Namespace) -> int:
+    validate_interval(args.time_from, args.time_to)
+    if args.mode == "async":
+        message_id = RedisDetectionQueue(install_broker(settings)).enqueue_sweep(
+            args.time_from, args.time_to
+        )
+        _emit(
+            {
+                "queued": True,
+                "message_id": message_id,
+                "window_start": args.time_from,
+                "window_end": args.time_to,
+            }
+        )
+        return EXIT_OK
+    outcome = _run(settings, lambda s: s.detection.sweep(args.time_from, args.time_to))
+    _emit(describe(outcome))
+    return EXIT_FAILED if any(run.status.value == "error" for run in outcome.runs) else EXIT_OK
+
+
+def cmd_alerts(settings: Settings, args: argparse.Namespace) -> int:
+    query = AlertFilter(
+        severity_min=args.severity_min, rule_id=args.rule, limit=args.limit, cursor=args.cursor
+    )
+    page = _run(settings, lambda s: s.detection.list_alerts(query))
+    _emit({"alerts": list(page.items), "next_cursor": page.next_cursor})
+    return EXIT_OK
+
+
+def cmd_alert(settings: Settings, alert_id: UUID) -> int:
+    detail = _run(settings, lambda s: s.detection.get_alert(alert_id))
+    _emit(
+        {
+            "alert": detail.alert,
+            "events": [{"event_id": e, "role": r} for e, r in detail.events],
+            "assets": [{"asset_id": a, "role": r} for a, r in detail.assets],
+        }
+    )
+    return EXIT_OK
+
+
+def cmd_detector_runs(settings: Settings, limit: int) -> int:
+    runs = _run(settings, lambda s: s.detection.list_runs(limit=limit))
+    _emit({"runs": list(runs)})
+    return EXIT_OK
+
+
 # ---------------------------------------------------------------- entrypoint
 
 
@@ -596,6 +681,14 @@ def dispatch(settings: Settings, samples_dir: Path, args: argparse.Namespace) ->
             return cmd_revoke_service_token(settings, args.token_id)
         case "service-tokens":
             return cmd_service_tokens(settings)
+        case "run-detectors":
+            return cmd_run_detectors(settings, args)
+        case "alerts":
+            return cmd_alerts(settings, args)
+        case "alert":
+            return cmd_alert(settings, args.alert_id)
+        case "detector-runs":
+            return cmd_detector_runs(settings, args.limit)
     return EXIT_USAGE  # pragma: no cover - argparse enforces the command set
 
 
@@ -615,6 +708,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         InvalidCursorError,
         EmailTakenError,
         ServiceTokenNameTakenError,
+        AlertNotFoundError,
     ) as error:
         _emit({"error": str(error)})
         return EXIT_FAILED

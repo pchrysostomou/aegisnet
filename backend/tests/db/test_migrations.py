@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from aegisnet.adapters.db.models import M1_TABLES, Base
+from aegisnet.adapters.db.models import ALL_TABLES, Base
 from aegisnet.config import Settings
 from aegisnet.domain import enums
 from aegisnet.version import schema_revision
@@ -34,6 +34,12 @@ EXPECTED_ENUMS: dict[str, tuple[str, ...]] = {
     "user_role": tuple(enums.UserRole),
     "service_token_role": tuple(enums.ServiceTokenRole),
     "audit_result": tuple(enums.AuditResult),
+    "entity_type": tuple(enums.EntityType),
+    "alert_event_role": tuple(enums.SampleRole),
+    "alert_asset_role": tuple(enums.AlertAssetRole),
+    "detector_run_status": tuple(enums.DetectorRunStatus),
+    "alert_status": tuple(enums.AlertStatus),
+    "baseline_metric": tuple(enums.BaselineMetric),
 }
 
 
@@ -59,14 +65,16 @@ async def _enum_labels(engine: AsyncEngine) -> dict[str, tuple[str, ...]]:
     return {name: tuple(values) for name, values in labels.items()}
 
 
-async def test_baseline_creates_exactly_the_nine_tables(migrator_engine: AsyncEngine) -> None:
-    assert await _tables(migrator_engine) == set(M1_TABLES) | {"alembic_version"}
+async def test_the_revisions_create_exactly_the_fifteen_tables(
+    migrator_engine: AsyncEngine,
+) -> None:
+    assert await _tables(migrator_engine) == set(ALL_TABLES) | {"alembic_version"}
 
 
 async def test_alembic_version_matches_the_packaged_head(migrator_engine: AsyncEngine) -> None:
     async with migrator_engine.connect() as connection:
         applied = (await connection.execute(text("SELECT version_num FROM alembic_version"))).all()
-    assert [row[0] for row in applied] == [schema_revision()] == ["0002_asset_network_delete_grant"]
+    assert [row[0] for row in applied] == [schema_revision()] == ["0003_detection_tables"]
 
 
 async def test_orm_metadata_matches_the_migrated_schema(migrator_engine: AsyncEngine) -> None:
@@ -207,7 +215,7 @@ def test_downgrade_to_base_leaves_nothing_behind(db_settings: Settings, migrated
         command.upgrade(migrated, "head")
 
     tables, enum_names, citext, versions = asyncio.run(snapshot())
-    assert tables == set(M1_TABLES) | {"alembic_version"}
-    assert versions == ["0002_asset_network_delete_grant"]
+    assert tables == set(ALL_TABLES) | {"alembic_version"}
+    assert versions == ["0003_detection_tables"]
     assert enum_names == set(EXPECTED_ENUMS)
     assert citext is True

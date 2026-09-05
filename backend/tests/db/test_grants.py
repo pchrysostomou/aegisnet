@@ -14,9 +14,9 @@ from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from aegisnet.adapters.db.models import (
+    ALL_TABLES,
     APP_ROLE_DELETE_TABLES,
     APP_ROLE_READ_WRITE_TABLES,
-    M1_TABLES,
 )
 from aegisnet.config import Settings
 
@@ -66,7 +66,7 @@ async def test_migrator_owns_every_table(
     query = text("SELECT tablename, tableowner FROM pg_tables WHERE schemaname = 'public'")
     async with migrator_engine.connect() as connection:
         owners = dict((await connection.execute(query)).all())
-    assert set(owners) == set(M1_TABLES) | {"alembic_version"}
+    assert set(owners) == set(ALL_TABLES) | {"alembic_version"}
     assert set(owners.values()) == {db_settings.postgres_migrator_user}
 
 
@@ -109,7 +109,7 @@ async def test_app_role_cannot_rewrite_or_erase_audit_rows(app_engine: AsyncEngi
 async def test_app_role_has_no_delete_except_on_asset_networks(app_engine: AsyncEngine) -> None:
     async with app_engine.connect() as connection:
         transaction = await connection.begin()
-        for table in M1_TABLES:
+        for table in ALL_TABLES:
             if table in APP_ROLE_DELETE_TABLES:
                 continue
             await _expect_denied(connection, f"DELETE FROM {table}")  # noqa: S608 - literal names

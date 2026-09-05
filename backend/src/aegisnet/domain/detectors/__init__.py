@@ -17,11 +17,9 @@ from aegisnet.domain.detectors.model import (
     DetectionResult,
     Detector,
     Entity,
-    EntityType,
     EventSample,
     EventWindow,
     RuleSpec,
-    SampleRole,
     bounded_evidence,
     window_bucket,
 )
@@ -34,6 +32,7 @@ from aegisnet.domain.detectors.severity import (
     reproduce,
     score,
 )
+from aegisnet.domain.enums import EntityType, SampleRole
 
 __all__ = [
     "DEFAULT_CRITICALITY",

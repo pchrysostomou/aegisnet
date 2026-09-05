@@ -12,3 +12,5 @@ from typing import Final
 INGEST_QUEUE: Final = "ingest"
 IMPORT_DATASET_ACTOR: Final = "import_dataset"
 IMPORT_UPLOAD_ACTOR: Final = "import_upload"
+DETECTION_QUEUE: Final = "detection"
+RUN_DETECTORS_ACTOR: Final = "run_detectors"

@@ -17,12 +17,17 @@ from uuid import UUID
 
 from aegisnet.domain.assets import AssetPatch, AssetSpec, IPAddress, IPNetwork, NetworkRecord
 from aegisnet.domain.enums import (
+    AlertAssetRole,
+    AlertStatus,
     AssetEnvironment,
     AuditResult,
+    DetectorRunStatus,
+    EntityType,
     EventType,
     IngestMethod,
     IngestStatus,
     RejectReason,
+    SampleRole,
     ServiceTokenRole,
     SourceType,
     UserRole,
@@ -257,6 +262,158 @@ class EventReadStore(Protocol):
     async def get(self, event_id: UUID, *, include_payload: bool) -> EventRow | None: ...
 
     async def stats(self, query: EventQuery) -> EventStats: ...
+
+
+# ---------------------------------------------------------------- detection (M2, FR-4/FR-5)
+
+
+@dataclass(frozen=True, slots=True)
+class RuleRecord:
+    id: UUID
+    rule_id: str
+    name: str
+    version: int
+    enabled: bool
+    base_severity: int
+    window_seconds: int
+    params: dict[str, Any]
+    description: str
+    mitre_hint: str | None
+    updated_at: datetime
+
+
+class RuleStore(Protocol):
+    async def upsert(
+        self,
+        *,
+        rule_id: str,
+        name: str,
+        version: int,
+        base_severity: int,
+        window_seconds: int,
+        params: dict[str, Any],
+        description: str,
+        mitre_hint: str | None,
+        now: datetime,
+    ) -> RuleRecord:
+        """Insert the rule or bring its row up to the code's version; ``enabled`` is the
+        operator's and is never touched here."""
+        ...
+
+    async def list(self) -> tuple[RuleRecord, ...]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class DetectorRunRecord:
+    id: UUID
+    rule_id: str
+    window_start: datetime
+    window_end: datetime
+    events_examined: int
+    alerts_created: int
+    status: DetectorRunStatus
+    error_detail: str | None
+    duration_ms: int
+    created_at: datetime
+
+
+class DetectorRunStore(Protocol):
+    async def record(
+        self,
+        *,
+        rule_id: str,
+        window_start: datetime,
+        window_end: datetime,
+        events_examined: int,
+        alerts_created: int,
+        status: DetectorRunStatus,
+        error_detail: str | None,
+        duration_ms: int,
+        now: datetime,
+    ) -> DetectorRunRecord: ...
+
+    async def list(self, *, limit: int) -> tuple[DetectorRunRecord, ...]:
+        """Newest first."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class NewAlert:
+    """What the sweep hands the store; ``dedup_key`` decides whether a row is created."""
+
+    rule_id: str
+    rule_version: int
+    dedup_key: str
+    severity: int
+    confidence: float
+    severity_rationale: dict[str, Any]
+    entity_type: EntityType
+    entity_value: str
+    first_seen: datetime
+    last_seen: datetime
+    evidence: dict[str, Any]
+    event_count: int
+    samples: tuple[tuple[UUID, SampleRole], ...]
+    assets: tuple[tuple[UUID, AlertAssetRole], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class AlertRecord:
+    id: UUID
+    rule_id: str
+    rule_version: int
+    dedup_key: str
+    severity: int
+    confidence: float
+    severity_rationale: dict[str, Any]
+    entity_type: EntityType
+    entity_value: str
+    first_seen: datetime
+    last_seen: datetime
+    evidence: dict[str, Any]
+    event_count: int
+    status: AlertStatus
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class AlertDetail:
+    alert: AlertRecord
+    events: tuple[tuple[UUID, SampleRole], ...]
+    assets: tuple[tuple[UUID, AlertAssetRole], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class AlertFilter:
+    severity_min: int | None = None
+    rule_id: str | None = None
+    entity_type: EntityType | None = None
+    entity_value: str | None = None
+    status: AlertStatus | None = None
+    time_from: datetime | None = None
+    time_to: datetime | None = None
+    limit: int = DEFAULT_LIMIT
+    cursor: str | None = None
+
+
+class AlertStore(Protocol):
+    async def create_many(self, alerts: Sequence[NewAlert], now: datetime) -> int:
+        """Insert what is new by ``dedup_key`` with its sampled events and assets; returns
+        how many rows were created. An existing key is left exactly as it was."""
+        ...
+
+    async def list(self, query: AlertFilter) -> Page[AlertRecord]: ...
+
+    async def get(self, alert_id: UUID) -> AlertDetail | None: ...
+
+
+class EventWindowStore(Protocol):
+    async def load(
+        self, start: datetime, end: datetime, *, max_events: int
+    ) -> tuple[tuple[EventRow, ...], bool]:
+        """Events with ``start <= event_time < end`` ordered by ``(event_time, id)``, at most
+        ``max_events`` of them; the flag says whether the cap cut the window short."""
+        ...
 
 
 # ---------------------------------------------------------------- users, tokens (FR-10)

@@ -75,7 +75,8 @@ aspirational:
 | Audit trail (append-only, bounded detail, admin read API) covering logins, denials, refused uploads and rejected import ids, and Redis rate limits that fail closed for login and ingest | ✅ [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md) |
 | Operator CLI (`python -m aegisnet.cli`) for datasets, batches, assets, events, users and service tokens; `make` targets for every operator task | ✅ |
 | Tests: 566 hermetic tests (unit, integration, security) with a 94 % coverage gate, 44 database tests against a real PostgreSQL, a CI stack job that logs in and ingests over HTTP | ✅ [`docs/STATUS.md`](docs/STATUS.md) |
-| Detection contract and D-001 port scan: pure, versioned detectors over bounded windows, derived and bounded evidence, a recorded severity formula, seven labelled fixtures pinned to their generator (`make test-detectors`) | 🟡 Milestone 2, Chunk 8 ([ADR-017](docs/adr/ADR-017-detector-interface-and-labelled-fixtures.md), [`docs/detection-rules.md`](docs/detection-rules.md)); the sweep, alert storage, the alerts API and D-002 to D-005 follow |
+| Detection contract and D-001 port scan: pure, versioned detectors over bounded windows, derived and bounded evidence, a recorded severity formula, seven labelled fixtures pinned to their generator (`make test-detectors`) | ✅ Milestone 2, Chunk 8 ([ADR-017](docs/adr/ADR-017-detector-interface-and-labelled-fixtures.md), [`docs/detection-rules.md`](docs/detection-rules.md)) |
+| The sweep: six detection tables, the registry synced from code, one load per interval sliced on each rule's grid, severity from the asset's criticality with a stored rationale, dedup by a UNIQUE key, per-rule failure isolation in `detector_runs`, the `run_detectors` actor, `make run-detectors`, and the read API for alerts, rules and runs plus the admin sweep trigger | ✅ Milestone 2, Chunk 9 ([ADR-018](docs/adr/ADR-018-detection-sweep-alert-storage-and-failure-isolation.md), [`docs/api-milestone-2.md`](docs/api-milestone-2.md)); D-002 to D-005 and the schedule follow |
 | Correlation and incidents, analyst dashboard, AI investigation briefs | ⬜ Milestones 3–5 ([roadmap](#roadmap)) |
 
 ---
@@ -96,7 +97,7 @@ flowchart LR
         direction LR
         web["web<br/>Next.js 15<br/>127.0.0.1:3000"]
         api["api<br/>FastAPI · uvicorn<br/>127.0.0.1:8000"]
-        worker["worker<br/>Dramatiq<br/>import_dataset · import_upload"]
+        worker["worker<br/>Dramatiq<br/>import_dataset · import_upload · run_detectors"]
         db[("db<br/>PostgreSQL 16<br/>no host port")]
         redis[("redis<br/>Redis 7<br/>no host port")]
         samples[/"./samples<br/>read-only mount"/]
@@ -115,6 +116,10 @@ flowchart LR
     api -.->|"write"| spool
     worker -.->|"read, then remove"| spool
 ```
+
+An admin's `POST /api/v1/detections/sweeps` queues `run_detectors(start, end)` the same way an
+upload queues `import_upload`; the worker loads the interval once, runs every rule, writes alerts
+under a UNIQUE dedup key and one `detector_runs` row per rule.
 
 Every service runs as a non-root user with `cap_drop: ALL` and `no-new-privileges`. `db`,
 `redis` and `worker` publish no host port. The samples directory is the only place a
@@ -196,9 +201,9 @@ threat catalogue with the test that verifies each mitigation is in
 | Permission | viewer | analyst | admin | ingest_service |
 |---|:-:|:-:|:-:|:-:|
 | `meta.read` | ✓ | ✓ | ✓ | ✓ |
-| `auth.self` · `assets.read` · `events.read` | ✓ | ✓ | ✓ | |
-| `assets.write` · `events.payload` · `ingest.read` | | ✓ | ✓ | |
-| `assets.admin` · `ingest.import` · `audit.read` | | | ✓ | |
+| `auth.self` · `assets.read` · `events.read` · `alerts.read` | ✓ | ✓ | ✓ | |
+| `assets.write` · `events.payload` · `ingest.read` · `detections.read` | | ✓ | ✓ | |
+| `assets.admin` · `ingest.import` · `audit.read` · `detections.run` | | | ✓ | |
 | `ingest.write` | | | ✓ | ✓ |
 
 - Every route declares its permission through one dependency; a security test enumerates
@@ -265,6 +270,10 @@ curl -H "X-Ingest-Token: <token>" -H 'content-type: application/x-ndjson' \
     --data-binary @samples/synthetic/benign-baseline-01.ndjson \
     "$API/ingest/eve?source_label=sensor-1&mode=async"   # 202 with a poll_url; the worker finishes it
 curl -H "Authorization: Bearer $ACCESS" "$API/audit?limit=5"        # admin only, newest first
+curl -X POST -H "Authorization: Bearer $ACCESS" -H 'content-type: application/json' \
+    -d '{"from":"2026-09-01T00:00:00Z","to":"2026-09-01T02:00:00Z"}' "$API/detections/sweeps"   # 202: the worker runs every rule
+curl -H "Authorization: Bearer $ACCESS" "$API/detections/runs?limit=5"   # one row per rule: success / error / skipped
+curl -H "Authorization: Bearer $ACCESS" "$API/alerts?limit=5"            # none from the benign corpus, by design
 
 # The operator CLI covers the same ground without a token (JSON out).
 docker compose run --rm api python -m aegisnet.cli resolve 10.10.0.53
@@ -272,11 +281,12 @@ docker compose run --rm api python -m aegisnet.cli assets -q resolver
 docker compose run --rm api python -m aegisnet.cli events --from 2026-09-01T00:00:00Z \
     --to 2026-09-02T00:00:00Z --type dns --limit 5
 docker compose run --rm api python -m aegisnet.cli service-tokens
+make run-detectors FROM=2026-09-01T00:00:00Z TO=2026-09-01T02:00:00Z   # the same sweep, inline, one JSON line
 
 # 7. Probe it. Everything is bound to 127.0.0.1; the version route needs a credential too.
 curl http://127.0.0.1:8000/healthz              # {"status":"ok"}
 curl http://127.0.0.1:8000/readyz               # {"status":"ok"} once PostgreSQL and Redis answer
-curl -H "X-Ingest-Token: <token>" $API/meta/version  # includes "schema_revision":"0002_asset_network_delete_grant"
+curl -H "X-Ingest-Token: <token>" $API/meta/version  # includes "schema_revision":"0003_detection_tables"
 curl http://127.0.0.1:3000/api/health           # {"status":"ok"}
 open http://127.0.0.1:8000/docs                 # OpenAPI UI (disabled when ENV=production)
 
@@ -380,11 +390,11 @@ reporting, as described in [`SECURITY.md`](SECURITY.md).
 ├── backend/                 FastAPI application, Dramatiq worker, operator CLI, tests
 │   ├── src/aegisnet/
 │   │   ├── api/             routers, the permission dependency, DTOs, error envelope
-│   │   ├── services/        ingest, assets, event reads, auth, audit
-│   │   ├── adapters/        SQL stores, migrations, Redis, spool, dataset registry, queue
+│   │   ├── services/        ingest, assets, event reads, auth, audit, the detection sweep
+│   │   ├── adapters/        SQL stores (incl. alerts, rules, runs), migrations, Redis, spool, registry, queues
 │   │   ├── domain/          EVE normaliser, asset and auth rules, ports — pure, no I/O
 │   │   │   └── detectors/   window and result bounds, severity formula, D-001 port scan
-│   │   ├── workers/         worker entrypoint and actors
+│   │   ├── workers/         worker entrypoint and actors (imports, uploads, detection sweeps)
 │   │   └── cli.py           python -m aegisnet.cli
 │   └── tests/               unit · integration · security · detectors · db (opt-in, real PostgreSQL)
 │       └── fixtures/labelled/  labelled detector cases, rendered by tools/gen_labelled_fixtures.py
@@ -405,7 +415,7 @@ reporting, as described in [`SECURITY.md`](SECURITY.md).
 | Milestone | Scope | State |
 |---|---|---|
 | M1 | Foundation, ingest, normalisation, asset inventory, auth and audit | ✅ Complete; acceptance criteria and evidence in [`docs/delivery-plan.md`](docs/delivery-plan.md) and [`docs/STATUS.md`](docs/STATUS.md) |
-| M2 | Five deterministic detectors (port scan, auth-failure burst, DNS anomaly, periodic beaconing, outbound volume anomaly) with labelled fixtures; the isolated Suricata lab | 🟡 Chunk 8 done: detector contract, severity formula, D-001 with fixtures |
+| M2 | Five deterministic detectors (port scan, auth-failure burst, DNS anomaly, periodic beaconing, outbound volume anomaly) with labelled fixtures; the isolated Suricata lab | 🟡 Chunks 8–9 done: detector contract, D-001, the sweep with alert storage and the alerts API |
 | M3 | Correlation into incidents, timeline, analyst workflow | ⬜ |
 | M4 | Analyst dashboard (Next.js) | ⬜ |
 | M5 | Investigation brief via Perplexity, with redaction canaries, and Markdown export | ⬜ |
@@ -426,12 +436,13 @@ Detector accuracy is **unmeasured** and no claim is made until Milestone 6
 | [`THREAT_MODEL.md`](THREAT_MODEL.md) | Threats, mitigations, the test that verifies each, residual risks |
 | [`SECURITY.md`](SECURITY.md) | Credential model, RBAC matrix, audit actions, rate limits, disclosure |
 | [`docs/api-milestone-1.md`](docs/api-milestone-1.md) | Milestone 1 API contract and acceptance criteria |
+| [`docs/api-milestone-2.md`](docs/api-milestone-2.md) | Alerts, rules, runs and the sweep trigger |
 | [`docs/data-model.md`](docs/data-model.md) | PostgreSQL schema design |
 | [`docs/PRD.md`](docs/PRD.md) | Product requirements |
 | [`docs/delivery-plan.md`](docs/delivery-plan.md) | Six-milestone plan |
 | [`docs/evaluation.md`](docs/evaluation.md) | Detection evaluation methodology (results intentionally empty) |
 | [`docs/detection-rules.md`](docs/detection-rules.md) | The rule contract and each detector's specification, guards and hard negatives |
-| [`docs/adr/`](docs/adr) | Architecture decision records (ADR-009 … ADR-017) |
+| [`docs/adr/`](docs/adr) | Architecture decision records (ADR-009 … ADR-018) |
 | [`PLANNING.md`](PLANNING.md) | Index of the Milestone 0 planning package |
 | [`backend/README.md`](backend/README.md) | What the backend package contains today |
 | [`frontend/README.md`](frontend/README.md) | The web placeholder |

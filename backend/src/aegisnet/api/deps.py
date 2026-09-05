@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from ipaddress import ip_address
 from pathlib import Path
 from typing import Annotated, Literal
@@ -35,6 +36,7 @@ from aegisnet.logging import correlation_id_var, get_logger
 from aegisnet.services.asset_service import AssetService
 from aegisnet.services.audit_service import AuditReadService, AuditService
 from aegisnet.services.auth_service import AuthService
+from aegisnet.services.detection_service import DetectionService
 from aegisnet.services.event_read_service import EventReadService
 from aegisnet.services.ingest_service import IngestService
 
@@ -67,6 +69,9 @@ class AppServices:
     """Queues ``import_upload(batch_id, spool_name, source_label)``; returns a message id."""
     enqueue_import: Callable[[UUID, str, str], Awaitable[str]]
     """Queues ``import_dataset(batch_id, dataset_id, source_label)``; returns a message id."""
+    detection: DetectionService
+    enqueue_sweep: Callable[[datetime, datetime], Awaitable[str]]
+    """Queues ``run_detectors(window_start, window_end)``; returns a message id."""
 
 
 def services(request: Request) -> AppServices:

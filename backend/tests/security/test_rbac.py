@@ -62,6 +62,17 @@ CASES: list[Case] = [
         None,
     ),
     ("GET", "/api/v1/audit", Permission.audit_read, None, None),
+    ("GET", "/api/v1/alerts", Permission.alerts_read, None, None),
+    ("GET", f"/api/v1/alerts/{ZERO}", Permission.alerts_read, None, None),
+    ("GET", "/api/v1/detections/rules", Permission.alerts_read, None, None),
+    ("GET", "/api/v1/detections/runs", Permission.detections_read, None, None),
+    (
+        "POST",
+        "/api/v1/detections/sweeps",
+        Permission.detections_run,
+        {"from": "2026-09-01T00:00:00Z", "to": "2026-09-01T01:00:00Z"},
+        None,
+    ),
 ]
 ROLES = ["viewer", "analyst", "admin", "ingest_service"]
 
@@ -113,7 +124,7 @@ def test_every_matrix_case_hits_a_route_with_the_permission_it_claims(app: FastA
         template = path.replace(str(ZERO), "{asset_id}")
         candidates = {
             by_route.get((method, template.replace("{asset_id}", placeholder)))
-            for placeholder in ("{asset_id}", "{event_id}", "{batch_id}")
+            for placeholder in ("{asset_id}", "{event_id}", "{batch_id}", "{alert_id}")
         }
         assert permission in candidates, (method, path)
 

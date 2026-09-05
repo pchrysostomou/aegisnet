@@ -9,7 +9,7 @@ COMPOSE ?= docker compose
 UV ?= uv
 BACKEND := backend
 
-.PHONY: test-detectors gen-fixtures create-user users create-service-token revoke-service-token service-tokens \
+.PHONY: test-detectors gen-fixtures run-detectors alerts create-user users create-service-token revoke-service-token service-tokens \
         help bootstrap bootstrap-force verify-ignore require-env compose-config \
         build up down compose-ps compose-logs compose-down compose-test pin-digests clean \
         backend-install lint format format-check typecheck test test-cov check \
@@ -198,6 +198,18 @@ service-tokens: require-env ## List service tokens (never hashes)
 # (docs/detection-rules.md, ADR-017). Part of the hermetic suite too.
 test-detectors: ## Run the detector suite (rules, severity, labelled fixtures)
 	cd $(BACKEND) && ENV=test $(UV) run pytest tests/detectors
+
+# A detection sweep over an interval of at most 24 hours (ADR-018). MODE=async hands it
+# to the worker and prints the message id; sync runs it in the api image and prints one
+# run per rule, exiting 1 if any rule raised.
+FROM ?= 2026-09-01T00:00:00Z
+TO ?= 2026-09-01T02:00:00Z
+run-detectors: require-env ## Run every detection rule over [FROM, TO) (MODE=sync|async)
+	$(COMPOSE) run --rm api python -m aegisnet.cli run-detectors --from $(FROM) --to $(TO) --mode $(MODE)
+
+LIMIT ?= 20
+alerts: require-env ## List alerts, newest first (LIMIT=20)
+	$(COMPOSE) run --rm api python -m aegisnet.cli alerts --limit $(LIMIT)
 
 # Regenerates the labelled T1 fixtures from tools/gen_labelled_fixtures.py. A test fails
 # until the regenerated files are committed, so a case change is always reviewable.

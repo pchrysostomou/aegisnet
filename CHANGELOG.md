@@ -9,6 +9,22 @@ Nothing is released yet. There is no tagged version.
 ## [Unreleased]
 
 ### Added
+- **Chunk 9 (Milestone 2) — the sweep, alert storage and the alerts API.** Revision
+  `0003_detection_tables` (`detection_rules`, `detector_runs`, `alerts` with a UNIQUE
+  `dedup_key`, `alert_events`, `alert_assets`, `asset_baselines`; six enum types; runtime
+  role SELECT/INSERT/UPDATE, no DELETE). `services/detection_service.py`: registry synced
+  from code, one bounded load per interval sliced on each rule's `window_seconds` grid,
+  severity from the resolved asset's criticality with a stored rationale, dedup at the
+  database, one `detector_runs` row per rule with per-rule failure isolation (ADR-018).
+  `adapters/db/detection_store.py`, the `EventWindowStore` loader on the event read store,
+  the `run_detectors` actor on the `detection` queue, CLI `run-detectors`, `alerts`,
+  `alert`, `detector-runs`, `make run-detectors`, `make alerts`.
+- Routes `GET /api/v1/alerts`, `GET /api/v1/alerts/{id}`, `GET /api/v1/detections/rules`,
+  `GET /api/v1/detections/runs`, `POST /api/v1/detections/sweeps` with the permissions
+  `alerts.read` (viewer), `detections.read` (analyst), `detections.run` (admin);
+  `docs/api-milestone-2.md`. The CI stack job queues a sweep over HTTP and waits for the
+  worker's `success` run. 54 new hermetic tests and 3 database tests (the stores, and the
+  sweep end to end over an ingested labelled fixture).
 - **Chunk 8 (Milestone 2) — the detector contract and D-001 port scan.**
   `domain/detectors/`: `EventWindow` (aware, sorted, at most 24 h and 200 000 events, every
   event inside the window), `DetectionResult` with evidence bounded at construction (no raw
@@ -227,6 +243,7 @@ Nothing is released yet. There is no tagged version.
   the runner — and `security` failed on the genuine dependency findings fixed below.
 
 ### Changed
+- The version route reports `0003_detection_tables`; the stack probe and the README expect it.
 - README rewritten for the public repository: architecture diagrams (topology, layering,
   the upload pipeline, request handling), the RBAC matrix, a repository map, the roadmap,
   workflow and quality-gate badges. `CONTRIBUTING.md` and a pull-request template added;

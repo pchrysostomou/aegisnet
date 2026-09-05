@@ -150,6 +150,22 @@ class SqlEventReadStore(EventReadStore):
         )
         return Page(items=items, next_cursor=next_cursor)
 
+    async def load(
+        self, start: datetime, end: datetime, *, max_events: int
+    ) -> tuple[tuple[EventRow, ...], bool]:
+        """The window loader for the detection sweep (``EventWindowStore``): oldest first,
+        payload never read, one row past the cap to learn whether the cap was hit."""
+        statement = (
+            select(*COLUMNS)
+            .where(Event.event_time >= start, Event.event_time < end)
+            .order_by(Event.event_time.asc(), Event.id.asc())
+            .limit(max_events + 1)
+        )
+        async with self._sessions() as session:
+            rows = (await session.execute(statement)).all()
+        truncated = len(rows) > max_events
+        return tuple(_row(row, None) for row in rows[:max_events]), truncated
+
     async def get(self, event_id: UUID, *, include_payload: bool) -> EventRow | None:
         columns: Sequence[Any] = (*COLUMNS, Event.payload) if include_payload else COLUMNS
         async with self._sessions() as session:

@@ -42,6 +42,7 @@ from aegisnet.domain.auth import (
 from aegisnet.domain.enums import AuditResult
 from aegisnet.domain.pagination import InvalidCursorError
 from aegisnet.logging import correlation_id_var, get_logger
+from aegisnet.services.detection_service import AlertNotFoundError, SweepError
 from aegisnet.services.event_read_service import EventNotFoundError, EventQueryError
 from aegisnet.services.ingest_service import BatchNotFoundError, IngestLimitExceededError
 
@@ -249,6 +250,7 @@ def register_error_handlers(app: FastAPI) -> None:
         AssetNotFoundError,
         BatchNotFoundError,
         EventNotFoundError,
+        AlertNotFoundError,
         DatasetNotFoundError,
     ):
         app.add_exception_handler(missing, not_found_handler)
@@ -266,6 +268,7 @@ def register_error_handlers(app: FastAPI) -> None:
     for invalid in (
         ValidationFailedError,
         EventQueryError,
+        SweepError,
         InvalidCursorError,
         PasswordPolicyError,
     ):

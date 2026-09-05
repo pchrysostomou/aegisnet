@@ -19,6 +19,19 @@ against; a parameter change is recorded here with the metric before and after (`
 | Purity | No I/O, no clock, no randomness; the same window in any order gives the same results, sorted by entity |
 | Fixtures | Each rule has at least three positive and three negative labelled cases under `backend/tests/fixtures/labelled/<rule>/`, rendered by `tools/gen_labelled_fixtures.py` from case definitions and byte-identical on regeneration. At least one negative is the case a naive implementation gets wrong, and it is named below as the reason for a guard |
 
+## How a sweep runs (ADR-018)
+
+`DetectionService.sweep(start, end)` covers at most 24 hours. It syncs the registry from the code
+(the operator's `enabled` flag is preserved), loads the interval's events once under the event cap,
+and for each rule slices that load into buckets of the rule's `window_seconds`, aligned to the grid
+`window_bucket` defines. Each bucket becomes an `EventWindow`; each result becomes an alert whose
+severity is computed from the rule's base severity, the result's signal strength and the
+criticality of the asset the entity resolves to (default 3 when it resolves to none). The store
+refuses keys it already holds, one `detector_runs` row is written per rule (`success`, `error` with
+the exception type, or `skipped` with the reason), and a rule that raises never stops the others.
+Operators trigger it with `make run-detectors FROM= TO=` (sync, in the api image) or
+`POST /api/v1/detections/sweeps` (queued to the worker; admins only).
+
 ## D-001 Port scan — implemented, version 1
 
 **Behaviour detected.** One source opens flows to many distinct destination ports (vertical scan) or to

@@ -8,11 +8,31 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from enum import StrEnum, unique
 from ipaddress import IPv4Address, IPv6Address
 from typing import Any, Final, Protocol
 from uuid import UUID
 
+from aegisnet.domain.enums import EntityType, SampleRole
+
+__all__ = [
+    "EntityType",
+    "SampleRole",
+    "DetectionError",
+    "Entity",
+    "EventWindow",
+    "EventSample",
+    "DetectionResult",
+    "RuleSpec",
+    "Detector",
+    "window_bucket",
+    "bounded_evidence",
+    "MAX_WINDOW",
+    "MAX_WINDOW_EVENTS",
+    "MAX_EVIDENCE_KEYS",
+    "MAX_EVIDENCE_ITEMS",
+    "MAX_EVIDENCE_CHARS",
+    "MAX_SAMPLES",
+]
 from aegisnet.domain.ports import EventRow
 
 MAX_WINDOW: Final = timedelta(hours=24)
@@ -31,22 +51,6 @@ _CONTROL: Final = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 class DetectionError(ValueError):
     """A window or a result that violates the bounds this package promises."""
-
-
-@unique
-class EntityType(StrEnum):
-    asset = "asset"
-    src_ip = "src_ip"
-    dest_ip = "dest_ip"
-    domain = "domain"
-
-
-@unique
-class SampleRole(StrEnum):
-    first = "first"
-    last = "last"
-    peak = "peak"
-    sample = "sample"
 
 
 @dataclass(frozen=True, slots=True)

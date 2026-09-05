@@ -208,7 +208,7 @@ jobs:
           version=$(curl --fail --silent --show-error -H "X-Ingest-Token: $INGEST_TOKEN" \
             http://127.0.0.1:8000/api/v1/meta/version)
           echo "$version"
-          echo "$version" | grep -q '"schema_revision":"0002_asset_network_delete_grant"'
+          echo "$version" | grep -q '"schema_revision":"0003_detection_tables"'
           curl --fail --silent --show-error http://127.0.0.1:3000/api/health
 
       - name: Ingest the synthetic corpus over HTTP and watch the worker finish it
@@ -237,6 +237,30 @@ jobs:
           echo "$batch" | grep -q '"stored":2000'
           curl --fail --silent --show-error -H "Authorization: Bearer $access" \
             'http://127.0.0.1:8000/api/v1/audit?limit=5' | grep -q '"ingest.batch_created"'
+          echo "ACCESS=$access" >> "$GITHUB_ENV"
+
+      - name: Queue a detection sweep over HTTP and watch the worker record every rule
+        run: |
+          set -euo pipefail
+          accepted=$(curl --fail --silent --show-error -X POST -H "Authorization: Bearer $ACCESS" \
+            -H 'content-type: application/json' \
+            -d '{"from":"2026-09-01T00:00:00Z","to":"2026-09-01T02:00:00Z"}' \
+            http://127.0.0.1:8000/api/v1/detections/sweeps)
+          echo "$accepted"
+          runs=""
+          for _ in $(seq 1 30); do
+            runs=$(curl --fail --silent --show-error -H "Authorization: Bearer $ACCESS" \
+              'http://127.0.0.1:8000/api/v1/detections/runs?limit=10')
+            case "$runs" in *'"rule_id":"D-001"'*) break ;; esac
+            sleep 2
+          done
+          echo "$runs"
+          echo "$runs" | grep -q '"rule_id":"D-001"'
+          echo "$runs" | grep -q '"status":"success"'
+          curl --fail --silent --show-error -H "Authorization: Bearer $ACCESS" \
+            'http://127.0.0.1:8000/api/v1/alerts?limit=5' | grep -q '"items"'
+          curl --fail --silent --show-error -H "Authorization: Bearer $ACCESS" \
+            'http://127.0.0.1:8000/api/v1/detections/rules' | grep -q '"D-001"'
 
       - name: Show service state and logs
         if: always()

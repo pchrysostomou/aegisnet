@@ -10,6 +10,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
@@ -28,20 +29,23 @@ from aegisnet.adapters.db.auth_store import (
     SqlServiceTokenStore,
     SqlUserStore,
 )
+from aegisnet.adapters.db.detection_store import SqlAlertStore, SqlDetectorRunStore, SqlRuleStore
 from aegisnet.adapters.db.event_read_store import SqlEventReadStore
 from aegisnet.adapters.db.ingest_store import SqlIngestStore
 from aegisnet.adapters.db.session import make_session_factory
 from aegisnet.adapters.files.spool import Spool
 from aegisnet.adapters.queue.broker import install as install_broker
+from aegisnet.adapters.queue.detection_queue import RedisDetectionQueue
 from aegisnet.adapters.queue.ingest_queue import RedisIngestQueue
 from aegisnet.api.deps import AppServices
 from aegisnet.api.errors import register_error_handlers
-from aegisnet.api.v1 import assets, audit, auth, events, health, ingest, meta
+from aegisnet.api.v1 import alerts, assets, audit, auth, detections, events, health, ingest, meta
 from aegisnet.config import Settings, get_settings
 from aegisnet.logging import configure_logging, correlation_id_var, get_logger
 from aegisnet.services.asset_service import AssetService
 from aegisnet.services.audit_service import AuditReadService, AuditService
 from aegisnet.services.auth_service import AuthPolicy, AuthService
+from aegisnet.services.detection_service import DetectionService
 from aegisnet.services.event_read_service import EventReadService
 from aegisnet.services.ingest_service import IngestService, limits_from_settings
 from aegisnet.version import APP_VERSION
@@ -59,13 +63,20 @@ def build_services(settings: Settings, engine: AsyncEngine, cache: Redis) -> App
     """Production wiring: SQL stores, the Redis limiter and denylist, the Dramatiq broker."""
     sessions = make_session_factory(engine)
     audit_store = SqlAuditStore(sessions)
-    queue = RedisIngestQueue(install_broker(settings))
+    broker = install_broker(settings)
+    queue = RedisIngestQueue(broker)
+    detection_queue = RedisDetectionQueue(broker)
+    events_store = SqlEventReadStore(sessions)
+    asset_service = AssetService(SqlAssetStore(sessions))
 
     async def enqueue_upload(batch_id: UUID, spool_name: str, source_label: str) -> str:
         return queue.enqueue_upload(batch_id, spool_name, source_label)
 
     async def enqueue_import(batch_id: UUID, dataset_id: str, source_label: str) -> str:
         return queue.enqueue_import(batch_id, dataset_id, source_label)
+
+    async def enqueue_sweep(start: datetime, end: datetime) -> str:
+        return detection_queue.enqueue_sweep(start, end)
 
     return AppServices(
         settings=settings,
@@ -80,12 +91,20 @@ def build_services(settings: Settings, engine: AsyncEngine, cache: Redis) -> App
         audit=AuditService(audit_store),
         audit_read=AuditReadService(audit_store),
         ingest=IngestService(SqlIngestStore(sessions), limits_from_settings(settings)),
-        assets=AssetService(SqlAssetStore(sessions)),
-        events=EventReadService(SqlEventReadStore(sessions)),
+        assets=asset_service,
+        events=EventReadService(events_store),
         limiter=RedisRateLimiter(cache),
         spool=Spool(settings.spool_dir),
         enqueue_upload=enqueue_upload,
         enqueue_import=enqueue_import,
+        detection=DetectionService(
+            SqlRuleStore(sessions),
+            SqlDetectorRunStore(sessions),
+            SqlAlertStore(sessions),
+            events_store,
+            asset_service,
+        ),
+        enqueue_sweep=enqueue_sweep,
     )
 
 
@@ -192,6 +211,8 @@ def create_app(
     app.include_router(assets.router)
     app.include_router(events.router)
     app.include_router(audit.router)
+    app.include_router(alerts.router)
+    app.include_router(detections.router)
     return app
 
 

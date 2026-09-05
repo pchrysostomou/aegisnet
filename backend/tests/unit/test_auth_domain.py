@@ -43,6 +43,7 @@ def test_the_viewer_reads_without_payloads_and_the_analyst_cannot_administer() -
         Permission.auth_self,
         Permission.assets_read,
         Permission.events_read,
+        Permission.alerts_read,
     }
     assert {Permission.events_payload, Permission.assets_write, Permission.ingest_read} <= analyst
     admin_only = {
@@ -50,7 +51,9 @@ def test_the_viewer_reads_without_payloads_and_the_analyst_cannot_administer() -
         Permission.ingest_write,
         Permission.ingest_import,
         Permission.audit_read,
+        Permission.detections_run,
     }
+    assert Permission.detections_read in analyst
     assert not analyst & admin_only
 
 

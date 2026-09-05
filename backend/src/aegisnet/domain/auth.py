@@ -33,13 +33,27 @@ class Permission(StrEnum):
     ingest_write = "ingest.write"
     ingest_import = "ingest.import"
     audit_read = "audit.read"
+    alerts_read = "alerts.read"
+    detections_read = "detections.read"
+    detections_run = "detections.run"
 
 
 _VIEWER: Final = frozenset(
-    {Permission.meta_read, Permission.auth_self, Permission.assets_read, Permission.events_read}
+    {
+        Permission.meta_read,
+        Permission.auth_self,
+        Permission.assets_read,
+        Permission.events_read,
+        Permission.alerts_read,
+    }
 )
 _ANALYST: Final = _VIEWER | frozenset(
-    {Permission.assets_write, Permission.events_payload, Permission.ingest_read}
+    {
+        Permission.assets_write,
+        Permission.events_payload,
+        Permission.ingest_read,
+        Permission.detections_read,
+    }
 )
 _ADMIN: Final = _ANALYST | frozenset(
     {
@@ -47,6 +61,7 @@ _ADMIN: Final = _ANALYST | frozenset(
         Permission.ingest_write,
         Permission.ingest_import,
         Permission.audit_read,
+        Permission.detections_run,
     }
 )
 _INGEST_SERVICE: Final = frozenset({Permission.ingest_write, Permission.meta_read})

@@ -102,9 +102,11 @@ system through the same door as everything else, with the same caps and the same
 
 ## What the lab found
 
-The point of the exercise. All three are recorded as passing tests over the committed
-capture in `backend/tests/unit/eve/test_lab_capture_fidelity.py`, so they cannot drift, and
-in `docs/evaluation.md` §9 with their numbers.
+The point of the exercise, as it stood on 2026-09-06. All three are recorded as passing tests
+over the committed capture in `backend/tests/unit/eve/test_lab_capture_fidelity.py`, so they
+cannot drift, and in `docs/evaluation.md` §9 with their numbers. **L-F1 and L-F2 were defects
+when this was written and were fixed in the next chunk ([ADR-022](ADR-022-event-time-and-dns-direction.md));
+the tests that recorded them now hold the fixes.**
 
 **It works.** 463 of 463 real Suricata 8.0.6 records normalised and stored with zero
 rejects; a re-import reported 463 duplicates, so idempotency holds on real data; D-001 found
@@ -137,18 +139,28 @@ D-005 abstained, correctly: it needs 24 sampled hours of baseline and a capture 
 long. Exercising it needs a lab that runs on a schedule for a day, which is a separate piece
 of work.
 
-## Why the two defects are not fixed here
+## Why the two defects were not fixed here
 
-Both fixes change how an event is normalised, which changes `event_hash`, which changes
-deduplication, the committed corpus, its manifest sha, the labelled fixtures and the pinned
-metrics table in `docs/evaluation.md` §8. Landing that inside the chunk that discovered it
-would mean shipping the finding and the reaction to it in one diff, with the evidence and
-the fix entangled. They are recorded as defects with a named fix, a failing-in-spirit test
-that currently passes, and a chunk of their own.
+**Both were fixed in the next chunk: [ADR-022](ADR-022-event-time-and-dns-direction.md).**
+The conclusion below held; one of its reasons turned out to be wrong, and it is worth leaving
+both on the record.
 
-The honest consequence, stated in `docs/evaluation.md` §8 and §9: **the T1 and T2 tables
-measure conformance to specifications on generated data, and the lab has now shown that for
-D-003 and D-004 those specifications do not survive contact with real Suricata output.**
+Both fixes change how an event is normalised, so the chunk that made them also had to
+regenerate the committed corpus, its manifest sha and the labelled fixtures. Landing that
+inside the chunk that discovered the defects would have meant shipping the finding and the
+reaction to it in one diff, with the evidence and the fix entangled. That was the right call.
+
+The reason given here for the size of the change was not: this record claimed the fixes would
+change `event_hash` and therefore deduplication. They did not. The hash is built from the
+record's own timestamp, not from the instant an event is filed under, and the pinned §8 table
+did not move either. The change was smaller than the chunk that found the defects believed —
+which is an argument for measuring a blast radius rather than estimating one.
+
+The honest consequence at the time, stated in `docs/evaluation.md` §8 and §9: **the T1 and T2
+tables measure conformance to specifications on generated data.** The lab showed that for
+D-003 and D-004 those specifications did not survive contact with real Suricata output; both
+have since been corrected, and the tables did not change, which is the sharpest available
+statement of what a synthetic corpus can and cannot tell you.
 
 ## Consequences
 

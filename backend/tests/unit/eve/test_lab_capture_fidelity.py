@@ -5,10 +5,10 @@ Milestone 2 finding". These tests are that finding, written as executable statem
 the committed lab capture (`samples/lab/lab-capture-01.ndjson`, real Suricata 8.0.6 output
 from `infra/lab/`).
 
-Three of them describe things the project gets **wrong** today. They are written to pass
-against the current behaviour on purpose: they pin the divergence so it cannot drift
-unnoticed, and they hand the fix a fixture to work against. Each one names the defect it
-records; `docs/evaluation.md` §9 explains what the fix is and why it was not made here.
+Two of them recorded defects when this file was written in Chunk 13: D-004 could not see a
+real beacon and D-003 could not read real DNS at all. Chunk 14 fixed both (ADR-022), and the
+same tests now hold the fixes down — the facts about Suricata's output are unchanged, so what
+flipped is the consequence, which is exactly what a regression test for a fix should assert.
 """
 
 from __future__ import annotations
@@ -107,10 +107,10 @@ def test_the_scan_and_the_auth_burst_are_found_in_the_real_capture() -> None:
 # ---------------------------------------------------------------- what does not
 
 
-def test_flow_records_are_stamped_when_they_are_emitted_not_when_they_happened() -> None:
-    """Defect L-F1 (docs/evaluation.md §9): a flow event's `timestamp` is the flow manager's
-    emission time. The lab's beacon checks in every five seconds to the millisecond, and the
-    record timestamps say otherwise, so D-004 cannot see a real beacon at all."""
+def test_a_flow_is_read_at_its_start_not_at_its_emission() -> None:
+    """L-F1, fixed (ADR-022). The fact about Suricata is unchanged — a flow record is stamped
+    when the flow manager emits it, and those emissions are irregular — but the normaliser now
+    files the event under `flow.start`, so D-004 sees the beacon that is really there."""
     beacon = sorted(
         (
             r
@@ -128,16 +128,25 @@ def test_flow_records_are_stamped_when_they_are_emitted_not_when_they_happened()
 
     limit = BeaconingParams().max_jitter
     assert true_jitter < limit, "the beacon really is regular"
-    assert seen_jitter > limit, "but the timestamps the detector reads are not"
-    # And this is the consequence: the rule stays silent on a textbook beacon.
-    assert get_detector("D-004").run(_window(_rows(CAPTURE))) == []
+    assert seen_jitter > limit, "and the record timestamps really are not"
+
+    # What the normaliser files the event under is now the first of those, not the second.
+    normalised = sorted(
+        r.event_time
+        for r in _rows(CAPTURE)
+        if r.dest_port == BEACON_PORT and r.event_type is EventType.flow
+    )
+    assert _jitter(normalised) == pytest.approx(true_jitter, abs=1e-6)
+
+    # And this is the consequence: the rule finds the beacon.
+    [found] = get_detector("D-004").run(_window(_rows(CAPTURE)))
+    assert found.entity.value == "203.0.113.20"
 
 
-def test_a_real_dns_request_carries_an_rcode_and_the_synthetic_corpus_does_not() -> None:
-    """Defect L-F2 (docs/evaluation.md §9): Suricata 8 logs EVE DNS v3, where request and
-    response records both carry `rcode`. D-003 reads "has an rcode" as "is an answer", so on
-    real output every record looks like an answer: no query name is ever tallied and the
-    client attribution flips from the asker to the resolver."""
+def test_a_real_dns_request_carries_an_rcode_and_is_still_read_as_a_question() -> None:
+    """L-F2, fixed (ADR-022). Suricata 8 logs EVE DNS v3, where request and response records
+    both carry `rcode`; direction now comes from the record's own `type`, so the query names
+    are tallied against the host that asked and D-003 can see the shape the lab generated."""
     requests = [
         r for r in _raw(CAPTURE) if r["event_type"] == "dns" and r["dns"]["type"] == "request"
     ]
@@ -145,22 +154,30 @@ def test_a_real_dns_request_carries_an_rcode_and_the_synthetic_corpus_does_not()
     assert all("rcode" in r["dns"] for r in requests)
     assert all(r["dns"]["version"] == 3 for r in requests)
 
+    # The corpus now carries both shapes, so T1 and T2 exercise the path this defect was on
+    # rather than leaving it to the real capture alone (Chunk 14).
     synthetic = [r for r in _raw(SYNTHETIC) if r.get("event_type") == "dns"]
-    queries = [r for r in synthetic if r["dns"]["type"] == "query"]
-    assert queries and not any("rcode" in r["dns"] for r in queries)
-    assert all(r["dns"]["version"] == 2 for r in synthetic), "the generator writes the v2 shape"
+    shapes = {(r["dns"]["version"], r["dns"]["type"]) for r in synthetic}
+    assert shapes == {(3, "request"), (3, "response"), (2, "query"), (2, "answer")}
+    v2_queries = [r for r in synthetic if r["dns"]["type"] == "query"]
+    v3_requests = [r for r in synthetic if r["dns"]["type"] == "request"]
+    assert v2_queries and not any("rcode" in r["dns"] for r in v2_queries), "v2: only answers"
+    assert v3_requests and all("rcode" in r["dns"] for r in v3_requests), "v3: both halves"
 
     # The consequence, on the capture the lab actually took.
     rows = _rows(CAPTURE)
     dns = [r for r in rows if r.event_type is EventType.dns]
-    assert dns and all(r.dns_rcode is not None for r in dns), "every record looks like an answer"
+    questions = [r for r in dns if r.dns_rcode is None]
+    replies = [r for r in dns if r.dns_rcode is not None]
+    assert len(questions) == len(replies) == len(dns) // 2, "half of them are questions"
     long_labels = {
         r.dns_query
-        for r in dns
+        for r in questions
         if r.dns_query and any(len(label) >= 40 for label in r.dns_query.split("."))
     }
-    assert len(long_labels) >= 20, "the lab did generate an unmistakable tunnel shape"
-    assert get_detector("D-003").run(_window(rows)) == [], "and D-003 still says nothing"
+    assert len(long_labels) >= 20, "the lab generated an unmistakable tunnel shape"
+    [found] = get_detector("D-003").run(_window(rows))
+    assert found.entity.value == "203.0.113.20", "attributed to the host that asked"
 
 
 def test_alert_records_carry_their_flow_and_app_layer_metadata() -> None:

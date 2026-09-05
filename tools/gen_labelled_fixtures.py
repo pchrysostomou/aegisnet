@@ -125,9 +125,13 @@ class Renderer:
                 "reason": "timeout",
             }
             age = 0
-        start = when - timedelta(seconds=age)
+        # `when` is when the conversation happened; the record is stamped `age` seconds later,
+        # when Suricata's flow manager emits it. Real sensors work this way and this generator
+        # did not, which is why the D-004 fixtures passed while D-004 could not read a real
+        # beacon at all (docs/evaluation.md §9, L-F1).
+        emitted = when + timedelta(seconds=age)
         record = {
-            "timestamp": suricata_timestamp(when),
+            "timestamp": suricata_timestamp(emitted),
             "flow_id": self.next_flow_id,
             "in_iface": "lab0",
             "event_type": "flow",
@@ -139,8 +143,8 @@ class Renderer:
             **({"app_proto": app_proto} if app_proto else {}),
             "flow": {
                 **counters,
-                "start": suricata_timestamp(start),
-                "end": suricata_timestamp(when),
+                "start": suricata_timestamp(when),
+                "end": suricata_timestamp(emitted),
                 "age": age,
                 "alerted": False,
             },
@@ -206,9 +210,17 @@ class Renderer:
         rrtype: str = "A",
         rcode: str | None = "NOERROR",
         resolver: str = "10.10.0.53",
+        version: int = 3,
     ) -> list[dict]:
-        """A query record from the client and, unless ``rcode`` is None, the answer record
-        from the resolver carrying the rcode, the way Suricata logs both directions."""
+        """A question from the client and, unless ``rcode`` is None, the reply from the
+        resolver, the way Suricata logs both directions.
+
+        ``version`` selects the EVE DNS shape. v3 is what a current sensor writes: the halves
+        are named request/response and **both** carry an ``rcode``, which is the shape that
+        made D-003 read every record as an answer until Chunk 14 (docs/evaluation.md §9,
+        L-F2). v2 names them query/answer and puts an rcode only on the answer; some cases use
+        it so the older shape stays covered.
+        """
         self.next_flow_id += 1
         flow_id = self.next_flow_id
         port = self.rng.randint(32768, 60999)
@@ -226,14 +238,27 @@ class Renderer:
             "src_port": port,
             "dest_ip": resolver,
             "dest_port": 53,
-            "dns": {
-                "version": 2,
-                "type": "query",
-                "id": tx_id,
-                "rrname": name,
-                "rrtype": rrtype,
-                "tx_id": 0,
-            },
+            "dns": (
+                {
+                    "version": 3,
+                    "type": "request",
+                    "id": tx_id,
+                    "rcode": rcode or "NOERROR",
+                    "rd": True,
+                    "opcode": 0,
+                    "queries": [{"rrname": name, "rrtype": rrtype}],
+                    "tx_id": 0,
+                }
+                if version == 3
+                else {
+                    "version": 2,
+                    "type": "query",
+                    "id": tx_id,
+                    "rrname": name,
+                    "rrtype": rrtype,
+                    "tx_id": 0,
+                }
+            ),
         }
         if rcode is None:
             return [query]
@@ -244,26 +269,47 @@ class Renderer:
             "src_port": 53,
             "dest_ip": client,
             "dest_port": port,
-            "dns": {
-                "version": 2,
-                "type": "answer",
-                "id": tx_id,
-                "flags": "8180" if rcode == "NOERROR" else "8183",
-                "qr": True,
-                "rd": True,
-                "ra": True,
-                "rrname": name,
-                "rrtype": rrtype,
-                "rcode": rcode,
-                "answers": [{"rrname": name, "rrtype": rrtype, "ttl": 300, "rdata": "192.0.2.10"}]
-                if rcode == "NOERROR"
-                else [],
-            },
+            "dns": (
+                {
+                    "version": 3,
+                    "type": "response",
+                    "id": tx_id,
+                    "flags": "8180" if rcode == "NOERROR" else "8183",
+                    "qr": True,
+                    "rd": True,
+                    "ra": True,
+                    "rcode": rcode,
+                    "queries": [{"rrname": name, "rrtype": rrtype}],
+                    "answers": _answers(name, rrtype, rcode),
+                    "tx_id": 0,
+                }
+                if version == 3
+                else {
+                    "version": 2,
+                    "type": "answer",
+                    "id": tx_id,
+                    "flags": "8180" if rcode == "NOERROR" else "8183",
+                    "qr": True,
+                    "rd": True,
+                    "ra": True,
+                    "rrname": name,
+                    "rrtype": rrtype,
+                    "rcode": rcode,
+                    "answers": _answers(name, rrtype, rcode),
+                }
+            ),
         }
         return [query, answer]
 
     def label(self, length: int, alphabet: str = "abcdefghijklmnopqrstuvwxyz0123456789") -> str:
         return "".join(self.rng.choice(alphabet) for _ in range(length))
+
+
+def _answers(name: str, rrtype: str, rcode: str | None) -> list[dict]:
+    """What a resolver returns: one record for a hit, nothing for anything else."""
+    if rcode != "NOERROR":
+        return []
+    return [{"rrname": name, "rrtype": rrtype, "ttl": 300, "rdata": "192.0.2.10"}]
 
 
 def spread(start: datetime, seconds: float, count: int) -> Iterator[datetime]:

@@ -8,6 +8,34 @@ Nothing is released yet. There is no tagged version.
 
 ## [Unreleased]
 
+### Fixed
+- **Chunk 14 — the two defects the lab found (ADR-022).** A **flow** event is now filed under
+  `flow.start` rather than under the record's own timestamp, which is when Suricata's flow
+  manager emitted it. Every other event type is unchanged. The emission time stays in the
+  stored payload; `flow.start` is read best-effort and falls back to the timestamp when it is
+  absent or unreadable; the freshness window (T-1.7) is checked against both instants.
+  Deduplication is untouched, because the event hash is built from the record's own timestamp
+  — a test pins that, since the whole change rests on it.
+- A DNS record's direction now comes from its own `type` — `answer` in EVE v2, `response` in
+  v3 — and only a reply's `rcode` is promoted. Suricata 8 puts an `rcode` on requests too, so
+  reading "has an rcode" as "is an answer" made every real record look like an answer: no
+  query name was ever tallied and every lookup was attributed to the resolver. An unfamiliar
+  `type` is treated as a question.
+- Both generators had the same assumptions inside them and were corrected: a flow record now
+  carries `flow.start = when` and `timestamp = when + age`. The committed corpus (generator
+  version 2, new sha256) and all 34 labelled fixtures were regenerated. The normalised event
+  times did not move, so the `make eval` table in `docs/evaluation.md` §8 did not either —
+  which is the point worth noticing: the T1 and T2 numbers were identical before and after a
+  change that took two rules from blind to working on real data.
+- **On the committed real capture, four of the five rules now fire** — D-001, D-002, D-003 and
+  D-004 — where two did before; D-005 still abstains for want of 24 hourly baseline samples.
+  The two fidelity tests that recorded the defects now hold the fixes down, and 28 new tests
+  cover the semantics on hand-built lines (missing, malformed and naive `flow.start`, the
+  window checked both ways, hash stability, all four DNS shapes and the fallbacks), the
+  timestamp parser, and the invariants the generators must hold from here: a flow starts
+  before it is emitted, in the corpus and in every labelled case, and the corpus carries both
+  EVE DNS shapes so T1 and T2 exercise the one that broke D-003.
+
 ### Added
 - **Chunk 13 (Milestone 2, the last) — the isolated Suricata lab, and what it found.**
   `infra/lab/` is an opt-in stack of three containers behind the `lab` profile on a Docker

@@ -75,6 +75,9 @@ class FlowInfo(_SubObject):
     pkts_toclient: int | None = Field(default=None, ge=0)
     bytes_toserver: int | None = Field(default=None, ge=0)
     bytes_toclient: int | None = Field(default=None, ge=0)
+    # Kept as text and parsed separately (``started_at``) rather than typed as a datetime:
+    # a malformed ``start`` must not turn an otherwise good flow record into a reject, and
+    # the normaliser falls back to the record's own timestamp when it cannot read this.
     start: str | None = None
     end: str | None = None
     age: int | None = Field(default=None, ge=0)
@@ -153,3 +156,19 @@ class EveRecord(BaseModel):
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("timestamp must carry a UTC offset")
         return value.astimezone(UTC)
+
+
+def parse_suricata_time(value: str | None) -> datetime | None:
+    """A Suricata timestamp string as an aware UTC instant, or ``None`` when it is absent,
+    malformed or naive. Used for the sub-second fields Suricata writes as text — ``flow.start``
+    above all — which are read best-effort rather than validated into existence."""
+    if value is None:
+        return None
+    text = _TZ_WITHOUT_COLON.sub(r"\1:\2", value.strip())
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(UTC)

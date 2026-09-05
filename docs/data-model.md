@@ -68,7 +68,7 @@ Normalized EVE records. Append-only in practice.
 | `id` | uuid PK | |
 | `batch_id` | uuid FK ingest_batches | `ON DELETE CASCADE` |
 | `event_hash` | bytea (32) | sha256 over canonical EVE subset — **UNIQUE**, gives idempotent ingest |
-| `event_time` | timestamptz NOT NULL | from EVE `timestamp` |
+| `event_time` | timestamptz NOT NULL | from EVE `timestamp`, except a **flow** record, which is filed under `flow.start`: its own timestamp is when Suricata emitted the record, not when the conversation happened (ADR-022). The emission time survives in `payload`. |
 | `ingested_at` | timestamptz NOT NULL | server clock (see T-1.7) |
 | `event_type` | enum(`alert`,`dns`,`http`,`flow`,`tls`,`fileinfo`,`anomaly`,`ssh`,`other`) | EVE `event_type` |
 | `flow_id` | bigint NULL | EVE `flow_id`, correlates records of one flow |

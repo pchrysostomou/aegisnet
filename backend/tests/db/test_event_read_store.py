@@ -162,11 +162,14 @@ async def test_batch_span_is_the_batch_s_own_event_time_range(
 
 
 async def test_stats_count_by_type_and_hour(loaded: object, events: EventReadService) -> None:
+    """Two hours, not one: the benign fixture's flow began at 09:59:30 and was emitted at
+    10:00:04, and since ADR-022 an event is filed under the instant the conversation started.
+    A flow that crosses an hour boundary belongs to the hour it began in."""
     stats = await events.stats(_query())
     assert stats.total == 13
     assert dict(stats.by_type)["dns"] == 4 and dict(stats.by_type)["alert"] == 1
-    assert [moment.hour for moment, _ in stats.by_hour] == [10]
-    assert stats.by_hour[0][1] == 13
+    assert [moment.hour for moment, _ in stats.by_hour] == [9, 10]
+    assert [count for _, count in stats.by_hour] == [1, 12]
     assert (await events.stats(_query(event_types=(EventType.ssh,)))).total == 1
 
 

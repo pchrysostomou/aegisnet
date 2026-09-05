@@ -9,7 +9,7 @@ against; a parameter change is recorded here with the metric before and after (`
 
 | Concern | Rule |
 |---|---|
-| Input | An `EventWindow`: `[start, end)` of at most 24 hours and 200 000 events, sorted by `(event_time, id)`, loaded and bounded outside the detector. `event_time` is the data's clock (T-1.7): a forged timestamp can move an event between windows, never widen one |
+| Input | An `EventWindow`: `[start, end)` of at most 24 hours and 200 000 events, sorted by `(event_time, id)`, loaded and bounded outside the detector. `event_time` is the data's clock (T-1.7) — the record's own timestamp, except for a **flow** record, which is filed under `flow.start` (ADR-022). A forged timestamp can move an event between windows, never widen one |
 | Output | Zero or more `DetectionResult`s, one per `(rule, entity, window bucket)`. `dedup_key = rule_id:entity_type=entity_value:window_bucket`, where the bucket is the window start floored to the rule's `window_seconds`, so a re-sweep over the same interval produces the same key and the alert store can refuse the duplicate |
 | Evidence | Derived and bounded (FR-5.3): scalars and lists of at most 50 scalars, at most 32 keys, strings of at most 128 characters, and never a key named `raw`, `line`, `raw_line`, `raw_excerpt` or `payload`. A raw log line cannot travel in evidence |
 | Samples | At most 50 contributing event ids with a role (`first`, `last`, `peak`, `sample`); `event_count` carries the total |
@@ -32,6 +32,21 @@ the exception type, or `skipped` with the reason), and a rule that raises never 
 Operators trigger it with `make run-detectors FROM= TO=` (sync, in the api image) or
 `POST /api/v1/detections/sweeps` (queued to the worker; admins only).
 
+## What "when" means to a rule (ADR-022)
+
+Every rule here reasons about time, so it matters which instant an event is filed under. For
+every event type but one, that is the record's own `timestamp`. A **flow** record is the
+exception: Suricata's flow manager emits it when the flow ends or times out and stamps it
+*then*, so its timestamp is when the sensor spoke, not when the conversation happened. A flow
+event is therefore filed under `flow.start`.
+
+This is not a detail. Before it was fixed, D-004 measured the flow manager's emission
+schedule and could not see a beacon that was regular to the millisecond — on real sensor
+output, in the lab, which is where it was found (`docs/evaluation.md` §9).
+
+The same section records the other half: a DNS record's direction comes from its own `type`,
+not from whether it carries an `rcode`, because EVE v3 puts an `rcode` on requests too.
+
 ## When a sweep runs without being asked (ADR-020)
 
 Three things queue `run_detectors`; all of them end up in the same actor with the same
@@ -44,7 +59,11 @@ semantics, and the dedup key makes any overlap harmless.
 | the post-ingest sweep, when a batch completes with stored events | the hour-aligned span of the batch's own event times, split at 24 h | the worker after an import, the API after a `mode=sync` upload; `POST_INGEST_SWEEP=false` disables it |
 
 The lookback is why late events are not missed: an event that reaches the store within
-`lookback − cadence` minutes of its timestamp is inside the next scheduled interval. Rules
+`lookback − cadence` minutes of its timestamp is inside the next scheduled interval. For a
+**flow** event the instant that counts is `flow.start`, which precedes the record's own
+timestamp by the flow's age (ADR-022), so the real margin is `lookback − cadence − age`. A
+flow long enough to exhaust it is swept by its own batch's post-ingest sweep, which covers the
+span of the events it stored rather than a window off the wall clock. Rules
 with a one-hour window (D-004, D-005) are re-evaluated on the current partial hour bucket
 each tick; the first tick that finds the pattern creates the alert, later ticks hit the same
 dedup key. A scheduled message that waited more than `SCHEDULE_SKIP_DELAY_SECONDS` (300) on
@@ -184,7 +203,7 @@ over-long labels.
 | Rule id / version | `D-003` / 1 |
 | Base severity | 3 |
 | Window | 600 s |
-| Entity | `src_ip` (the client). Query records are attributed to their source; answer records, the ones carrying an `rcode`, travel resolver → client and are attributed to their destination |
+| Entity | `src_ip` (the client). Question records are attributed to their source; replies — those whose normalised `dns_rcode` is set, which since ADR-022 means the record's own `type` said `answer` or `response` — travel resolver → client and are attributed to their destination |
 | Events considered | `dns` records. Distinct names are counted from query records so a query/answer pair is one name; NXDOMAIN is counted from answer records |
 | MITRE hint | T1071.004 Application Layer Protocol: DNS (informational only) |
 

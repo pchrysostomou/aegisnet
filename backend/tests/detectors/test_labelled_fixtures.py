@@ -5,6 +5,7 @@ silent, and the committed fixtures must match their generator byte for byte."""
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -76,3 +77,20 @@ def test_the_committed_fixtures_match_their_generator(tmp_path: Path) -> None:
     assert regenerated == committed
     for relative in committed:
         assert (tmp_path / relative).read_bytes() == (LABELLED / relative).read_bytes(), relative
+
+
+def test_every_fixture_flow_starts_before_it_is_emitted() -> None:
+    """The invariant the fixtures encode since ADR-022: a flow record carries the conversation
+    in `flow.start` and is stamped when Suricata would have emitted it. Without this, D-004's
+    cases pass for the wrong reason — which is exactly what happened until the lab ran."""
+    seen = 0
+    for directory in CASE_DIRS:
+        for line in (directory / "events.ndjson").read_text(encoding="utf-8").splitlines():
+            record = json.loads(line)
+            if record["event_type"] != "flow":
+                continue
+            seen += 1
+            start = record["flow"]["start"].replace("+0000", "+00:00")
+            emitted = record["timestamp"].replace("+0000", "+00:00")
+            assert start <= emitted, f"{directory.name}: a flow emitted before it began"
+    assert seen > 100, "the cases are mostly flows; this would be vacuous otherwise"

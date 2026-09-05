@@ -159,6 +159,10 @@ most-specific-CIDR-wins. Exists so detector/asset-resolution behaviour is testab
 | `asset_id` | uuid — resolves via `asset_networks` |
 | `limit` / `cursor` | keyset pagination on `(event_time, id)`; `limit` max 200, default 50 |
 
+> `event_time` is when the event happened, which for a **flow** record is `flow.start` rather
+> than the record's own timestamp — Suricata stamps a flow record when it emits it (ADR-022).
+> The emission time is in the event's `payload`.
+
 Returns promoted columns plus a **redaction-aware** `payload`. `payload` is included only for `analyst`+; `viewer`
 receives promoted columns only. Response includes `X-Query-Duration-ms` for the latency NFR.
 

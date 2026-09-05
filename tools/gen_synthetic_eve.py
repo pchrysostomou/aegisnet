@@ -29,7 +29,11 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-GENERATOR_VERSION = 1
+# 2: a flow record is stamped when Suricata emits it and carries the conversation's own
+# start in `flow.start`, and DNS is written in the shape a current sensor writes — mostly
+# EVE v3, where a request carries an `rcode` too. Both are what real Suricata does, and both
+# were assumptions this generator had backwards (docs/evaluation.md §9, L-F1 and L-F2).
+GENERATOR_VERSION = 2
 SENSOR_INTERFACE = "lab0"
 
 # RFC 1918 lab hosts and RFC 5737 "internet" endpoints. No real address can appear.
@@ -162,14 +166,33 @@ class Corpus:
         port = self._ephemeral_port()
         tx_id = self.rng.randint(1, 65535)
         query = self._base(when, "dns", host, port, RESOLVER, 53, "UDP")
-        query["dns"] = {
-            "version": 2,
-            "type": "query",
-            "id": tx_id,
-            "rrname": domain,
-            "rrtype": "A",
-            "tx_id": 0,
-        }
+        # A fleet is not all one Suricata version, and the two EVE DNS shapes differ in a way
+        # that has already cost this project a blind detector (docs/evaluation.md §9, L-F2):
+        # v3 names the halves request/response and puts an `rcode` on *both*, while v2 names
+        # them query/answer and puts one only on the answer. Most records are v3, what a
+        # current sensor writes; one in five is v2, so the older shape stays covered.
+        v3 = self.rng.random() > 0.2
+        query["dns"] = (
+            {
+                "version": 3,
+                "type": "request",
+                "id": tx_id,
+                "rcode": "NOERROR",
+                "rd": True,
+                "opcode": 0,
+                "queries": [{"rrname": domain, "rrtype": "A"}],
+                "tx_id": 0,
+            }
+            if v3
+            else {
+                "version": 2,
+                "type": "query",
+                "id": tx_id,
+                "rrname": domain,
+                "rrtype": "A",
+                "tx_id": 0,
+            }
+        )
         answer = self._base(
             when + timedelta(milliseconds=self.rng.randint(2, 40)),
             "dns",
@@ -180,26 +203,41 @@ class Corpus:
             "UDP",
         )
         answer["flow_id"] = query["flow_id"]
-        answer["dns"] = {
-            "version": 2,
-            "type": "answer",
-            "id": tx_id,
-            "flags": "8180",
-            "qr": True,
-            "rd": True,
-            "ra": True,
+        reply = {
             "rrname": domain,
             "rrtype": "A",
-            "rcode": "NOERROR",
-            "answers": [
-                {
-                    "rrname": domain,
-                    "rrtype": "A",
-                    "ttl": self.rng.choice((60, 300, 3600)),
-                    "rdata": self.domain_ip[domain],
-                }
-            ],
+            "ttl": self.rng.choice((60, 300, 3600)),
+            "rdata": self.domain_ip[domain],
         }
+        answer["dns"] = (
+            {
+                "version": 3,
+                "type": "response",
+                "id": tx_id,
+                "flags": "8180",
+                "qr": True,
+                "rd": True,
+                "ra": True,
+                "rcode": "NOERROR",
+                "queries": [{"rrname": domain, "rrtype": "A"}],
+                "answers": [reply],
+                "tx_id": 0,
+            }
+            if v3
+            else {
+                "version": 2,
+                "type": "answer",
+                "id": tx_id,
+                "flags": "8180",
+                "qr": True,
+                "rd": True,
+                "ra": True,
+                "rrname": domain,
+                "rrtype": "A",
+                "rcode": "NOERROR",
+                "answers": [reply],
+            }
+        )
         return [query, answer]
 
     def http(self, when: datetime) -> list[dict]:
@@ -254,13 +292,18 @@ class Corpus:
                 app = "http"
         else:
             dst, dport, proto, app = RESOLVER, 53, "UDP", "dns"
+        # `when` is when the conversation happened, and a flow record says so in `flow.start`.
+        # The record's own timestamp is when Suricata's flow manager emitted it, `age` seconds
+        # later — the ordering this generator had backwards until the isolated lab measured a
+        # real sensor (docs/evaluation.md §9, L-F1).
         age = self.rng.randint(0, 120)
-        record = self._base(when, "flow", host, self._ephemeral_port(), dst, dport, proto)
+        emitted = when + timedelta(seconds=age)
+        record = self._base(emitted, "flow", host, self._ephemeral_port(), dst, dport, proto)
         record["app_proto"] = app
         record["flow"] = {
             **self._flow_counters(),
-            "start": suricata_timestamp(when - timedelta(seconds=age)),
-            "end": suricata_timestamp(when),
+            "start": suricata_timestamp(when),
+            "end": suricata_timestamp(emitted),
             "age": age,
             "state": "closed" if proto == "TCP" else "established",
             "reason": "timeout",

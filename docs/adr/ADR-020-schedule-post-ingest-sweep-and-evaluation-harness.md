@@ -75,8 +75,9 @@ T1 cases were rendered from the same specifications the rules implement, by the 
 author, so they measure conformance to the specification on synthetic data, not detection
 quality. T2 is 2 000 quiet synthetic events over ninety-five minutes. The lab corpus (T3,
 ADR-009) had not been run when this was written; it has since (ADR-021), and
-`docs/evaluation.md` §9 reports what it found — including two defects that make the T1
-scores for D-003 and D-004 read better than they deserve.
+`docs/evaluation.md` §9 reports what it found — including two defects that made the T1
+scores for D-003 and D-004 read better than they deserved. Both were fixed (ADR-022), and the
+T1 and T2 tables did not move when they were, which says something about both.
 
 ## Consequences
 

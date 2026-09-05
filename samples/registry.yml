@@ -13,7 +13,7 @@ datasets:
   - id: synthetic-benign-baseline-01
     path: synthetic/benign-baseline-01.ndjson
     manifest: synthetic/benign-baseline-01.manifest.json
-    sha256: 5f1c7bd28dcd419da8bada22f51a3f586bf0ba65d68b7441c7b5c641907c6781
+    sha256: 0b1f39b59cebdf9f06c0475b6af00fd099a4fc6d4c73e85f7cf93ca865c817e3
     format: suricata_eve_ndjson
     licence: MIT (generated in this repository by tools/gen_synthetic_eve.py)
     citation: null

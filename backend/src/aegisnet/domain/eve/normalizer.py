@@ -10,7 +10,8 @@ Order of operations, each step refusing before the next can be reached:
 6. schema validation (``missing_required`` for ``timestamp``/``event_type``, otherwise
    ``schema_invalid``);
 7. ``event_type`` triage (``unsupported_event_type`` for Suricata housekeeping records);
-8. timestamp sanity window (``timestamp_out_of_range``, T-1.7);
+8. timestamp sanity window (``timestamp_out_of_range``, T-1.7), applied both to the record's
+   own timestamp and to the instant the event is filed under;
 9. canonical hash, promotion of the typed columns, and the sanitised payload.
 
 The clock is a parameter, never read here, so every path is deterministic in tests.
@@ -35,7 +36,7 @@ from aegisnet.domain.eve.limits import (
     structure_violation,
 )
 from aegisnet.domain.eve.sanitize import clean_record, clean_text, excerpt
-from aegisnet.domain.eve.schema import DnsInfo, EveRecord
+from aegisnet.domain.eve.schema import DnsInfo, EveRecord, parse_suricata_time
 from aegisnet.domain.models import NormalizedEvent, Reject
 
 UNSUPPORTED_EVENT_TYPES: Final = frozenset({"stats", "engine"})
@@ -84,6 +85,23 @@ def _cap(value: str | None, max_chars: int) -> str | None:
     return None if value is None else clean_text(value, max_chars)
 
 
+# What Suricata calls the two halves of a DNS transaction. EVE v2 says query/answer; v3 says
+# request/response and puts an `rcode` on *both*, which is the defect the lab found (L-F2,
+# docs/evaluation.md §9): reading "has an rcode" as "is an answer" made every v3 record look
+# like an answer, so no query name was ever tallied and every lookup was attributed to the
+# resolver instead of the host that asked.
+DNS_ANSWER_TYPES: Final = frozenset({"answer", "response"})
+
+
+def _dns_is_answer(dns: DnsInfo) -> bool:
+    """True when this record carries a resolver's reply rather than a client's question."""
+    if dns.type is not None:
+        return dns.type.strip().lower() in DNS_ANSWER_TYPES
+    # No `type` at all: fall back to what the record carries, which is how the older shape
+    # distinguished them.
+    return dns.rcode is not None
+
+
 def _dns_fields(dns: DnsInfo | None) -> tuple[str | None, str | None, str | None]:
     if dns is None:
         return None, None, None
@@ -94,8 +112,27 @@ def _dns_fields(dns: DnsInfo | None) -> tuple[str | None, str | None, str | None
     return (
         _cap(query, DNS_QUERY_CHARS),
         _cap(rrtype, DNS_RRTYPE_CHARS),
-        _cap(dns.rcode, DNS_RCODE_CHARS),
+        _cap(dns.rcode, DNS_RCODE_CHARS) if _dns_is_answer(dns) else None,
     )
+
+
+def _event_time(record: EveRecord) -> tuple[datetime, str]:
+    """The instant the event describes, and the field it came from.
+
+    For every event type but one, that is the record's own ``timestamp``. A **flow** record is
+    the exception: Suricata's flow manager emits it when the flow ends or times out and stamps
+    it *then*, so its timestamp is when the sensor spoke, not when the conversation happened.
+    The lab measured the gap — a beacon regular to a millisecond looked like jitter of 0.33 —
+    and that is defect L-F1 in docs/evaluation.md §9. `flow.start` is the instant the flow
+    began, and it is what the detectors need.
+
+    The emission time is not lost: the whole record is stored as the event's payload.
+    """
+    if record.event_type == "flow" and record.flow is not None:
+        started = parse_suricata_time(record.flow.start)
+        if started is not None:
+            return started, "flow.start"
+    return record.timestamp, "timestamp"
 
 
 def _validation_reject(error: ValidationError, raw: str) -> Reject:
@@ -169,13 +206,17 @@ def normalize_line(
         )
     lower = now - window.max_past
     upper = now + window.max_future
-    if not lower <= record.timestamp <= upper:
-        return Reject(
-            RejectReason.timestamp_out_of_range,
-            f"timestamp {record.timestamp.isoformat()} is outside "
-            f"[{lower.astimezone(UTC).isoformat()}, {upper.astimezone(UTC).isoformat()}]",
-            excerpt(raw),
-        )
+    event_time, time_field = _event_time(record)
+    # Both instants are checked: the record's own claim, and the one the event is filed
+    # under. A sensor whose flow start is outside the window is not one to trust silently.
+    for field, moment in (("timestamp", record.timestamp), (time_field, event_time)):
+        if not lower <= moment <= upper:
+            return Reject(
+                RejectReason.timestamp_out_of_range,
+                f"{field} {moment.isoformat()} is outside "
+                f"[{lower.astimezone(UTC).isoformat()}, {upper.astimezone(UTC).isoformat()}]",
+                excerpt(raw),
+            )
 
     dns_query, dns_rrtype, dns_rcode = _dns_fields(record.dns)
     flow = record.flow
@@ -183,7 +224,7 @@ def normalize_line(
     alert = record.alert
     return NormalizedEvent(
         event_hash=event_hash(hash_material(record, sanitized)),
-        event_time=record.timestamp,
+        event_time=event_time,
         event_type=map_event_type(record.event_type),
         flow_id=record.flow_id,
         src_ip=record.src_ip,

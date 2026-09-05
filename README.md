@@ -21,10 +21,12 @@ and can be exercised end to end with the committed synthetic corpus.
 > the first per-detector metrics table from the labelled cases and the benign corpus. Those
 > numbers come from synthetic data authored here. The isolated Suricata lab now exists too: an
 > opt-in, internal-only network where a pinned Suricata watches traffic between two containers
-> this project creates, and it found two real defects on its first run — D-003 and D-004 cannot
-> read a real sensor's output, for reasons written down in
-> [`docs/evaluation.md`](docs/evaluation.md) §9 and fixed next. **There is no correlation, no AI
-> brief and no analyst UI** — those are Milestones 3 to 5. [`docs/STATUS.md`](docs/STATUS.md) is the authoritative record of what exists and
+> this project creates. It found two real defects on its first run, both since fixed
+> ([ADR-022](docs/adr/ADR-022-event-time-and-dns-direction.md)), and **four of the five rules
+> now fire on a committed capture of real sensor output**; the fifth abstains for want of a
+> baseline. What that is and is not evidence of is written down in
+> [`docs/evaluation.md`](docs/evaluation.md) §9. **There is no correlation, no AI brief and no
+> analyst UI** — those are Milestones 3 to 5. [`docs/STATUS.md`](docs/STATUS.md) is the authoritative record of what exists and
 > what has been verified, with the evidence for every claim below.
 
 ---
@@ -86,13 +88,14 @@ aspirational:
 | Authentication and authorisation: Argon2id users with lockout, 15-minute HS256 access tokens, rotating refresh cookies with reuse detection, hashed service tokens for sensors, deny-by-default permission on every route | ✅ [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md), [`SECURITY.md`](SECURITY.md) |
 | Audit trail (append-only, bounded detail, admin read API) covering logins, denials, refused uploads and rejected import ids, and Redis rate limits that fail closed for login and ingest | ✅ [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md) |
 | Operator CLI (`python -m aegisnet.cli`) for datasets, batches, assets, events, users and service tokens; `make` targets for every operator task | ✅ |
-| Tests: 870 hermetic tests (unit, integration, security, detectors) at 94 % coverage, 51 database tests against a real PostgreSQL, a CI stack job that logs in, ingests over HTTP, watches the post-ingest sweep and reads the alerts | ✅ [`docs/STATUS.md`](docs/STATUS.md) |
+| Tests: 898 hermetic tests (unit, integration, security, detectors) at 94 % coverage, 51 database tests against a real PostgreSQL, a CI stack job that logs in, ingests over HTTP, watches the post-ingest sweep and reads the alerts | ✅ [`docs/STATUS.md`](docs/STATUS.md) |
 | All five detection rules as pure, versioned functions over bounded windows with derived, bounded evidence and a recorded severity formula: D-001 port scan, D-002 auth-failure burst, D-003 DNS anomaly / tunnelling, D-004 periodic beaconing, D-005 outbound volume anomaly against per-asset baselines; 34 labelled positive and hard-negative cases pinned to their generator (`make test-detectors`) | ✅ Milestone 2, Chunks 8, 10 and 11 ([ADR-017](docs/adr/ADR-017-detector-interface-and-labelled-fixtures.md), [ADR-019](docs/adr/ADR-019-baselines-precomputed-and-address-keyed.md), [`docs/detection-rules.md`](docs/detection-rules.md)) |
 | The baseline job: each asset's hourly outbound history summarised into `asset_baselines` (mean, stddev, p95, sampled hours) by `make recompute-baselines`, the `recompute_baselines` actor or an admin's `POST /detections/baselines/recompute`; D-005 abstains without a baseline | ✅ Milestone 2, Chunk 11 ([ADR-019](docs/adr/ADR-019-baselines-precomputed-and-address-keyed.md)) |
 | The sweep: six detection tables, the registry synced from code, one load per interval sliced on each rule's grid, severity from the asset's criticality with a stored rationale, dedup by a UNIQUE key, per-rule failure isolation in `detector_runs`, the `run_detectors` actor, `make run-detectors`, and the read API for alerts, rules and runs plus the admin sweep trigger | ✅ Milestone 2, Chunk 9 ([ADR-018](docs/adr/ADR-018-detection-sweep-alert-storage-and-failure-isolation.md), [`docs/api-milestone-2.md`](docs/api-milestone-2.md)) |
 | The schedule: a `periodiq` scheduler service sends `scheduled_sweep` every ten minutes (a one-hour lookback on a fixed grid, overlap absorbed by dedup) and `nightly_baselines` at 02:00; a completed ingest batch queues a sweep over its own event-time span, from the worker or inline after a sync upload (`POST_INGEST_SWEEP`) | ✅ Milestone 2, Chunk 12 ([ADR-020](docs/adr/ADR-020-schedule-post-ingest-sweep-and-evaluation-harness.md)) |
 | `make eval`: every labelled case through its rule (T1) and every rule over the benign corpus (T2), written into [`docs/evaluation.md`](docs/evaluation.md) §8 and pinned by a test; strict verdicts, D-005 marked as abstaining without baselines | ✅ Milestone 2, Chunk 12 ([ADR-020](docs/adr/ADR-020-schedule-post-ingest-sweep-and-evaluation-harness.md)); synthetic data only, no claim about real traffic |
-| The isolated Suricata lab: an opt-in, internal-only, IDS-only sensor watching traffic between two containers the project creates, a sanitiser that refuses to publish anything it cannot make safe, and one committed real capture that the ingest path stores end to end | ✅ Milestone 2, Chunk 13 ([ADR-021](docs/adr/ADR-021-isolated-suricata-lab.md), [`infra/lab/README.md`](infra/lab/README.md)); it found two defects on its first run — see [`docs/evaluation.md`](docs/evaluation.md) §9 |
+| The isolated Suricata lab: an opt-in, internal-only, IDS-only sensor watching traffic between two containers the project creates, a sanitiser that refuses to publish anything it cannot make safe, and one committed real capture that the ingest path stores end to end | ✅ Milestone 2, Chunk 13 ([ADR-021](docs/adr/ADR-021-isolated-suricata-lab.md), [`infra/lab/README.md`](infra/lab/README.md)) |
+| Real sensor output reads correctly: a flow event is filed under the instant the conversation began, not when Suricata announced it, and a DNS record's direction comes from its own type rather than from the presence of a response code | ✅ Chunk 14 ([ADR-022](docs/adr/ADR-022-event-time-and-dns-direction.md)); the two defects the lab found, with four of five rules firing on the real capture afterwards — [`docs/evaluation.md`](docs/evaluation.md) §9 |
 | Correlation and incidents, analyst dashboard, AI investigation briefs | ⬜ Milestones 3–5 ([roadmap](#roadmap)) |
 
 ---
@@ -488,7 +491,7 @@ Detector accuracy is **unmeasured** and no claim is made until Milestone 6
 | [`docs/delivery-plan.md`](docs/delivery-plan.md) | Six-milestone plan |
 | [`docs/evaluation.md`](docs/evaluation.md) | Detection evaluation methodology; §8 holds the `make eval` table (synthetic T1/T2, pinned by a test), §9 the first lab run and what it found |
 | [`docs/detection-rules.md`](docs/detection-rules.md) | The rule contract and each detector's specification, guards and hard negatives |
-| [`docs/adr/`](docs/adr) | Architecture decision records (ADR-009 … ADR-021) |
+| [`docs/adr/`](docs/adr) | Architecture decision records (ADR-009 … ADR-022) |
 | [`infra/lab/README.md`](infra/lab/README.md) | The lab runbook: what is safe about it, how to run it, what each traffic shape is for |
 | [`PLANNING.md`](PLANNING.md) | Index of the Milestone 0 planning package |
 | [`backend/README.md`](backend/README.md) | What the backend package contains today |

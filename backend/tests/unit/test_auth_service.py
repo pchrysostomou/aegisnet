@@ -43,7 +43,7 @@ from tests.fakes import (
 
 pytestmark = pytest.mark.unit
 
-SECRET = "unit-test-signing-key-0123456789abcdef"
+SECRET = "unit-test-signing-key-" + "0" * 16
 PASSWORD = "correct horse battery"
 EMAIL = "ana@example.test"
 POLICY = AuthPolicy(

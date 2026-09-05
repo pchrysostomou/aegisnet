@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from aegisnet.config import Settings
 from aegisnet.domain.enums import IngestMethod
-from tests.conftest import REPO_ROOT, make_settings
+from tests.conftest import REPO_ROOT, TEST_SECRET_KEY, make_settings
 from tests.fakes import FakeWiring
 
 pytestmark = pytest.mark.integration
@@ -32,7 +32,7 @@ def settings(tmp_path: Path) -> Settings:
     return make_settings(
         cookie_secure=False,
         spool_dir=tmp_path / "spool",
-        secret_key="test-signing-key-0123456789-abcdefghijklmnop",
+        secret_key=TEST_SECRET_KEY,
         samples_dir=REPO_ROOT / "samples",
         ingest_max_body_bytes=4096,
         ingest_sync_max_lines=5,

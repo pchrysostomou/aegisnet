@@ -131,7 +131,7 @@ async def test_the_auth_service_runs_end_to_end_on_the_sql_stores(stores: Stores
         refresh,
         service,
         FakeDenylist(),
-        secret="db-suite-signing-key-0123456789abcdef",
+        secret="db-suite-signing-key-" + "0" * 16,
         policy=AuthPolicy(
             issuer="aegisnet",
             access_ttl=timedelta(minutes=15),

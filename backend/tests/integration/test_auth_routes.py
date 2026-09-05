@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from aegisnet.domain.enums import UserRole
 from aegisnet.domain.ports import UserRecord
 from aegisnet.main import create_app
-from tests.conftest import PASSWORD, make_settings
+from tests.conftest import PASSWORD, TEST_SECRET_KEY, make_settings
 from tests.fakes import FakeWiring
 
 pytestmark = pytest.mark.integration
@@ -59,9 +59,7 @@ def test_login_returns_a_bearer_and_a_hardened_refresh_cookie(
 
 
 async def test_the_refresh_cookie_is_secure_by_default(tmp_path: Path) -> None:
-    settings = make_settings(
-        spool_dir=tmp_path / "spool", secret_key="test-signing-key-0123456789-abcdefghijklmnop"
-    )
+    settings = make_settings(spool_dir=tmp_path / "spool", secret_key=TEST_SECRET_KEY)
     assert settings.cookie_secure is True
     wiring = FakeWiring(settings, tmp_path / "spool")
     await wiring.add_user(EMAIL, UserRole.viewer)

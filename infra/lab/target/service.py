@@ -11,6 +11,7 @@ dependency and no download.
 from __future__ import annotations
 
 import argparse
+import re
 import socket
 import struct
 import threading
@@ -21,6 +22,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 # credential-shaped literal in a repository whose secret scanning exists to keep those out.
 OPERATOR_HEADER = "X-Aegisnet-Lab-Operator"
 
+MAX_LOG_CHARS = 200
+PRINTABLE = re.compile(r"[^\x20-\x7e]")
+
+
+def _loggable(text: str) -> str:
+    """Printable ASCII only, bounded: a request cannot forge a log line."""
+    return PRINTABLE.sub("?", text)[:MAX_LOG_CHARS]
+
+
 BODY = b"AegisNet lab target. Every byte here is generated inside an internal Docker network.\n"
 BULK_CHUNK = b"aegisnet-lab-bulk-payload-" * 40  # 1 040 bytes of obviously synthetic filler
 
@@ -30,7 +40,13 @@ class Handler(BaseHTTPRequestHandler):
     sys_version = ""
 
     def log_message(self, fmt: str, *args: object) -> None:
-        print(f"target: {self.address_string()} {fmt % args}", flush=True)  # noqa: T201
+        """Log a request without letting the request write the log.
+
+        Everything in a request line comes from the other side of a socket. Even here, where
+        the other side is the container next door, a newline or an escape sequence in a URL
+        would rewrite what an operator reads afterwards — so the line is stripped of control
+        characters and bounded before it is printed."""
+        print(f"target: {self.address_string()} {_loggable(fmt % args)}", flush=True)  # noqa: T201
 
     def _send(self, code: int, body: bytes, *, extra: dict[str, str] | None = None) -> None:
         self.send_response(code)

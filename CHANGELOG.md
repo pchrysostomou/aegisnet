@@ -9,6 +9,18 @@ Nothing is released yet. There is no tagged version.
 ## [Unreleased]
 
 ### Added
+- **Chunk 10 (Milestone 2) — D-002 auth-failure burst and D-003 DNS anomaly.**
+  `domain/detectors/auth_burst.py`: Suricata alerts whose signature or category reads like an
+  authentication failure, tallied per source; fires on the count only when the densest
+  two-minute span holds the whole threshold, so a steady monitoring probe never trips it.
+  `domain/detectors/dns_anomaly.py`: per querying client (answers attributed to their
+  destination), three signals with separate thresholds: many high-entropy names under one
+  base domain, an NXDOMAIN storm by count and share, a stream of over-long labels; CDN and
+  cloud suffixes allow-listed. Both registered, so every sweep runs three rules.
+- Thirteen labelled cases (three positives and four hard negatives for D-002, three and
+  three for D-003) rendered by `tools/gen_labelled_fixtures.py`, which gained `alert` and
+  `dns` record builders; specifications, guards and limitations in `docs/detection-rules.md`;
+  28 new detector tests.
 - **Chunk 9 (Milestone 2) — the sweep, alert storage and the alerts API.** Revision
   `0003_detection_tables` (`detection_rules`, `detector_runs`, `alerts` with a UNIQUE
   `dedup_key`, `alert_events`, `alert_assets`, `asset_baselines`; six enum types; runtime

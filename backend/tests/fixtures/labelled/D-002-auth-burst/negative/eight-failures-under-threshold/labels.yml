@@ -1,0 +1,5 @@
+case_id: D-002-neg-eight-failures-under-threshold
+rule_id: D-002
+expected: no_detection
+window: { start: "2026-09-01T10:00:00Z", end: "2026-09-01T10:10:00Z" }
+notes: "Eight failures in thirty seconds: a burst, but under the count."

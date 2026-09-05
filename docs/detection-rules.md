@@ -1,6 +1,6 @@
 # Detection rules
 
-Status: **D-001 implemented (Milestone 2, Chunk 8); D-002 to D-005 planned.** Every rule is a pure,
+Status: **D-001, D-002 and D-003 implemented (Milestone 2, Chunks 8 and 10); D-004 and D-005 planned.** Every rule is a pure,
 versioned, parameterised function over a bounded event window (`backend/src/aegisnet/domain/detectors/`,
 ADR-017). This document is the specification each implementation and each labelled fixture is checked
 against; a parameter change is recorded here with the metric before and after (`docs/evaluation.md` §4).
@@ -89,18 +89,121 @@ tallied alone); a scan that spoofs its source address is attributed to the spoof
 are recorded rather than patched: each would need a different rule or a longer window and its own
 false-positive study.
 
-## D-002 Auth-failure burst — planned
+## D-002 Auth-failure burst — implemented, version 1
 
-Repeated authentication-failure indicators from one source against one service (SSH, HTTP 401/403,
-Suricata auth signatures). Hard negatives to design against: a user fat-fingering a password three
-times and then succeeding; a monitoring probe with a deliberately invalid credential at a low, steady
-rate.
+**Behaviour detected.** One source produces many authentication-failure indicators, and they come
+as a burst rather than a trickle.
 
-## D-003 DNS anomaly / possible tunnelling — planned
+| | |
+|---|---|
+| Rule id / version | `D-002` / 1 |
+| Base severity | 3 |
+| Window | 600 s |
+| Entity | `src_ip` (the source of the failures) |
+| Events considered | Suricata `alert` records whose signature or category contains one of the configured patterns, matched case-insensitively (`brute`, `login fail`, `authentication fail`, `auth fail`, `invalid user`, `failed password`, `password guess`, `privilege gain`). Suricata is the sensor of record for auth failures in Milestone 2: EVE does not carry HTTP status codes or SSH outcomes as promoted fields |
+| MITRE hint | T1110 Brute Force (informational only) |
 
-High-entropy or over-long labels, excessive NXDOMAIN, abnormal query volume per domain. Hard
-negatives: CDN and cloud hostnames with long random-looking labels; a resolver asset's legitimate
-volume; DNSSEC/TXT-heavy but benign traffic.
+**Parameters** (`AuthBurstParams`):
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `failures` | 10 | indicators from one source in the window (2 to 100 000) |
+| `burst_seconds` | 120 | the densest span of this length must hold all `failures` (1 to 3600) |
+| `signature_patterns` | the eight above | lower-cased substrings, 1 to 32 entries of at most 64 characters |
+
+**Algorithm.** Tally matching alerts per source in time order. A source fires when it has at least
+`failures` indicators **and** the densest `burst_seconds` span among them holds at least
+`failures` (a two-pointer sweep over the sorted times).
+
+- `signal_strength = min(1, max_burst / failures / 3)`.
+- `confidence = 0.5 + 0.5 * max_burst / failures_in_window`: all failures inside one burst is the
+  textbook shape; failures spread across the window are trusted less.
+- Evidence: `failures`, `max_burst`, `burst_seconds`, `threshold`, `distinct_targets`, up to ten
+  `sample_targets` (`host:port`), up to ten `signature_ids`, up to five `sample_categories`
+  (64 characters each), `window_start`, `window_end`. Signature *names* are never copied into
+  evidence: they are sensor text.
+- Samples: the first and last indicator plus up to 18 evenly spaced ones.
+
+**Guards and the hard negatives behind them.**
+
+| Guard | Hard negative that motivates it (fixture) |
+|---|---|
+| The densest `burst_seconds` span must hold the whole threshold, not just the window | `negative/monitoring-probe-steady`: a probe with an invalid credential once a minute reaches ten failures in ten minutes, the threshold count, but never more than three in any two-minute span. A rule that counts the window alone flags it |
+| The count is absolute | `negative/fat-finger-three-then-success`: three failures, then a normal session; `negative/eight-failures-under-threshold`: a real burst, under the count |
+| Only alerts whose text reads like an auth failure count | `negative/unrelated-alerts-volume`: 100 informational alerts from one source |
+
+**Positive cases.** `ssh-brute-200-in-90s`, `http-login-failures-60`, `spray-two-services-with-noise`
+(12 SSH and 12 RDP failures inside a minute from one source, among 70 unrelated records from other
+hosts; the targets are aggregated per source so a spray is one alert, not two). All label
+`expected_min_severity: 3`.
+
+**Known limitations (version 1).** The rule sees what Suricata's ruleset labels; a service whose
+failures produce no signature is invisible to it. A slow attack under one failure per twelve
+seconds never bursts. Distributed attempts from many sources against one account are not
+correlated (each source is tallied alone; M3 correlation may group them by target).
+
+## D-003 DNS anomaly / possible tunnelling — implemented, version 1
+
+**Behaviour detected.** Per querying client, one of three shapes: many distinct high-entropy names
+under one base domain (the tunnelling shape), an NXDOMAIN storm by count and ratio, or a stream of
+over-long labels.
+
+| | |
+|---|---|
+| Rule id / version | `D-003` / 1 |
+| Base severity | 3 |
+| Window | 600 s |
+| Entity | `src_ip` (the client). Query records are attributed to their source; answer records, the ones carrying an `rcode`, travel resolver → client and are attributed to their destination |
+| Events considered | `dns` records. Distinct names are counted from query records so a query/answer pair is one name; NXDOMAIN is counted from answer records |
+| MITRE hint | T1071.004 Application Layer Protocol: DNS (informational only) |
+
+**Parameters** (`DnsAnomalyParams`):
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `unique_subdomains` | 50 | distinct names under one base domain from one client at which the tunnel signal fires, provided at least half of them look random |
+| `entropy_threshold` | 3.5 | bits per character of the longest subdomain label (at least 16 characters long) before a name counts as random |
+| `long_label_chars` | 40 | a label of this length or more makes a name over-long |
+| `long_queries` | 20 | distinct over-long names at which the long-label signal fires |
+| `nxdomain_failures` | 50 | NXDOMAIN answers at which the storm signal may fire |
+| `nxdomain_ratio` | 0.5 | share of the client's answers that must be NXDOMAIN |
+| `allowed_suffixes` | 19 CDN, cloud and reverse-lookup suffixes | names under them never feed the tunnel or long-label signals |
+
+**Algorithm.** Per client: the set of distinct names, the names grouped by base domain (the last
+two labels), the count of query records, of answers and of NXDOMAIN answers. Signals:
+
+- `tunnel`: a non-allow-listed base domain with at least `unique_subdomains` names of which at
+  least half have a longest subdomain label of 16 or more characters and entropy at or above the
+  threshold. Ratio = names / `unique_subdomains`.
+- `nxdomain`: at least `nxdomain_failures` NXDOMAIN answers **and** NXDOMAIN share at or above
+  `nxdomain_ratio`. Ratio = NXDOMAIN / `nxdomain_failures`.
+- `long_labels`: at least `long_queries` distinct non-allow-listed names carrying a label of
+  `long_label_chars` or more. Ratio = count / `long_queries`.
+
+`signal_strength = min(1, max(ratios) / 3)`; `confidence = 0.6, 0.8, 1.0` for one, two or three
+signals. Evidence: `signals`, `distinct_names`, `query_records`, `answers`, `nxdomain_answers`,
+`nxdomain_ratio`, `top_domain` (the non-allow-listed base domain with most names, 128 characters
+at most), `top_domain_names`, `top_domain_suspicious`, `long_names`, the three thresholds,
+`window_start`, `window_end`. Query names are never copied into evidence.
+
+**Guards and the hard negatives behind them.**
+
+| Guard | Hard negative that motivates it (fixture) |
+|---|---|
+| The tunnel signal needs at least half of a domain's names to be long, high-entropy labels, not just many of them | `negative/resolver-high-volume`: a resolver forwarding 400 queries for 150 hosts of one organisation (`svc001` … `svc149`). 150 distinct subdomains would trip a unique-subdomain count on its own |
+| CDN and cloud suffixes are allow-listed for the tunnel and long-label signals | `negative/cdn-cloud-hostnames`: 120 queries cycling through eight random-looking CDN and cloud hostnames |
+| The storm signal needs both a count and a share; volume alone never fires | `negative/resolver-high-volume` again (5 % NXDOMAIN over 400 answers); `negative/dnssec-txt-heavy`: 100 DMARC, DKIM, DNSKEY and DS lookups, TXT-heavy but low entropy and never NXDOMAIN |
+
+**Positive cases.** `tunnel-random-subdomains-txt` (300 distinct 40-hex-character labels under one
+domain; the tunnel and long-label signals both fire), `nxdomain-storm-dga` (120 random domains,
+110 NXDOMAIN), `long-labels-c2` (40 distinct 48-character labels under one domain). All label
+`expected_min_severity: 3`.
+
+**Known limitations (version 1).** The base domain is the last two labels, so `co.uk`-style
+suffixes group as one domain; the allow-list is static; a tunnel that spreads its names over many
+domains or keeps labels short and low-entropy is not detected by the tunnel signal (the storm and
+long-label signals may still fire); a resolver asset that forwards a real tunnel is attributed to
+the resolver, which is correct for the entity but hides the origin behind it.
 
 ## D-004 Periodic beaconing — planned
 

@@ -6,6 +6,8 @@ and bounded outside this package; results are derived, bounded summaries that a 
 turns into alert rows with a severity it can explain (``severity``).
 """
 
+from aegisnet.domain.detectors.auth_burst import AuthBurstDetector, AuthBurstParams
+from aegisnet.domain.detectors.dns_anomaly import DnsAnomalyDetector, DnsAnomalyParams
 from aegisnet.domain.detectors.model import (
     MAX_EVIDENCE_CHARS,
     MAX_EVIDENCE_ITEMS,
@@ -43,9 +45,13 @@ __all__ = [
     "MAX_SAMPLES",
     "MAX_WINDOW",
     "MAX_WINDOW_EVENTS",
+    "AuthBurstDetector",
+    "AuthBurstParams",
     "DetectionError",
     "DetectionResult",
     "Detector",
+    "DnsAnomalyDetector",
+    "DnsAnomalyParams",
     "Entity",
     "EntityType",
     "EventSample",

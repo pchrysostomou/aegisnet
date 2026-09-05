@@ -1,0 +1,5 @@
+case_id: D-003-neg-dnssec-txt-heavy
+rule_id: D-003
+expected: no_detection
+window: { start: "2026-09-01T10:00:00Z", end: "2026-09-01T10:10:00Z" }
+notes: "100 DMARC, DKIM, DNSKEY and DS lookups across 30 mail domains: TXT-heavy, low entropy, no failures."

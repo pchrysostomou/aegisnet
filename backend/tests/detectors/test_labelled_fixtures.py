@@ -53,7 +53,11 @@ def test_every_shipped_rule_has_at_least_three_positive_and_three_negative_cases
     for directory in CASE_DIRS:
         rule = directory.parent.parent.name[:5]  # "D-001-port-scan" -> "D-001"
         by_rule.setdefault(rule, {"positive": 0, "negative": 0})[directory.parent.name] += 1
-    assert by_rule == {"D-001": {"positive": 3, "negative": 4}}
+    assert by_rule == {
+        "D-001": {"positive": 3, "negative": 4},
+        "D-002": {"positive": 3, "negative": 4},
+        "D-003": {"positive": 3, "negative": 3},
+    }
 
 
 def test_the_committed_fixtures_match_their_generator(tmp_path: Path) -> None:

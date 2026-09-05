@@ -252,8 +252,10 @@ async def test_the_sweep_runs_end_to_end_on_postgres(sessions, service: Detectio
     )
     outcome = await service.sweep(WINDOW_START, WINDOW_START + timedelta(hours=1))
     assert outcome.events_examined == 40 and outcome.alerts_created == 1
-    [run] = outcome.runs
+    assert [r.rule_id for r in outcome.runs] == ["D-001", "D-002", "D-003"]
+    run = outcome.runs[0]
     assert run.status is DetectorRunStatus.success and run.alerts_created == 1
+    assert all(r.status is DetectorRunStatus.success for r in outcome.runs)
     again = await service.sweep(
         WINDOW_START - timedelta(minutes=7), WINDOW_START + timedelta(minutes=13)
     )
@@ -263,6 +265,6 @@ async def test_the_sweep_runs_end_to_end_on_postgres(sessions, service: Detectio
     assert alert.dedup_key == f"D-001:src_ip=10.10.0.99:{WINDOW_START.isoformat()}"
     detail = await service.get_alert(alert.id)
     assert len(detail.events) == 20 and len(detail.assets) == 1
-    runs = await service.list_runs(limit=10)
-    assert [r.alerts_created for r in runs] == [0, 1] and all(r.rule_id == "D-001" for r in runs)
-    assert [r.version for r in await service.list_rules()] == [1]
+    runs = [r for r in await service.list_runs(limit=10) if r.rule_id == "D-001"]
+    assert [r.alerts_created for r in runs] == [0, 1]
+    assert [r.version for r in await service.list_rules()] == [1, 1, 1]

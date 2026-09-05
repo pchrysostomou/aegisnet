@@ -150,6 +150,111 @@ class Renderer:
             )
         return record
 
+    def alert(
+        self,
+        when: datetime,
+        src: str,
+        dst: str,
+        dport: int,
+        sid: int,
+        signature: str,
+        category: str,
+        *,
+        app_proto: str = "ssh",
+    ) -> dict:
+        """A Suricata signature hit; the auth-failure indicators D-002 reads."""
+        self.next_flow_id += 1
+        return {
+            "timestamp": suricata_timestamp(when),
+            "flow_id": self.next_flow_id,
+            "in_iface": "lab0",
+            "event_type": "alert",
+            "src_ip": src,
+            "src_port": self.rng.randint(32768, 60999),
+            "dest_ip": dst,
+            "dest_port": dport,
+            "proto": "TCP",
+            "app_proto": app_proto,
+            "tx_id": 0,
+            "alert": {
+                "action": "allowed",
+                "gid": 1,
+                "signature_id": sid,
+                "rev": 1,
+                "signature": signature,
+                "category": category,
+                "severity": 2,
+            },
+        }
+
+    def dns(
+        self,
+        when: datetime,
+        client: str,
+        name: str,
+        *,
+        rrtype: str = "A",
+        rcode: str | None = "NOERROR",
+        resolver: str = "10.10.0.53",
+    ) -> list[dict]:
+        """A query record from the client and, unless ``rcode`` is None, the answer record
+        from the resolver carrying the rcode, the way Suricata logs both directions."""
+        self.next_flow_id += 1
+        flow_id = self.next_flow_id
+        port = self.rng.randint(32768, 60999)
+        tx_id = self.rng.randint(1, 65535)
+        base = {
+            "in_iface": "lab0",
+            "event_type": "dns",
+            "proto": "UDP",
+            "flow_id": flow_id,
+        }
+        query = {
+            **base,
+            "timestamp": suricata_timestamp(when),
+            "src_ip": client,
+            "src_port": port,
+            "dest_ip": resolver,
+            "dest_port": 53,
+            "dns": {
+                "version": 2,
+                "type": "query",
+                "id": tx_id,
+                "rrname": name,
+                "rrtype": rrtype,
+                "tx_id": 0,
+            },
+        }
+        if rcode is None:
+            return [query]
+        answer = {
+            **base,
+            "timestamp": suricata_timestamp(when + timedelta(milliseconds=self.rng.randint(2, 40))),
+            "src_ip": resolver,
+            "src_port": 53,
+            "dest_ip": client,
+            "dest_port": port,
+            "dns": {
+                "version": 2,
+                "type": "answer",
+                "id": tx_id,
+                "flags": "8180" if rcode == "NOERROR" else "8183",
+                "qr": True,
+                "rd": True,
+                "ra": True,
+                "rrname": name,
+                "rrtype": rrtype,
+                "rcode": rcode,
+                "answers": [{"rrname": name, "rrtype": rrtype, "ttl": 300, "rdata": "192.0.2.10"}]
+                if rcode == "NOERROR"
+                else [],
+            },
+        }
+        return [query, answer]
+
+    def label(self, length: int, alphabet: str = "abcdefghijklmnopqrstuvwxyz0123456789") -> str:
+        return "".join(self.rng.choice(alphabet) for _ in range(length))
+
 
 def spread(start: datetime, seconds: float, count: int) -> Iterator[datetime]:
     """``count`` instants evenly spaced over ``seconds``, starting at ``start``."""
@@ -248,6 +353,179 @@ def dns_client_bursts(r: Renderer) -> list[dict]:
     ]
 
 
+# ---------------------------------------------------------------- D-002 cases
+
+SSH_FAIL = (
+    2001219,
+    "ET SCAN Potential SSH Brute Force Attempt",
+    "Attempted Administrator Privilege Gain",
+)
+WEB_FAIL = (
+    2014020,
+    "ET WEB_SERVER WordPress Login Failure - Brute Force",
+    "Attempted User Privilege Gain",
+)
+RDP_FAIL = (
+    2001972,
+    "ET SCAN RDP Brute Force Login Attempt",
+    "Attempted Administrator Privilege Gain",
+)
+INFO_ALERT = (
+    2100498,
+    "ET INFO Session Traversal Utilities for NAT (STUN Binding Request)",
+    "Misc activity",
+)
+
+
+def ssh_brute(r: Renderer) -> list[dict]:
+    sid, sig, cat = SSH_FAIL
+    return [
+        r.alert(when, "10.10.0.66", "10.10.0.20", 22, sid, sig, cat)
+        for when in spread(WINDOW_START + timedelta(seconds=20), 90, 200)
+    ]
+
+
+def http_login_burst(r: Renderer) -> list[dict]:
+    sid, sig, cat = WEB_FAIL
+    return [
+        r.alert(when, "10.10.0.67", "10.10.0.30", 443, sid, sig, cat, app_proto="http")
+        for when in spread(WINDOW_START + timedelta(minutes=3), 100, 60)
+    ]
+
+
+def spray_two_services_with_noise(r: Renderer) -> list[dict]:
+    records = []
+    for when in spread(WINDOW_START + timedelta(seconds=5), 60, 12):
+        records.append(r.alert(when, "10.10.0.68", "10.10.0.20", 22, *SSH_FAIL))
+    for when in spread(WINDOW_START + timedelta(seconds=8), 60, 12):
+        records.append(r.alert(when, "10.10.0.68", "10.10.0.31", 3389, *RDP_FAIL, app_proto="rdp"))
+    hosts = ["10.10.0.11", "10.10.0.12", "10.10.0.13"]
+    for index, when in enumerate(spread(WINDOW_START, 590, 40)):
+        records.append(
+            r.alert(when, hosts[index % 3], "192.0.2.10", 443, *INFO_ALERT, app_proto="tls")
+        )
+    for index, when in enumerate(spread(WINDOW_START + timedelta(seconds=1), 590, 30)):
+        records.append(r.flow(when, hosts[index % 3], "192.0.2.10", 443, answered=True))
+    return records
+
+
+def fat_finger_then_success(r: Renderer) -> list[dict]:
+    records = [
+        r.alert(when, "10.10.0.21", "10.10.0.20", 22, *SSH_FAIL)
+        for when in spread(WINDOW_START + timedelta(seconds=10), 20, 3)
+    ]
+    records += [
+        r.flow(when, "10.10.0.21", "10.10.0.20", 22, answered=True)
+        for when in spread(WINDOW_START + timedelta(seconds=40), 500, 20)
+    ]
+    return records
+
+
+def monitoring_probe_steady(r: Renderer) -> list[dict]:
+    return [
+        r.alert(
+            WINDOW_START + timedelta(seconds=5 + 60 * i), "10.10.0.5", "10.10.0.20", 22, *SSH_FAIL
+        )
+        for i in range(10)
+    ]
+
+
+def unrelated_alert_volume(r: Renderer) -> list[dict]:
+    return [
+        r.alert(when, "10.10.0.14", "192.0.2.10", 443, *INFO_ALERT, app_proto="tls")
+        for when in spread(WINDOW_START + timedelta(seconds=2), 590, 100)
+    ]
+
+
+def eight_failures_under_threshold(r: Renderer) -> list[dict]:
+    return [
+        r.alert(when, "10.10.0.22", "10.10.0.20", 22, *SSH_FAIL)
+        for when in spread(WINDOW_START + timedelta(seconds=30), 30, 8)
+    ]
+
+
+# ---------------------------------------------------------------- D-003 cases
+
+
+def tunnel_random_subdomains(r: Renderer) -> list[dict]:
+    records = []
+    for when in spread(WINDOW_START + timedelta(seconds=3), 560, 300):
+        records += r.dns(
+            when,
+            "10.10.0.71",
+            f"{r.label(40, '0123456789abcdef')}.t.exfil-example.com",
+            rrtype="TXT",
+        )
+    return records
+
+
+def nxdomain_storm(r: Renderer) -> list[dict]:
+    records = []
+    for index, when in enumerate(spread(WINDOW_START + timedelta(seconds=4), 570, 120)):
+        tld = r.rng.choice(("com", "net", "org", "info"))
+        name = f"{r.label(12, 'abcdefghijklmnopqrstuvwxyz')}.{tld}"
+        records += r.dns(when, "10.10.0.72", name, rcode="NXDOMAIN" if index % 12 else "NOERROR")
+    return records
+
+
+def long_labels_c2(r: Renderer) -> list[dict]:
+    records = []
+    for when in spread(WINDOW_START + timedelta(seconds=6), 500, 40):
+        records += r.dns(
+            when, "10.10.0.73", f"{r.label(48, 'abcdefghijklmnopqrstuvwxyz234567')}.c2.example.net"
+        )
+    return records
+
+
+CDN_HOSTS = [
+    "d3k1n2j4f5g6h7.cloudfront.net",
+    "a1b2c3d4e5f6.execute-api.eu-west-1.amazonaws.com",
+    "e13342.dscb.akamaiedge.net",
+    "xyzstorage123.blob.core.windows.net",
+    "lh3.googleusercontent.com",
+    "assets-cdn-8f3k2.fastly.net",
+    "v10.events.data.microsoft.com",
+    "gspe1-ssl.ls.apple.com",
+]
+
+
+def cdn_cloud_hostnames(r: Renderer) -> list[dict]:
+    records = []
+    for index, when in enumerate(spread(WINDOW_START + timedelta(seconds=2), 590, 120)):
+        records += r.dns(when, "10.10.0.15", CDN_HOSTS[index % len(CDN_HOSTS)])
+    return records
+
+
+def resolver_high_volume(r: Renderer) -> list[dict]:
+    records = []
+    for index, when in enumerate(spread(WINDOW_START + timedelta(seconds=1), 595, 400)):
+        name = f"svc{index % 150:03d}.example.org"
+        records += r.dns(
+            when,
+            "10.10.0.53",
+            name,
+            rcode="NXDOMAIN" if index % 20 == 0 else "NOERROR",
+            resolver="192.0.2.53",
+        )
+    return records
+
+
+def dnssec_txt_heavy(r: Renderer) -> list[dict]:
+    records = []
+    domains = [f"mail{i:02d}.example.com" for i in range(30)]
+    shapes = [
+        ("_dmarc.{d}", "TXT"),
+        ("default._domainkey.{d}", "TXT"),
+        ("{d}", "DNSKEY"),
+        ("{d}", "DS"),
+        ("{d}", "TXT"),
+    ]
+    for index, when in enumerate(spread(WINDOW_START + timedelta(seconds=2), 590, 100)):
+        pattern, rrtype = shapes[index % len(shapes)]
+        records += r.dns(when, "10.10.0.16", pattern.format(d=domains[index % 30]), rrtype=rrtype)
+    return records
+
+
 CASES: list[Case] = [
     Case(
         "D-001",
@@ -310,6 +588,130 @@ CASES: list[Case] = [
         service_discovery,
     ),
     Case(
+        "D-002",
+        "positive",
+        "ssh-brute-200-in-90s",
+        "200 SSH brute-force alerts from one source against one host in 90 seconds.",
+        ssh_brute,
+        ("src_ip", "10.10.0.66"),
+        3,
+    ),
+    Case(
+        "D-002",
+        "positive",
+        "http-login-failures-60",
+        "60 web login-failure alerts from one source against one host in 100 seconds.",
+        http_login_burst,
+        ("src_ip", "10.10.0.67"),
+        3,
+    ),
+    Case(
+        "D-002",
+        "positive",
+        "spray-two-services-with-noise",
+        (
+            "12 SSH and 12 RDP failure alerts from one source in a minute, among 40 informational "
+            "alerts and 30 answered flows from other hosts; only the sprayer may alert."
+        ),
+        spray_two_services_with_noise,
+        ("src_ip", "10.10.0.68"),
+        3,
+    ),
+    Case(
+        "D-002",
+        "negative",
+        "fat-finger-three-then-success",
+        "Three failures in twenty seconds, then a normal SSH session: far under the threshold.",
+        fat_finger_then_success,
+    ),
+    Case(
+        "D-002",
+        "negative",
+        "monitoring-probe-steady",
+        (
+            "A monitoring probe with an invalid credential once a minute: ten failures in the "
+            "window, the threshold count, but never more than three in any two-minute span. The "
+            "hard negative: counting the window alone would flag it."
+        ),
+        monitoring_probe_steady,
+    ),
+    Case(
+        "D-002",
+        "negative",
+        "unrelated-alerts-volume",
+        "100 informational alerts from one source with no authentication signature or category.",
+        unrelated_alert_volume,
+    ),
+    Case(
+        "D-002",
+        "negative",
+        "eight-failures-under-threshold",
+        "Eight failures in thirty seconds: a burst, but under the count.",
+        eight_failures_under_threshold,
+    ),
+    Case(
+        "D-003",
+        "positive",
+        "tunnel-random-subdomains-txt",
+        (
+            "300 distinct TXT queries for 40-hex-character labels under one domain from one "
+            "client, all answered."
+        ),
+        tunnel_random_subdomains,
+        ("src_ip", "10.10.0.71"),
+        3,
+    ),
+    Case(
+        "D-003",
+        "positive",
+        "nxdomain-storm-dga",
+        "120 queries for random twelve-letter domains from one client, 110 of them NXDOMAIN.",
+        nxdomain_storm,
+        ("src_ip", "10.10.0.72"),
+        3,
+    ),
+    Case(
+        "D-003",
+        "positive",
+        "long-labels-c2",
+        "40 distinct queries carrying a 48-character label under one domain, answered.",
+        long_labels_c2,
+        ("src_ip", "10.10.0.73"),
+        3,
+    ),
+    Case(
+        "D-003",
+        "negative",
+        "cdn-cloud-hostnames",
+        (
+            "120 queries cycling through eight random-looking CDN and cloud hostnames: "
+            "allow-listed suffixes, eight distinct names."
+        ),
+        cdn_cloud_hostnames,
+    ),
+    Case(
+        "D-003",
+        "negative",
+        "resolver-high-volume",
+        (
+            "A resolver forwarding 400 queries for 150 hosts of one organisation with 5% "
+            "NXDOMAIN. The hard negative: 150 distinct subdomains under one domain would trip a "
+            "unique-subdomain count; the tunnel signal also needs half of them to be long "
+            "high-entropy labels."
+        ),
+        resolver_high_volume,
+    ),
+    Case(
+        "D-003",
+        "negative",
+        "dnssec-txt-heavy",
+        (
+            "100 DMARC, DKIM, DNSKEY and DS lookups across 30 mail domains: TXT-heavy, "
+            "low entropy, no failures."
+        ),
+        dnssec_txt_heavy,
+    ),
+    Case(
         "D-001",
         "negative",
         "dns-client-bursts",
@@ -358,7 +760,7 @@ def write_all(out: Path) -> list[Path]:
     return written
 
 
-RULE_DIRS = {"D-001": "port-scan"}
+RULE_DIRS = {"D-001": "port-scan", "D-002": "auth-burst", "D-003": "dns-anomaly"}
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -1,0 +1,5 @@
+case_id: D-002-neg-monitoring-probe-steady
+rule_id: D-002
+expected: no_detection
+window: { start: "2026-09-01T10:00:00Z", end: "2026-09-01T10:10:00Z" }
+notes: "A monitoring probe with an invalid credential once a minute: ten failures in the window, the threshold count, but never more than three in any two-minute span. The hard negative: counting the window alone would flag it."

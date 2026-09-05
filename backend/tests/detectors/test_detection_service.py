@@ -56,6 +56,7 @@ class BrokenDetector:
 
 class Harness:
     def __init__(self, detectors: list[Any] | None = None, max_events: int = 200_000) -> None:
+        detectors = [PortScanDetector()] if detectors is None else detectors
         self.clock = Clock()
         self.rules = FakeRuleStore()
         self.runs = FakeDetectorRunStore()

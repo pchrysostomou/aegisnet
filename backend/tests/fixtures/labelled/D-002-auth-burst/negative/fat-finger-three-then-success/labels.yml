@@ -1,0 +1,5 @@
+case_id: D-002-neg-fat-finger-three-then-success
+rule_id: D-002
+expected: no_detection
+window: { start: "2026-09-01T10:00:00Z", end: "2026-09-01T10:10:00Z" }
+notes: "Three failures in twenty seconds, then a normal SSH session: far under the threshold."

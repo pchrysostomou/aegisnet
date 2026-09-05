@@ -1,0 +1,7 @@
+case_id: D-003-pos-nxdomain-storm-dga
+rule_id: D-003
+expected: detection
+expected_entity: { type: src_ip, value: "10.10.0.72" }
+expected_min_severity: 3
+window: { start: "2026-09-01T10:00:00Z", end: "2026-09-01T10:10:00Z" }
+notes: "120 queries for random twelve-letter domains from one client, 110 of them NXDOMAIN."

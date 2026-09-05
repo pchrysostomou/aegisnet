@@ -75,7 +75,7 @@ aspirational:
 | Audit trail (append-only, bounded detail, admin read API) covering logins, denials, refused uploads and rejected import ids, and Redis rate limits that fail closed for login and ingest | ✅ [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md) |
 | Operator CLI (`python -m aegisnet.cli`) for datasets, batches, assets, events, users and service tokens; `make` targets for every operator task | ✅ |
 | Tests: 566 hermetic tests (unit, integration, security) with a 94 % coverage gate, 44 database tests against a real PostgreSQL, a CI stack job that logs in and ingests over HTTP | ✅ [`docs/STATUS.md`](docs/STATUS.md) |
-| Detection contract and D-001 port scan: pure, versioned detectors over bounded windows, derived and bounded evidence, a recorded severity formula, seven labelled fixtures pinned to their generator (`make test-detectors`) | ✅ Milestone 2, Chunk 8 ([ADR-017](docs/adr/ADR-017-detector-interface-and-labelled-fixtures.md), [`docs/detection-rules.md`](docs/detection-rules.md)) |
+| Detection rules as pure, versioned functions over bounded windows with derived, bounded evidence and a recorded severity formula: D-001 port scan, D-002 auth-failure burst, D-003 DNS anomaly / tunnelling, each with labelled positive and hard-negative fixtures pinned to their generator (`make test-detectors`) | ✅ Milestone 2, Chunks 8 and 10 ([ADR-017](docs/adr/ADR-017-detector-interface-and-labelled-fixtures.md), [`docs/detection-rules.md`](docs/detection-rules.md)); D-004 beaconing and D-005 outbound volume follow |
 | The sweep: six detection tables, the registry synced from code, one load per interval sliced on each rule's grid, severity from the asset's criticality with a stored rationale, dedup by a UNIQUE key, per-rule failure isolation in `detector_runs`, the `run_detectors` actor, `make run-detectors`, and the read API for alerts, rules and runs plus the admin sweep trigger | ✅ Milestone 2, Chunk 9 ([ADR-018](docs/adr/ADR-018-detection-sweep-alert-storage-and-failure-isolation.md), [`docs/api-milestone-2.md`](docs/api-milestone-2.md)); D-002 to D-005 and the schedule follow |
 | Correlation and incidents, analyst dashboard, AI investigation briefs | ⬜ Milestones 3–5 ([roadmap](#roadmap)) |
 
@@ -393,7 +393,7 @@ reporting, as described in [`SECURITY.md`](SECURITY.md).
 │   │   ├── services/        ingest, assets, event reads, auth, audit, the detection sweep
 │   │   ├── adapters/        SQL stores (incl. alerts, rules, runs), migrations, Redis, spool, registry, queues
 │   │   ├── domain/          EVE normaliser, asset and auth rules, ports — pure, no I/O
-│   │   │   └── detectors/   window and result bounds, severity formula, D-001 port scan
+│   │   │   └── detectors/   window and result bounds, severity formula, D-001, D-002, D-003
 │   │   ├── workers/         worker entrypoint and actors (imports, uploads, detection sweeps)
 │   │   └── cli.py           python -m aegisnet.cli
 │   └── tests/               unit · integration · security · detectors · db (opt-in, real PostgreSQL)
@@ -415,7 +415,7 @@ reporting, as described in [`SECURITY.md`](SECURITY.md).
 | Milestone | Scope | State |
 |---|---|---|
 | M1 | Foundation, ingest, normalisation, asset inventory, auth and audit | ✅ Complete; acceptance criteria and evidence in [`docs/delivery-plan.md`](docs/delivery-plan.md) and [`docs/STATUS.md`](docs/STATUS.md) |
-| M2 | Five deterministic detectors (port scan, auth-failure burst, DNS anomaly, periodic beaconing, outbound volume anomaly) with labelled fixtures; the isolated Suricata lab | 🟡 Chunks 8–9 done: detector contract, D-001, the sweep with alert storage and the alerts API |
+| M2 | Five deterministic detectors (port scan, auth-failure burst, DNS anomaly, periodic beaconing, outbound volume anomaly) with labelled fixtures; the isolated Suricata lab | 🟡 Chunks 8–10 done: detector contract, the sweep with alert storage and the alerts API, D-001, D-002 and D-003 with fixtures |
 | M3 | Correlation into incidents, timeline, analyst workflow | ⬜ |
 | M4 | Analyst dashboard (Next.js) | ⬜ |
 | M5 | Investigation brief via Perplexity, with redaction canaries, and Markdown export | ⬜ |

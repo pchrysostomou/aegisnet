@@ -36,7 +36,7 @@ async def swept(wiring: FakeWiring) -> None:
         )
     )
     outcome = await wiring.detection.sweep(WINDOW_START, WINDOW_START + timedelta(minutes=20))
-    assert outcome.alerts_created == 1
+    assert outcome.alerts_created == 1 and len(outcome.runs) == 3
 
 
 @pytest.mark.usefixtures("swept")
@@ -97,14 +97,16 @@ def test_rules_and_runs(
 ) -> None:
     rules = client.get(f"{DETECTIONS}/rules", headers=viewer_headers)
     assert rules.status_code == 200, rules.text
-    [rule] = rules.json()
-    assert rule["rule_id"] == "D-001" and rule["version"] == 1 and rule["enabled"] is True
+    assert [r["rule_id"] for r in rules.json()] == ["D-001", "D-002", "D-003"]
+    rule = rules.json()[0]
+    assert rule["version"] == 1 and rule["enabled"] is True
     assert rule["params"]["distinct_ports"] == 20
     assert client.get(f"{DETECTIONS}/runs", headers=viewer_headers).status_code == 403
     runs = client.get(f"{DETECTIONS}/runs", params={"limit": 5}, headers=analyst_headers)
     assert runs.status_code == 200, runs.text
-    [run] = runs.json()
-    assert run["rule_id"] == "D-001" and run["status"] == "success" and run["alerts_created"] == 1
+    assert {r["rule_id"] for r in runs.json()} == {"D-001", "D-002", "D-003"}
+    [run] = [r for r in runs.json() if r["rule_id"] == "D-001"]
+    assert run["status"] == "success" and run["alerts_created"] == 1
     assert (
         client.get(f"{DETECTIONS}/runs", params={"limit": 0}, headers=analyst_headers).status_code
         == 422
@@ -113,7 +115,8 @@ def test_rules_and_runs(
 
 def test_rules_are_seeded_on_first_read(client: TestClient, viewer_headers: dict[str, str]) -> None:
     rules = client.get(f"{DETECTIONS}/rules", headers=viewer_headers)
-    assert rules.status_code == 200 and [r["rule_id"] for r in rules.json()] == ["D-001"]
+    assert rules.status_code == 200
+    assert [r["rule_id"] for r in rules.json()] == ["D-001", "D-002", "D-003"]
 
 
 def test_sweeps_are_queued_by_admins_only_and_audited(

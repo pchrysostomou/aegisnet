@@ -1,15 +1,12 @@
 """Dramatiq broker factory.
 
-**No actors are registered here.** The worker container has no business workload until
-the EVE normalisation actor lands in Chunk 4; its container healthcheck is process-level
+**No actors are declared here.** Actors are entrypoints and live in
+``aegisnet.workers.actors``; the process entrypoint the ``dramatiq`` CLI loads is
+``aegisnet.workers.main`` (ADR-014). The worker's container healthcheck is process-level
 liveness only and asserts nothing about capability (ADR-010).
 
 This module is a pure factory with no import-time side effects, so it can be imported and
-tested without a running Redis. The process entrypoint that the ``dramatiq`` CLI loads is
-``aegisnet.adapters.queue.worker``.
-
-Deliberately absent: any placeholder actor, heartbeat job, or synthetic task created
-merely to make the worker look busy.
+tested without a running Redis.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Broker factory: authenticated client, no actors, no import-time side effects (ADR-010)."""
+"""Broker factory: authenticated client, declares no actors itself, no import-time side effects."""
 
 from __future__ import annotations
 
@@ -24,7 +24,8 @@ def test_client_is_authenticated_from_settings() -> None:
     assert kwargs["db"] == 0
 
 
-def test_no_actors_are_registered() -> None:
+def test_the_factory_declares_no_actors() -> None:
+    """Actors bind to the broker that workers.main installs, never to a fresh factory product."""
     broker = broker_module.build_broker(make_settings())
     assert broker.get_declared_actors() == set()
     assert broker.get_declared_queues() == set()
@@ -40,4 +41,4 @@ def test_install_sets_the_process_default() -> None:
 
 
 def test_factory_module_has_no_import_side_effects() -> None:
-    assert not hasattr(broker_module, "broker"), "boot logic belongs in worker.py"
+    assert not hasattr(broker_module, "broker"), "boot logic belongs in workers/main.py"

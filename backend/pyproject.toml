@@ -79,6 +79,9 @@ source_modules = ["aegisnet.domain"]
 forbidden_modules = [
   "aegisnet.adapters",
   "aegisnet.api",
+  "aegisnet.cli",
+  "aegisnet.services",
+  "aegisnet.workers",
   "aegisnet.config",
   "aegisnet.logging",
   "aegisnet.main",
@@ -96,9 +99,14 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "api over adapters over domain"
+name = "entrypoints over services over adapters over domain"
 type = "layers"
-layers = ["aegisnet.api", "aegisnet.adapters", "aegisnet.domain"]
+layers = [
+  "aegisnet.api | aegisnet.workers | aegisnet.cli",
+  "aegisnet.services",
+  "aegisnet.adapters",
+  "aegisnet.domain",
+]
 
 # ---------------------------------------------------------------- mypy
 [tool.mypy]
@@ -138,7 +146,7 @@ source = ["src/aegisnet"]
 branch = true
 # The migration environment and revisions are exercised by the database suite
 # (`make test-db`), which runs against a real PostgreSQL rather than under this gate.
-omit = ["*/__init__.py", "*/adapters/db/migrations/*"]
+omit = ["*/__init__.py", "*/adapters/db/migrations/*", "*/workers/main.py"]
 
 [tool.coverage.report]
 show_missing = true

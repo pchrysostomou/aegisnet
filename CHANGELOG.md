@@ -9,6 +9,32 @@ Nothing is released yet. There is no tagged version.
 ## [Unreleased]
 
 ### Added
+- **Chunk 4 — ingest service.** `services/ingest_service.py` streams NDJSON line by line
+  through the normaliser, writes events in chunks with `INSERT … ON CONFLICT (event_hash)
+  DO NOTHING` so a re-ingest stores nothing and reports every line as a duplicate, writes
+  one `ingest_rejects` row per bad line, and records counts, provenance and outcome on the
+  batch. Exceeding `INGEST_MAX_LINES` marks the batch `failed` and keeps the valid events
+  already stored; a bad line never fails a batch (ADR-014).
+- `domain/ports.py` (the `IngestStore` Protocol and the batch value objects),
+  `adapters/db/ingest_store.py` (SQLAlchemy implementation, running as the runtime role)
+  and `adapters/db/session.py`.
+- The first Dramatiq actor, `import_dataset`, in the new entrypoint layer
+  `aegisnet.workers` (`dramatiq aegisnet.workers.main`). Messages carry ids only and are
+  enqueued by actor name through `adapters/queue/ingest_queue.py`; the actor does not retry.
+- Operator CLI `python -m aegisnet.cli` (`datasets`, `import-dataset --mode sync|async`,
+  `batch`); `make demo-ingest` (`DATASET=`, `LABEL=`, `MODE=`) and `make batch ID=` run it
+  inside the api image. The HTTP ingest routes ship together with authentication in
+  Chunk 6.
+- Settings for the ingest limits and `SAMPLES_DIR` (documented in `.env.example`);
+  `./samples` bind-mounted read-only into `api` and `worker`; `worker` now depends on `db`
+  as well as `redis`.
+- import-linter layers are now entrypoints (`api | workers | cli`) over `services` over
+  `adapters` over `domain`.
+- 25 new hermetic tests (the service against an in-memory store: counts, chunking,
+  intra-batch duplicates, the line budget, storage failure, provenance from the registry;
+  CLI usage) and 5 database tests (idempotent corpus import matching the manifest, the
+  provenance row, persisted rejects, promoted columns, and the actor end to end through a
+  `StubBroker`).
 - **Chunk 3 — EVE domain and synthetic corpus.** `domain/eve/`: parse limits enforced
   before parsing (byte cap, bracket-depth scan of the raw text, then depth, key and item
   counts on the parsed shape), a sanitiser that strips C0/C1 control characters and caps
@@ -127,6 +153,9 @@ Nothing is released yet. There is no tagged version.
   the runner — and `security` failed on the genuine dependency findings fixed below.
 
 ### Changed
+- The worker entrypoint moved from `adapters/queue/worker.py` to `aegisnet.workers.main`;
+  the Compose `worker` command and liveness probe follow. `adapters/queue` keeps the broker
+  factory plus the queue and actor names (ADR-014).
 - Request-derived text is neutralised at the sink, not only by the log formatter.
   `untrusted_text` strips CR and LF explicitly, then every other control character, and
   truncates; `safe_value` delegates to it for strings. The unhandled-exception log call

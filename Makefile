@@ -12,7 +12,7 @@ BACKEND := backend
 .PHONY: help bootstrap bootstrap-force verify-ignore require-env compose-config \
         build up down compose-ps compose-logs compose-down compose-test pin-digests clean \
         backend-install lint format format-check typecheck test test-cov check \
-        migrate migrate-status test-db gen-synthetic
+        migrate migrate-status test-db gen-synthetic demo-ingest batch
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort | \
@@ -142,6 +142,20 @@ test-db: require-env ## Run the database suite against an ephemeral PostgreSQL 1
 	exit $$status
 
 ## ---------------------------------------------------------------- datasets
+
+# The Milestone 1 demo path (ADR-014): import the registered synthetic corpus through the
+# api image. Runs synchronously and prints the finished batch; a second run stores zero
+# new events and reports every line as a duplicate. MODE=async enqueues it for the worker
+# instead and prints the batch id to poll with `make batch ID=<uuid>`.
+DATASET ?= synthetic-benign-baseline-01
+LABEL ?= demo-run
+MODE ?= sync
+demo-ingest: require-env ## Ingest the registered synthetic corpus (DATASET=, LABEL=, MODE=sync|async)
+	$(COMPOSE) run --rm api python -m aegisnet.cli import-dataset $(DATASET) \
+		--source-label $(LABEL) --mode $(MODE)
+
+batch: require-env ## Show an ingest batch by id (ID=<uuid>)
+	$(COMPOSE) run --rm api python -m aegisnet.cli batch $(ID)
 
 # Regenerates the committed synthetic corpus byte-for-byte (seeded). After changing the
 # generator, run this, then update sha256 in samples/registry.yml; the integration suite

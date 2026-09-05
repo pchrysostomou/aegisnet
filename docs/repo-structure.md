@@ -54,6 +54,7 @@ aegisnet/
 │   │   │       ├── briefs.py  reports.py  audit.py
 │   │   │
 │   │   ├── domain/               # PURE. no I/O, no ORM, no network.
+│   │   │   ├── ports.py          # Protocols the services call and adapters implement (ADR-014)
 │   │   │   ├── models.py         # frozen dataclasses: NormalizedEvent, EventWindow, DetectionResult
 │   │   │   ├── eve/              # EVE parsing + validation (schema.py, normalizer.py, sanitize.py)
 │   │   │   ├── detectors/        # base.py, port_scan.py, auth_failure.py,
@@ -69,14 +70,16 @@ aegisnet/
 │   │   │   ├── auth_service.py    audit_service.py
 │   │   │
 │   │   ├── adapters/
-│   │   │   ├── db/               # engine, session, ORM models, repositories/,
+│   │   │   ├── db/               # engine, session, ORM models, ingest_store (port impl),
 │   │   │   │                     # migrations/ (Alembic env + versions, in-package: ADR-012)
-│   │   │   ├── queue/            # dramatiq broker setup, actors/, periodiq schedule
+│   │   │   ├── queue/            # dramatiq broker factory, queue/actor names, enqueuers
+│   │   │   │                     # (actors themselves live in workers/: ADR-014)
 │   │   │   ├── cache/            # redis client, rate limiter, response cache
 │   │   │   ├── perplexity/       # client.py, prompts/, response_schema.py, citations.py
 │   │   │   └── files/            # dataset registry + safe path resolution
 │   │   │
-│   │   └── cli.py                # typer: seed-assets, import-dataset, run-detectors, eval
+│   │   ├── workers/              # entrypoint layer: main.py (dramatiq entrypoint), actors.py
+│   │   └── cli.py                # argparse (ADR-014): datasets, import-dataset, batch, ...
 │   │
 │   └── tests/
 │       ├── conftest.py           # testcontainers/ephemeral pg, StubBroker, factories

@@ -74,6 +74,10 @@ services:
     environment:
       POSTGRES_HOST: db
       REDIS_HOST: redis
+      SAMPLES_DIR: /app/samples
+    volumes:
+      # Registered datasets only; read-only, and resolution is confined to it (T-1.6).
+      - ./samples:/app/samples:ro
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -87,10 +91,9 @@ services:
       retries: 6
       start_period: 20s
 
-  # Dramatiq worker. It has NO business workload in Chunk 1 — no actors are registered
-  # (ADR-010). It exists so the topology and image are proven early. Its healthcheck is
-  # process-level liveness only and deliberately makes no readiness claim.
-  # The first real actor (EVE normalization) arrives in Chunk 4.
+  # Dramatiq worker. Registers one actor, `import_dataset` (Chunk 4, ADR-014); the
+  # scheduler and periodic sweeps stay deferred (ADR-010). Its healthcheck is process-level
+  # liveness only and deliberately makes no readiness claim.
   worker:
     build:
       context: ./backend
@@ -98,18 +101,22 @@ services:
       args:
         GIT_SHA: ${GIT_SHA:-unknown}
     <<: *hardening
-    command: ["dramatiq", "aegisnet.adapters.queue.worker", "--processes", "1", "--threads", "2"]
+    command: ["dramatiq", "aegisnet.workers.main", "--processes", "1", "--threads", "2"]
     env_file: [.env]
     environment:
       POSTGRES_HOST: db
       REDIS_HOST: redis
+      SAMPLES_DIR: /app/samples
+    volumes:
+      - ./samples:/app/samples:ro
     depends_on:
+      db: {condition: service_healthy}
       redis: {condition: service_healthy}
     healthcheck:
       # Liveness only: is the worker process alive. NOT a readiness or capability signal.
       # The bracketed first letter keeps the pattern from matching the probe's own shell,
       # whose command line contains the pattern text; without it pgrep always succeeds.
-      test: ["CMD-SHELL", "pgrep -f '[d]ramatiq aegisnet.adapters.queue.worker' > /dev/null"]
+      test: ["CMD-SHELL", "pgrep -f '[d]ramatiq aegisnet.workers.main' > /dev/null"]
       interval: 15s
       timeout: 5s
       retries: 4

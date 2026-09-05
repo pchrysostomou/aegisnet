@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated, Literal
 
 from pydantic import Field, SecretStr, computed_field, field_validator, model_validator
@@ -62,6 +63,16 @@ class Settings(BaseSettings):
 
     # ---- operational limits used by the health probes
     probe_timeout_seconds: Annotated[float, Field(gt=0, le=30)] = 3.0
+
+    # ---- datasets and ingest (docs/api-milestone-1.md; THREAT_MODEL T-1.4, T-1.5, T-1.7)
+    samples_dir: Path = Path("samples")
+    ingest_max_body_bytes: Annotated[int, Field(ge=1024)] = 50 * 1024 * 1024
+    ingest_max_lines: Annotated[int, Field(ge=1)] = 200_000
+    ingest_max_line_bytes: Annotated[int, Field(ge=256)] = 64 * 1024
+    ingest_max_json_depth: Annotated[int, Field(ge=2, le=64)] = 12
+    ingest_max_keys_per_object: Annotated[int, Field(ge=8)] = 200
+    ingest_timestamp_max_past_days: Annotated[int, Field(ge=1)] = 3650
+    ingest_timestamp_max_future_hours: Annotated[int, Field(ge=0)] = 24
 
     @field_validator("api_cors_origins")
     @classmethod

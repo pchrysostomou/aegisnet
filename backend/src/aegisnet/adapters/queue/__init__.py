@@ -1,1 +1,1 @@
-"""Background work. No actors are registered in Chunk 1 (ADR-010)."""
+"""Broker wiring only. Actors live in ``aegisnet.workers`` (ADR-014)."""

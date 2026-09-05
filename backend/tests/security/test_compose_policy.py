@@ -104,7 +104,20 @@ def test_api_and_web_start_only_after_their_dependencies_are_healthy() -> None:
         "redis": {"condition": "service_healthy"},
     }
     assert services["web"]["depends_on"] == {"api": {"condition": "service_healthy"}}
-    assert services["worker"]["depends_on"] == {"redis": {"condition": "service_healthy"}}
+    assert services["worker"]["depends_on"] == {
+        "db": {"condition": "service_healthy"},
+        "redis": {"condition": "service_healthy"},
+    }
+
+
+def test_samples_are_mounted_read_only_and_nowhere_else() -> None:
+    """T-1.6: the only dataset source is ./samples, read-only, in the two services that ingest."""
+    services = _services(COMPOSE)
+    for name in ("api", "worker"):
+        assert "./samples:/app/samples:ro" in services[name]["volumes"], name
+        assert _environment(services[name])["SAMPLES_DIR"] == "/app/samples", name
+    for name in ("db", "redis", "web"):
+        assert not any("samples" in str(v) for v in services[name].get("volumes", [])), name
 
 
 def test_every_service_declares_a_healthcheck() -> None:
@@ -117,12 +130,12 @@ def test_worker_liveness_probe_cannot_match_its_own_shell() -> None:
     """Regression: `pgrep -f 'dramatiq ...'` matched the sh -c wrapper and always passed."""
     test = _services(COMPOSE)["worker"]["healthcheck"]["test"]
     assert test[0] == "CMD-SHELL"
-    assert "pgrep -f '[d]ramatiq" in test[1]
+    assert "pgrep -f '[d]ramatiq aegisnet.workers.main'" in test[1]
 
 
 def test_worker_runs_the_dedicated_entrypoint_module() -> None:
     command = _services(COMPOSE)["worker"]["command"]
-    assert command[:2] == ["dramatiq", "aegisnet.adapters.queue.worker"]
+    assert command[:2] == ["dramatiq", "aegisnet.workers.main"]
 
 
 def test_test_runner_has_no_secrets_and_cannot_reach_a_datastore() -> None:

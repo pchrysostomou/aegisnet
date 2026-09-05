@@ -4,13 +4,14 @@ A self-hosted, **defensive-only** platform for ingesting network security teleme
 detecting suspicious behaviour with deterministic heuristics, correlating findings into
 incidents, and generating evidence-based AI investigation briefs for human analysts.
 
-> **Status: Milestone 1, Chunk 3 — EVE domain and synthetic corpus.**
+> **Status: Milestone 1, Chunk 4 — ingest service.**
 > The five-service stack builds and reaches healthy from a clean clone, `make migrate`
-> creates the nine Milestone 1 tables with least-privilege grants, and the pure EVE domain
-> validates, sanitises, hashes and normalises Suricata records against hand-built and
-> generated corpora — but nothing stores them yet. There is **no ingestion endpoint, no
-> detection, no authentication and no analyst UI yet**. [`docs/STATUS.md`](docs/STATUS.md)
-> is the authoritative record of what exists and what has been verified.
+> creates the nine Milestone 1 tables with least-privilege grants, and `make demo-ingest`
+> stores the committed synthetic corpus idempotently — a second run stores nothing and
+> reports every line as a duplicate — either inline or through the worker's first actor.
+> There is **no HTTP ingest endpoint, no detection, no authentication and no analyst UI
+> yet**. [`docs/STATUS.md`](docs/STATUS.md) is the authoritative record of what exists and
+> what has been verified.
 
 ---
 
@@ -44,14 +45,15 @@ aspirational:
 | Repository scaffolding: ignore rules, LF normalisation, licence, changelog, environment template, secret bootstrap, pre-commit config | Complete |
 | Docker Compose topology and container images (five services, hardened, loopback-only) | **Built and started locally; all five services report healthy** |
 | Backend application (FastAPI, settings, JSON logging, error envelope, `/healthz`, `/readyz`, `/api/v1/meta/version`) | Complete for Chunk 1 |
-| Dramatiq worker | Boots, authenticates to Redis, registers **zero** actors ([ADR-010](docs/adr/ADR-010-defer-scheduler.md)) |
+| Dramatiq worker | Boots, authenticates to Redis, registers one actor, `import_dataset` ([ADR-014](docs/adr/ADR-014-ingest-entrypoints-ports-and-worker-layer.md)); the scheduler stays deferred ([ADR-010](docs/adr/ADR-010-defer-scheduler.md)) |
 | Frontend | Health placeholder only: one page and `GET /api/health` |
 | Schema: Alembic baseline for the nine M1 tables (`users`, `service_tokens`, `refresh_tokens`, `audit_log`, `ingest_batches`, `events`, `ingest_rejects`, `assets`, `asset_networks`), ORM models, enum types, indexes incl. `UNIQUE (event_hash)` and `GIST (cidr inet_ops)`, least-privilege grants | Complete for Chunk 2; `make migrate` applies it, `make test-db` proves it ([ADR-012](docs/adr/ADR-012-migrations-in-package-and-role-grants.md)) |
 | EVE domain (`backend/src/aegisnet/domain/eve/`): parse limits, sanitiser, Pydantic schema, canonical `event_hash`, normaliser to `NormalizedEvent` or `Reject` | Complete for Chunk 3; pure and clock-free ([ADR-013](docs/adr/ADR-013-event-hash-payload-and-event-type-triage.md)) |
 | Dataset registry with id-only, symlink-free, checksum-verified resolution; seeded synthetic generator and the committed benign corpus (2000 events) | Complete for Chunk 3 ([`samples/README.md`](samples/README.md)) |
+| Ingest service: streaming NDJSON, per-line rejects with reason codes, idempotent storage by `event_hash`, batch provenance and counts; operator CLI and `make demo-ingest` | Complete for Chunk 4 ([ADR-014](docs/adr/ADR-014-ingest-entrypoints-ports-and-worker-layer.md)); HTTP routes arrive with authentication in Chunk 6 |
 | Tests | Hermetic suite (unit, integration, security), no database or Redis needed; plus an opt-in database suite (`make test-db`) that migrates, compares the ORM with the schema, and asserts the runtime role's privileges against an ephemeral PostgreSQL 16 |
 | CI and security workflows | Both green: `ci` including the stack gate on the runner, and `security` after the dependency upgrades its first run demanded. Every action now runs on the Node 24 runtime — see `docs/STATUS.md` |
-| Ingest service and API, asset and event APIs, auth/RBAC/audit/rate limiting, detection, correlation, AI briefs, dashboard | Not started — Chunk 4 onward and later milestones |
+| HTTP ingest, asset and event APIs, auth/RBAC/audit/rate limiting, detection, correlation, AI briefs, dashboard | Not started — Chunk 5 onward and later milestones |
 
 ---
 
@@ -86,14 +88,21 @@ make up
 make migrate
 make migrate-status                             # revision held by the database vs. the head this build expects
 
-# 4. Probe it. Everything is bound to 127.0.0.1.
+# 4. Ingest the registered synthetic corpus (2000 events). Run it twice: the second run
+#    stores nothing and reports every line as a duplicate (FR-1.4).
+make demo-ingest
+make demo-ingest LABEL=second-run
+make demo-ingest MODE=async LABEL=via-worker     # enqueues for the worker; prints the batch id
+make batch ID=<uuid>                            # poll it
+
+# 5. Probe it. Everything is bound to 127.0.0.1.
 curl http://127.0.0.1:8000/healthz              # {"status":"ok"}
 curl http://127.0.0.1:8000/readyz               # {"status":"ok"} once PostgreSQL and Redis answer
 curl http://127.0.0.1:8000/api/v1/meta/version  # includes "schema_revision":"0001_m1_baseline"
 curl http://127.0.0.1:3000/api/health           # {"status":"ok"}
 open http://127.0.0.1:8000/docs                 # OpenAPI UI (disabled when ENV=production)
 
-# 5. Tear down, including the database volume.
+# 6. Tear down, including the database volume.
 make down
 ```
 
@@ -126,8 +135,9 @@ downgrades to base to prove nothing is left behind. CI runs it as the `migration
 ### Container topology
 
 Five services: `db` (PostgreSQL 16), `redis` (Redis 7), `api` (FastAPI), `worker`
-(Dramatiq, no actors until Chunk 4), `web` (Next.js placeholder). `db`, `redis` and
-`worker` publish no host port. `api` and `web` publish only on `127.0.0.1`, so nothing is
+(Dramatiq, one actor: `import_dataset`), `web` (Next.js placeholder). `db`, `redis` and
+`worker` publish no host port. `api` and `worker` mount `./samples` read-only at
+`/app/samples`, the only place a dataset can be imported from. `api` and `web` publish only on `127.0.0.1`, so nothing is
 reachable from another host. Every service sets `cap_drop: ["ALL"]` and
 `no-new-privileges:true`.
 

@@ -98,15 +98,15 @@ The point of the exercise. All three are recorded as passing tests over the comm
 capture in `backend/tests/unit/eve/test_lab_capture_fidelity.py`, so they cannot drift, and
 in `docs/evaluation.md` §9 with their numbers.
 
-**It works.** 450 of 450 real Suricata 8.0.6 records normalised and stored with zero
-rejects; a re-import reported 450 duplicates, so idempotency holds on real data; D-001 found
+**It works.** 462 of 462 real Suricata 8.0.6 records normalised and stored with zero
+rejects; a re-import reported 462 duplicates, so idempotency holds on real data; D-001 found
 the sweep and D-002 found the authentication burst, on traffic nobody generated to a
 threshold.
 
 **L-F1 — flow records are stamped when they are emitted, not when they happened.** The
-lab's beacon checks in every five seconds to within 20 ms. The `flow.start` values confirm
-it (jitter 0.002). The record `timestamp` values, which is what the normaliser stores as
-`event_time`, are the flow manager's emission times: jitter 0.33, more than twice D-004's
+lab's beacon checks in every five seconds to within 15 ms. The `flow.start` values confirm
+it (jitter 0.001). The record `timestamp` values, which is what the normaliser stores as
+`event_time`, are the flow manager's emission times: jitter 0.330, more than twice D-004's
 limit of 0.15. **D-004 cannot see a real beacon at all.** The synthetic corpus has the same
 property — its flow records also carry an emission-style timestamp — so this was never
 visible from generated data; the labelled fixtures pass because they were written with the

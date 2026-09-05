@@ -23,22 +23,22 @@ Nothing is released yet. There is no tagged version.
   or a URL parameter whose name announces a credential. `--check` re-runs that refusal against a
   file as it sits on disk, so it asserts something about the committed bytes rather than about a
   repaired copy of them. Its output is a normal registered
-  dataset: `samples/lab/lab-capture-01.ndjson` (450 real Suricata records) with a manifest, a
+  dataset: `samples/lab/lab-capture-01.ndjson` (462 real Suricata records) with a manifest, a
   sha256 in `samples/registry.yml` and an asset seed.
 - `make lab-preflight`, `lab-up`, `lab-traffic`, `lab-capture`, `lab-export`, `lab-sanitize`,
   `lab-down`, `lab-clean`, `eval-lab` and `test-security`; the lab runbook at
   `infra/lab/README.md`; the L-0 – L-5 pre-flight checklist in `docs/evaluation.md` §7, ticked
   and renumbered from E-0 – E-5 so it stops colliding with `docs/STATUS.md`'s evidence rows.
 - **What the lab found**, recorded in `docs/evaluation.md` §9 and pinned by
-  `tests/unit/eve/test_lab_capture_fidelity.py`: 450 of 450 real records ingest with zero
+  `tests/unit/eve/test_lab_capture_fidelity.py`: 462 of 462 real records ingest with zero
   rejects and D-001 and D-002 fire on real traffic; but **D-004 cannot see a real beacon**
-  because a flow record is stamped when it is emitted, not when the flow started (jitter 0.33
-  against a limit of 0.15, where `flow.start` says 0.002), and **D-003 cannot read real DNS at
+  because a flow record is stamped when it is emitted, not when the flow started (jitter 0.330
+  against a limit of 0.15, where `flow.start` says 0.001), and **D-003 cannot read real DNS at
   all** because Suricata 8 writes EVE DNS v3, where a request carries an `rcode` too, and the
   rule reads "has an rcode" as "is an answer". Both are open defects with a chunk of their own;
   neither is fixed here, because both change `event_hash` and therefore the corpus, the
   fixtures and the pinned metrics table.
-- 108 hermetic tests: the lab policy suite (`backend/tests/security/test_lab_policy.py`), the
+- 109 hermetic tests: the lab policy suite (`backend/tests/security/test_lab_policy.py`), the
   sanitiser (`backend/tests/unit/test_sanitize_eve.py`) and the fidelity suite over the real
   capture. The lab manifest joins the shared compose policy checks and the CI `manifests` job.
 - **Milestone 2 closes.** Every acceptance criterion in `docs/delivery-plan.md` is ticked with

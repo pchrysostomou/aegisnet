@@ -17,7 +17,6 @@ Standard library only.
 from __future__ import annotations
 
 import argparse
-import base64
 import http.client
 import socket
 import struct
@@ -33,10 +32,10 @@ LAB_SUBNET = "203.0.113.0/24"
 LAB_ZONE = "lab.example.test"
 
 MARKER_HEADER = "X-Aegisnet-Lab"
+# The header the target's guarded path wants. The auth scenario omits it, which is the whole
+# of its "wrong credential": no username and no password exist anywhere in this lab.
+OPERATOR_HEADER = "X-Aegisnet-Lab-Operator"
 BEACON_PORT = 9443
-LAB_USER = "lab-" + "operator"
-WRONG_SECRET = "wrong-" + "on-purpose"
-
 # Ports nobody listens on inside the lab. A connect() to each is refused immediately, which
 # is the SYN/RST pattern a horizontal sweep leaves behind.
 CLOSED_PORTS = tuple(range(30000, 30040))
@@ -78,11 +77,10 @@ def benign(rounds: int) -> Counts:
 
 
 def auth_failures(rounds: int) -> Counts:
-    """Wrong credentials against the lab's own guarded path: 401 after 401."""
-    wrong = base64.b64encode(f"{LAB_USER}:{WRONG_SECRET}".encode()).decode()
+    """Requests that fail the lab target's authorisation check: 401 after 401."""
     refused = 0
     for _ in range(rounds):
-        refused += _http("/private", headers={"Authorization": f"Basic {wrong}"}) == 401
+        refused += _http("/private", headers={MARKER_HEADER: "auth"}) == 401
         time.sleep(0.3)
     return Counts("auth", rounds, refused, "401 responses")
 

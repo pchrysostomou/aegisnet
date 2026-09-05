@@ -226,16 +226,21 @@ def test_sensor_records_are_recognised_whatever_their_case() -> None:
     assert dropped["sensor_record"] == 1
 
 
-def test_check_judges_the_file_on_disk_not_a_repaired_copy(tmp_path: Path) -> None:
+def test_check_judges_the_file_on_disk_not_a_repaired_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A file that still holds packet bytes is not publishable, however easily the tool could
     have removed them; --check is an assertion about the committed bytes."""
-    target = tmp_path / "excerpt.ndjson"
-    target.write_text(_line(payload="R0VU") + "\n", encoding="utf-8")
-    assert sanitize_eve.main(["--check", str(target)]) == 1
-    target.write_text(_line(event_type="stats") + "\n", encoding="utf-8")
-    assert sanitize_eve.main(["--check", str(target)]) == 1
-    target.write_text(_line() + "\n", encoding="utf-8")
-    assert sanitize_eve.main(["--check", str(target)]) == 0
+    root = _checkout(tmp_path, "")
+    monkeypatch.chdir(root)
+    excerpt = root / sanitize_eve.EXCERPT_FILE
+    excerpt.parent.mkdir(parents=True, exist_ok=True)
+    excerpt.write_text(_line(payload="R0VU") + "\n", encoding="utf-8")
+    assert sanitize_eve.main(["--check"]) == 1
+    excerpt.write_text(_line(event_type="stats") + "\n", encoding="utf-8")
+    assert sanitize_eve.main(["--check"]) == 1
+    excerpt.write_text(_line() + "\n", encoding="utf-8")
+    assert sanitize_eve.main(["--check"]) == 0
 
 
 def test_the_manifest_name_keeps_the_whole_stem() -> None:
@@ -279,29 +284,54 @@ def test_the_manifest_publishes_the_hour_aligned_sweep_window() -> None:
     assert manifest["sanitizer_version"] == sanitize_eve.SANITIZER_VERSION
 
 
-def test_the_cli_writes_a_file_and_a_manifest_then_verifies_it(tmp_path: Path) -> None:
-    source = tmp_path / "eve.json"
-    source.write_text("\n".join([_line(), _line(event_type="stats")]) + "\n", encoding="utf-8")
-    out = tmp_path / "excerpt.ndjson"
-    assert sanitize_eve.main(["--in", str(source), "--out", str(out)]) == 0
-    assert len(out.read_text(encoding="utf-8").splitlines()) == 1
-    manifest = json.loads((tmp_path / "excerpt.manifest.json").read_text(encoding="utf-8"))
+def _checkout(tmp_path: Path, capture: str) -> Path:
+    """A miniature checkout: the two files the tool uses to recognise one, plus a capture."""
+    for marker in sanitize_eve.LAYOUT:
+        (tmp_path / marker).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / marker).write_text("marker\n", encoding="utf-8")
+    source = tmp_path / sanitize_eve.CAPTURE_FILE
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(capture, encoding="utf-8")
+    return tmp_path
+
+
+def test_the_cli_takes_no_paths_and_writes_beside_the_registry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fixed names under a discovered root: a sanitiser that took a path from its caller
+    would be a path its caller could point anywhere."""
+    root = _checkout(tmp_path, "\n".join([_line(), _line(event_type="stats")]) + "\n")
+    monkeypatch.chdir(root / "infra" / "lab")
+    assert sanitize_eve.main([]) == 0
+    excerpt = root / sanitize_eve.EXCERPT_FILE
+    assert len(excerpt.read_text(encoding="utf-8").splitlines()) == 1
+    manifest = json.loads(sanitize_eve.manifest_path_for(excerpt).read_text(encoding="utf-8"))
     assert manifest["events"] == 1 and manifest["dropped"] == {"sensor_record": 1}
-    assert sanitize_eve.main(["--check", str(out)]) == 0
+    assert sanitize_eve.main(["--check"]) == 0
 
 
-def test_the_cli_refuses_an_unpublishable_capture(tmp_path: Path) -> None:
-    source = tmp_path / "eve.json"
-    source.write_text(_line(dest_ip="8.8.8.8") + "\n", encoding="utf-8")
-    out = tmp_path / "excerpt.ndjson"
-    assert sanitize_eve.main(["--in", str(source), "--out", str(out)]) == 1
-    assert not out.exists(), "nothing is written when the capture cannot be published"
+def test_the_cli_refuses_to_run_outside_a_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert sanitize_eve.main([]) == 1
+    assert "not inside a repository checkout" in capsys.readouterr().err
+
+
+def test_the_cli_refuses_an_unpublishable_capture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _checkout(tmp_path, _line(dest_ip="8.8.8.8") + "\n")
+    monkeypatch.chdir(root)
+    assert sanitize_eve.main([]) == 1
+    assert not (root / sanitize_eve.EXCERPT_FILE).exists(), "nothing is written on a refusal"
 
 
 @pytest.mark.skipif(not EXCERPT.is_file(), reason="the committed lab excerpt is absent")
-def test_the_committed_lab_excerpt_is_still_publishable() -> None:
+def test_the_committed_lab_excerpt_is_still_publishable(monkeypatch: pytest.MonkeyPatch) -> None:
     """The excerpt in samples/lab/ must survive its own sanitiser, forever."""
-    assert sanitize_eve.main(["--check", str(EXCERPT)]) == 0
+    monkeypatch.chdir(REPO_ROOT)
+    assert sanitize_eve.main(["--check"]) == 0
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     lines = [line for line in EXCERPT.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert manifest["events"] == len(lines)

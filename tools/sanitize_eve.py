@@ -31,10 +31,15 @@ than about a repaired copy of one.
 
 Standard library only, so it runs with any Python 3.12 without the backend environment.
 
+No path is accepted on the command line. Like a dataset import, this tool resolves fixed
+names under the repository root it finds above its working directory: it reads the capture
+`make lab-export` leaves at ``infra/lab/out/eve.json`` and writes
+``samples/lab/lab-capture-01.ndjson`` beside its manifest. A sanitiser that took a path from
+its caller would be a path its caller could point anywhere.
+
 Usage:
-    python3 tools/sanitize_eve.py --in infra/lab/out/eve.json \\
-        --out samples/lab/lab-capture-01.ndjson --limit 500
-    python3 tools/sanitize_eve.py --check samples/lab/lab-capture-01.ndjson
+    python3 tools/sanitize_eve.py --limit 500      # sanitise the last capture
+    python3 tools/sanitize_eve.py --check          # re-verify the committed excerpt
 """
 
 from __future__ import annotations
@@ -293,9 +298,29 @@ SECRET_PARAMETER = re.compile(
 MAX_STRING = 512
 MAX_DEPTH = 24
 
+# Where the tool reads and writes, relative to the repository root. Fixed, because nothing
+# here should be steerable from a command line.
+CAPTURE_FILE = Path("infra/lab/out/eve.json")
+EXCERPT_FILE = Path("samples/lab/lab-capture-01.ndjson")
+# What identifies a checkout: the lab that produces a capture and the registry that records
+# the excerpt. Both are committed, so both exist before any capture is taken.
+LAYOUT = (Path("infra/lab/docker-compose.lab.yml"), Path("samples/registry.yml"))
+
 
 class UnpublishableCaptureError(ValueError):
     """The capture cannot be made safe by removing fields; a human has to look at it."""
+
+
+def repository_root(start: Path) -> Path:
+    """The nearest directory at or above ``start`` that holds the whole layout."""
+    for candidate in (start, *start.parents):
+        if all((candidate / relative).exists() for relative in LAYOUT):
+            return candidate
+    raise UnpublishableCaptureError(
+        "not inside a repository checkout: "
+        + ", ".join(str(relative) for relative in LAYOUT)
+        + " were not all found at or above the working directory"
+    )
 
 
 # ---------------------------------------------------------------- key classification
@@ -536,37 +561,36 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--in", dest="source", type=Path, default=None, help="raw eve.json")
-    parser.add_argument("--out", type=Path, default=None, help="sanitised NDJSON to write")
-    parser.add_argument(
-        "--manifest", type=Path, default=None, help="default: <out stem>.manifest.json beside --out"
-    )
     parser.add_argument("--limit", type=int, default=None, help="keep at most this many records")
     parser.add_argument(
         "--check",
-        type=Path,
-        default=None,
-        help="verify a file as it sits on disk instead of writing one",
+        action="store_true",
+        help="verify the committed excerpt as it sits on disk instead of writing one",
     )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    if args.check is not None:
+    try:
+        root = repository_root(Path.cwd())
+    except UnpublishableCaptureError as error:
+        print(f"error: {error}", file=sys.stderr)  # noqa: T201 - CLI output
+        return 1
+
+    excerpt = root / EXCERPT_FILE
+    if args.check:
         try:
-            count = verify(list(_lines(args.check)))
+            count = verify(list(_lines(excerpt)))
         except (UnpublishableCaptureError, OSError, UnicodeDecodeError) as error:
-            print(f"error: {args.check}: {error}", file=sys.stderr)  # noqa: T201 - CLI output
+            print(f"error: {EXCERPT_FILE}: {error}", file=sys.stderr)  # noqa: T201 - CLI output
             return 1
-        print(f"{args.check}: {count} records, publishable")  # noqa: T201 - CLI output
+        print(f"{EXCERPT_FILE}: {count} records, publishable")  # noqa: T201 - CLI output
         return 0
 
-    if args.source is None or args.out is None:
-        print("error: --in and --out are required unless --check is given", file=sys.stderr)  # noqa: T201
-        return 2
+    source = root / CAPTURE_FILE
     try:
-        records, dropped = sanitize(list(_lines(args.source)), limit=args.limit)
+        records, dropped = sanitize(list(_lines(source)), limit=args.limit)
     except (UnpublishableCaptureError, OSError, UnicodeDecodeError) as error:
         print(f"error: {error}", file=sys.stderr)  # noqa: T201 - CLI output
         return 1
@@ -574,16 +598,16 @@ def main(argv: list[str] | None = None) -> int:
         print("error: nothing left to publish", file=sys.stderr)  # noqa: T201 - CLI output
         return 1
     payload = "".join(json.dumps(record, sort_keys=True) + "\n" for record in records).encode()
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_bytes(payload)
-    manifest_path = args.manifest or manifest_path_for(args.out)
+    excerpt.parent.mkdir(parents=True, exist_ok=True)
+    excerpt.write_bytes(payload)
+    manifest_path = manifest_path_for(excerpt)
     manifest_path.write_text(
-        json.dumps(manifest_for(records, dropped, args.source, payload), indent=2) + "\n",
+        json.dumps(manifest_for(records, dropped, source, payload), indent=2) + "\n",
         encoding="utf-8",
     )
     counts = Counter(str(record.get("event_type")) for record in records)
     kinds = ", ".join(f"{kind} {count}" for kind, count in sorted(counts.items()))
-    print(f"{args.out}: {len(records)} records ({kinds}); manifest {manifest_path}")  # noqa: T201
+    print(f"{EXCERPT_FILE}: {len(records)} records ({kinds})")  # noqa: T201 - CLI output
     return 0
 
 

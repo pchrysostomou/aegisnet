@@ -23,7 +23,7 @@ L-0 … L-5 pre-flight checklist in §7.
 | Suricata never blocks anything | IDS only: no inline transport, no `copy-mode`, no IPS flags, and every rule starts with `alert`. Tests assert each of those. |
 | No scanning or exploitation tooling exists here | A test fails if any file mentions one, by name, from a list. |
 | The raw capture never reaches git | `infra/lab/out/` is ignored twice over, and the repository ignores `eve*.json` and `*.pcap` everywhere. |
-| Only a reviewed excerpt is published | `tools/sanitize_eve.py` strips content-bearing fields and **refuses** to write anything if a single address or name outside documentation space survived. |
+| Only a reviewed excerpt is published | `tools/sanitize_eve.py` strips content-bearing fields and then **refuses** to write anything at all if what remains holds an unclassified key, an address or name outside documentation space anywhere (inside a list, inside a URL), or a URL parameter whose name announces a credential. It accepts no path: it reads and writes fixed names under the checkout it finds. |
 
 The one hardening exception in the whole repository lives here: the sensor adds
 `CAP_NET_RAW` back after dropping every capability, because no capability-less process can
@@ -72,7 +72,7 @@ becomes a lie somebody can see.
 | Path | What it is |
 |---|---|
 | `docker-compose.lab.yml` | The three services, the internal network, and every hardening declaration |
-| `target/service.py` | The only listener: HTTP on 8080 (benign, 401, bulk) and a minimal DNS responder on 53 |
+| `target/service.py` | The only listener: HTTP on 8080 (benign, 401, bulk), a second HTTP port 9443 for beacon check-ins, and a minimal DNS responder on 53. Its guarded path checks for a marker header, not a credential: no username or password exists anywhere in this lab |
 | `generators/traffic.py` | The six shapes: benign, auth, sweep, beacon, bulk, dns |
 | `suricata/suricata.yaml` | IDS-only sensor configuration: af-packet on one interface, EVE output, no payloads |
 | `suricata/lab.rules` | Three alert-only rules in the reserved sid range 9100000-9199999 |
@@ -84,11 +84,11 @@ becomes a lie somebody can see.
 | Scenario | What the generator does | Which rule it is aimed at |
 |---|---|---|
 | `benign` | 20 ordinary GETs carrying a marker header | Nothing — it is the noise the others sit in |
-| `auth` | 12 requests with a deliberately wrong credential, answered 401 | D-002 auth-failure burst |
+| `auth` | 12 requests that fail the target's authorisation check, answered 401 | D-002 auth-failure burst |
 | `sweep` | One source, 40 closed ports on the one host the lab owns | D-001 port scan |
-| `beacon` | 12 check-ins at a fixed five-second interval | D-004 periodic beaconing |
+| `beacon` | 12 check-ins at a fixed five-second interval, on their own port (9443) | D-004 periodic beaconing |
 | `bulk` | 4 MiB up and 4 MiB down | D-005 outbound volume |
-| `dns` | 18 lookups: hits, misses, and 60-character labels | D-003 DNS anomaly |
+| `dns` | 90 lookups over 30 rounds: hits, misses, and 60-character labels | D-003 DNS anomaly |
 
 Nothing here is tuned to a threshold. The shapes are what an operator would call obvious;
 whether the rules agree is the question, and the answer belongs in `docs/evaluation.md`,

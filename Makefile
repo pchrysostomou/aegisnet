@@ -211,8 +211,8 @@ lab-export: ## Copy this run's EVE output out of the sensor's volume onto the op
 	@wc -l < $(LAB_CAPTURE) | xargs -I{} echo "captured {} EVE records in $(LAB_CAPTURE)"
 
 lab-sanitize: ## L-5: sanitise the capture into samples/lab/ (LAB_LIMIT=500, enough for one default run)
-	python3 tools/sanitize_eve.py --in $(LAB_CAPTURE) --out $(LAB_EXCERPT) --limit $(LAB_LIMIT)
-	python3 tools/sanitize_eve.py --check $(LAB_EXCERPT)
+	python3 tools/sanitize_eve.py --limit $(LAB_LIMIT)
+	python3 tools/sanitize_eve.py --check
 
 lab-down: ## Stop the lab and remove its network (the capture volume survives)
 	$(LAB) down --remove-orphans

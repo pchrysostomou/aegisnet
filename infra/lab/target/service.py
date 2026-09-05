@@ -16,11 +16,10 @@ import struct
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-# The one credential the lab accepts. It guards nothing real: the point is to answer 401 to
-# the generator's deliberately wrong attempts so Suricata records an authentication-failure
-# shape. Written as an expression so no credential-shaped literal sits in the repository.
-LAB_USER = "lab-" + "operator"
-LAB_SECRET = "lab-" + "only-" + "not-a-secret"
+# `/private` is guarded by a marker header, not by a credential. The shape the lab needs is
+# a burst of 401 responses; a username and password would add nothing to it except a
+# credential-shaped literal in a repository whose secret scanning exists to keep those out.
+OPERATOR_HEADER = "X-Aegisnet-Lab-Operator"
 
 BODY = b"AegisNet lab target. Every byte here is generated inside an internal Docker network.\n"
 BULK_CHUNK = b"aegisnet-lab-bulk-payload-" * 40  # 1 040 bytes of obviously synthetic filler
@@ -47,14 +46,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/healthz":
             self._send(200, b"ok\n")
         elif path == "/private":
-            # The generator sends a wrong credential on purpose; a correct one is possible
-            # so the lab can show both outcomes side by side.
-            offered = self.headers.get("Authorization", "")
-            expected = "Basic " + _basic(LAB_USER, LAB_SECRET)
-            if offered == expected:
-                self._send(200, b"authenticated\n")
+            # With the marker header, allowed; without it, refused. The generator omits it on
+            # purpose, so Suricata sees a run of refusals and records the shape D-002 reads.
+            if self.headers.get(OPERATOR_HEADER):
+                self._send(200, b"authorised\n")
             else:
-                self._send(401, b"unauthorized\n", extra={"WWW-Authenticate": 'Basic realm="lab"'})
+                self._send(401, b"unauthorised\n", extra={"WWW-Authenticate": 'Basic realm="lab"'})
         elif path == "/bulk":
             size = _clamp(self.path)
             body = (BULK_CHUNK * (size // len(BULK_CHUNK) + 1))[:size]
@@ -71,12 +68,6 @@ class Handler(BaseHTTPRequestHandler):
                 break
             read += len(chunk)
         self._send(200, f"received {read}\n".encode())
-
-
-def _basic(user: str, secret: str) -> str:
-    import base64
-
-    return base64.b64encode(f"{user}:{secret}".encode()).decode()
 
 
 def _clamp(path: str) -> int:

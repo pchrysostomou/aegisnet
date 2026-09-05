@@ -235,9 +235,9 @@ The lab is described in [`infra/lab/README.md`](../infra/lab/README.md) and deci
 |---|---|
 | Sensor | Suricata 8.0.6, pinned by digest, IDS mode, three local alert-only rules |
 | Traffic | six scripted shapes between two containers on an internal-only network |
-| Capture | 458 EVE records; 450 published after sanitising, 8 sensor records dropped |
-| Published as | `samples/lab/lab-capture-01.ndjson`, sha256 `b8a62549758b…`, registered as dataset `lab-capture-01` |
-| Composition | 176 flow, 180 dns, 48 alert, 46 http |
+| Capture | 470 EVE records; 462 published after sanitising, 8 sensor records dropped |
+| Published as | `samples/lab/lab-capture-01.ndjson`, sha256 `a1cbb5a195ff…`, registered as dataset `lab-capture-01` |
+| Composition | 176 flow, 180 dns, 60 alert, 46 http |
 
 This is a **qualitative** tier. Nothing below is an accuracy claim: the traffic was written
 by a script, the network had three containers, and the target exists to be talked to. What
@@ -246,10 +246,10 @@ output does — and for two rules, it does not.
 
 ### What worked
 
-- **Ingest is faithful.** 450 of 450 records normalised and stored, zero rejects. The only
+- **Ingest is faithful.** 462 of 462 records normalised and stored, zero rejects. The only
   records the normaliser refuses are `stats`, which describe the sensor rather than the
   network, and the sanitiser drops those before they are ever offered.
-- **Idempotency holds on real data.** Re-importing the same capture reported 450 duplicates
+- **Idempotency holds on real data.** Re-importing the same capture reported 462 duplicates
   and 0 stored.
 - **D-001 found the sweep** (`203.0.113.20`, 43 distinct ports, severity 3) and **D-002 found
   the authentication burst** (12 failures inside a 120-second span, confidence 1.0). Neither
@@ -264,8 +264,8 @@ Suricata's `flow.start` values the shape is textbook:
 
 | Measured over | Gap range | Jitter (σ/mean) | D-004's limit |
 |---|---|---|---|
-| `flow.start` (when the flow began) | 4.991 – 5.024 s | **0.002** | 0.15 |
-| record `timestamp` (what we store) | 2.959 – 7.903 s | **0.327** | 0.15 |
+| `flow.start` (when the flow began) | 4.997 – 5.014 s | **0.001** | 0.15 |
+| record `timestamp` (what we store) | 1.971 – 7.914 s | **0.330** | 0.15 |
 
 Suricata's flow manager emits a flow record when the flow is finished or times out, and
 stamps it then. The normaliser stores that as `event_time`, so D-004 measures the emission

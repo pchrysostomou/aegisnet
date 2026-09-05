@@ -1,8 +1,14 @@
-# Local test, lint, and typecheck runner for Chunk 1.
+# Local test, lint, and typecheck runner.
 #
-# Chunk 1 tests are hermetic: they fake the PostgreSQL and Redis probes rather than talking
-# to real services, so no database or cache container is defined here yet. Real `db-test` /
-# `redis-test` service containers arrive with the migrations chunk (decision F-2).
+# `tests` is the hermetic suite: it fakes the PostgreSQL and Redis probes rather than talking
+# to real services, and it needs no datastore container.
+#
+# `db-test` and `tests-db` (profile `db`, decision F-2) run the database suite — migrations,
+# grants, schema/ORM agreement — against an ephemeral PostgreSQL 16 that uses the same image,
+# service user, init scripts and hardening as the real `db`. Its data lives in an anonymous
+# volume that `down --volumes` removes; it publishes no port. Credentials come from `.env`
+# exactly as they do for the real stack, so `make bootstrap` is the prerequisite and no
+# credential literal appears here. `make test-db` wraps the run and the teardown.
 #
 # The whole repository is mounted at /repo because the security tests read the committed
 # Compose file, both Dockerfiles, .env.example, and .gitignore as data. Caches are redirected
@@ -45,3 +51,57 @@ services:
       - .:/repo
     working_dir: /repo/backend
     command: ["pytest"]
+
+  db-test:
+    image: postgres:16-alpine
+    profiles: ["db"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    # Same as the real db: started directly as the service user, no privilege switch.
+    user: postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_SUPERUSER}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      AEGISNET_APP_USER: ${POSTGRES_APP_USER}
+      AEGISNET_APP_PASSWORD: ${POSTGRES_APP_PASSWORD}
+      AEGISNET_MIGRATOR_USER: ${POSTGRES_MIGRATOR_USER}
+      AEGISNET_MIGRATOR_PASSWORD: ${POSTGRES_MIGRATOR_PASSWORD}
+    volumes:
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  tests-db:
+    build:
+      context: ./backend
+      target: dev
+    profiles: ["db"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    # The migrator and app credentials, so the suite can act as either role.
+    env_file: [.env]
+    environment:
+      ENV: test
+      DEBUG: "false"
+      LOG_LEVEL: WARNING
+      AEGISNET_DB_TESTS: "1"
+      PYTHONPATH: /repo/backend/src
+      PYTHONDONTWRITEBYTECODE: "1"
+      MYPY_CACHE_DIR: /tmp/mypy_cache
+      RUFF_CACHE_DIR: /tmp/ruff_cache
+      PYTEST_ADDOPTS: -p no:cacheprovider
+      POSTGRES_HOST: db-test
+      POSTGRES_PORT: "5432"
+      REDIS_HOST: redis-unused
+      REDIS_PORT: "6379"
+    volumes:
+      - .:/repo
+    working_dir: /repo/backend
+    depends_on:
+      db-test: {condition: service_healthy}
+    command: ["pytest", "-m", "db"]

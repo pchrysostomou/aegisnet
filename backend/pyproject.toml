@@ -21,6 +21,7 @@ dependencies = [
   "asyncpg>=0.29,<0.30",
   "redis>=5.1,<6.0",
   "dramatiq[redis]>=1.17,<2.0",
+  "alembic>=1.19,<2.0",
 ]
 
 [tool.uv]
@@ -94,12 +95,15 @@ markers = [
   "unit: pure, no I/O",
   "integration: exercises the assembled application",
   "security: asserts a THREAT_MODEL mitigation",
+  "db: needs the ephemeral PostgreSQL (docker-compose.test.yml --profile db); skipped otherwise",
 ]
 
 [tool.coverage.run]
 source = ["src/aegisnet"]
 branch = true
-omit = ["*/__init__.py"]
+# The migration environment and revisions are exercised by the database suite
+# (`make test-db`), which runs against a real PostgreSQL rather than under this gate.
+omit = ["*/__init__.py", "*/adapters/db/migrations/*"]
 
 [tool.coverage.report]
 show_missing = true

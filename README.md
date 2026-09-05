@@ -4,12 +4,13 @@ A self-hosted, **defensive-only** platform for ingesting network security teleme
 detecting suspicious behaviour with deterministic heuristics, correlating findings into
 incidents, and generating evidence-based AI investigation briefs for human analysts.
 
-> **Status: Milestone 1, Chunk 1 — application foundation.**
+> **Status: Milestone 1, Chunk 2 — schema baseline.**
 > The five-service stack builds and reaches healthy from a clean clone, the API answers
-> liveness, readiness and version, and a hermetic test suite covers what exists. There is
-> **no ingestion, no schema, no detection, no authentication and no analyst UI yet**.
-> [`docs/STATUS.md`](docs/STATUS.md) is the authoritative record of what exists and what has
-> been verified.
+> liveness, readiness and version, `make migrate` creates the nine Milestone 1 tables under
+> the migrator role with least-privilege grants for the runtime role, and a hermetic suite
+> plus a database suite cover what exists. There is **no ingestion, no detection, no
+> authentication and no analyst UI yet**. [`docs/STATUS.md`](docs/STATUS.md) is the
+> authoritative record of what exists and what has been verified.
 
 ---
 
@@ -45,9 +46,10 @@ aspirational:
 | Backend application (FastAPI, settings, JSON logging, error envelope, `/healthz`, `/readyz`, `/api/v1/meta/version`) | Complete for Chunk 1 |
 | Dramatiq worker | Boots, authenticates to Redis, registers **zero** actors ([ADR-010](docs/adr/ADR-010-defer-scheduler.md)) |
 | Frontend | Health placeholder only: one page and `GET /api/health` |
-| Tests | 124 hermetic tests (unit, integration, security); no database or Redis needed |
+| Schema: Alembic baseline for the nine M1 tables (`users`, `service_tokens`, `refresh_tokens`, `audit_log`, `ingest_batches`, `events`, `ingest_rejects`, `assets`, `asset_networks`), ORM models, enum types, indexes incl. `UNIQUE (event_hash)` and `GIST (cidr inet_ops)`, least-privilege grants | Complete for Chunk 2; `make migrate` applies it, `make test-db` proves it ([ADR-012](docs/adr/ADR-012-migrations-in-package-and-role-grants.md)) |
+| Tests | Hermetic suite (unit, integration, security), no database or Redis needed; plus an opt-in database suite (`make test-db`) that migrates, compares the ORM with the schema, and asserts the runtime role's privileges against an ephemeral PostgreSQL 16 |
 | CI and security workflows | Both green: `ci` including the stack gate on the runner, and `security` after the dependency upgrades its first run demanded. Every action now runs on the Node 24 runtime — see `docs/STATUS.md` |
-| Migrations, ORM models, EVE ingestion, detection, correlation, auth/RBAC/audit/rate limiting, AI briefs, dashboard | Not started — Chunk 2 onward and later milestones |
+| EVE ingestion, detection, correlation, auth/RBAC/audit/rate limiting, AI briefs, dashboard | Not started — Chunk 3 onward and later milestones |
 
 ---
 
@@ -55,8 +57,8 @@ aspirational:
 
 Python 3.12 · FastAPI · SQLAlchemy · Alembic · Pydantic · PostgreSQL 16 · Redis 7 ·
 Dramatiq · Next.js 15 · TypeScript · Docker Compose · Suricata EVE JSON · pytest · Ruff ·
-mypy · GitHub Actions. Rationale is in [`ARCHITECTURE.md`](ARCHITECTURE.md). Tailwind and
-Alembic are planned but not yet in the tree.
+mypy · GitHub Actions. Rationale is in [`ARCHITECTURE.md`](ARCHITECTURE.md). Tailwind is
+planned but not yet in the tree.
 
 ---
 
@@ -77,14 +79,19 @@ make bootstrap
 # 2. Build the images, start the stack, and wait until every service is healthy.
 make up
 
-# 3. Probe it. Everything is bound to 127.0.0.1.
+# 3. Create the schema. Runs `alembic upgrade head` inside the api image as the migrator
+#    role; the runtime role never holds DDL rights.
+make migrate
+make migrate-status                             # revision held by the database vs. the head this build expects
+
+# 4. Probe it. Everything is bound to 127.0.0.1.
 curl http://127.0.0.1:8000/healthz              # {"status":"ok"}
 curl http://127.0.0.1:8000/readyz               # {"status":"ok"} once PostgreSQL and Redis answer
-curl http://127.0.0.1:8000/api/v1/meta/version
+curl http://127.0.0.1:8000/api/v1/meta/version  # includes "schema_revision":"0001_m1_baseline"
 curl http://127.0.0.1:3000/api/health           # {"status":"ok"}
 open http://127.0.0.1:8000/docs                 # OpenAPI UI (disabled when ENV=production)
 
-# 4. Tear down, including the database volume.
+# 5. Tear down, including the database volume.
 make down
 ```
 
@@ -99,13 +106,20 @@ make check             # verify-ignore + ruff + ruff format --check + mypy + pyt
 make test-cov          # the suite with a coverage report
 make compose-test      # the same suite inside the hermetic test-runner container
 make compose-config    # parse and interpolate both Compose manifests without starting anything
+make test-db           # the database suite against an ephemeral PostgreSQL 16 (needs .env)
 ```
 
-The suite is hermetic: readiness probes are replaced with in-process fakes, and the
+The default suite is hermetic: readiness probes are replaced with in-process fakes, and the
 security tests read the committed Compose files, Dockerfiles, `.env.example`, `.gitignore`
 and pre-commit configuration **as data**. They prove what the manifests declare. Whether a
 running stack honours those declarations is proven separately by `make up`, which the CI
 `stack` job also runs.
+
+The database suite (`backend/tests/db/`, marker `db`) is opt-in and runs against a
+throwaway PostgreSQL 16 started from `docker-compose.test.yml` with `--profile db`: it
+applies the baseline, runs Alembic's own `compare_metadata` to prove the ORM and the
+migrated schema agree, asserts the runtime role's exact privilege matrix (T-5.3), and
+downgrades to base to prove nothing is left behind. CI runs it as the `migrations` job.
 
 ### Container topology
 
@@ -130,7 +144,11 @@ The database is initialised with two least-privilege roles by
 [`infra/postgres/init/01_roles.sh`](infra/postgres/init/01_roles.sh): `aegisnet_migrator`
 owns the schema, `aegisnet_app` is the runtime role and never receives DDL rights. The script
 validates every interpolated role name and secret against a strict allowlist and fails closed,
-and it creates no tables — no schema exists until Chunk 2.
+and it creates no tables. The schema is created only by `make migrate`, which runs the
+Alembic revisions shipped inside the package under the migrator role; the revision itself
+grants the runtime role `SELECT, INSERT, UPDATE` on the ordinary tables and `SELECT, INSERT`
+on `audit_log` — never `UPDATE` or `DELETE` there, and no `DELETE` anywhere
+([ADR-012](docs/adr/ADR-012-migrations-in-package-and-role-grants.md)).
 
 ### Secrets
 

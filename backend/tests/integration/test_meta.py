@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from aegisnet.config import Environment
 from aegisnet.main import create_app
-from aegisnet.version import APP_VERSION
+from aegisnet.version import APP_VERSION, schema_revision
 from tests.conftest import make_settings
 
 pytestmark = pytest.mark.integration
@@ -40,8 +40,9 @@ def test_version_reports_build_metadata(
         "version": APP_VERSION,
         "environment": "test",
         "git_sha": "abc1234",
-        "schema_revision": None,
+        "schema_revision": schema_revision(),
     }
+    assert body["schema_revision"] == "0001_m1_baseline"
 
 
 def test_git_sha_is_withheld_in_production(

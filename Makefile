@@ -2,8 +2,8 @@
 SHELL := /bin/sh
 
 # Targets are added by the commit that introduces the thing they operate on, so this file
-# never advertises a command that cannot work yet. Migration, seed and demo targets arrive
-# with the chunks that introduce them.
+# never advertises a command that cannot work yet. Seed and demo targets arrive with the
+# chunks that introduce them.
 
 COMPOSE ?= docker compose
 UV ?= uv
@@ -11,7 +11,8 @@ BACKEND := backend
 
 .PHONY: help bootstrap bootstrap-force verify-ignore require-env compose-config \
         build up down compose-ps compose-logs compose-down compose-test pin-digests clean \
-        backend-install lint format format-check typecheck test test-cov check
+        backend-install lint format format-check typecheck test test-cov check \
+        migrate migrate-status test-db
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort | \
@@ -116,6 +117,26 @@ compose-down: ## Stop the stack, keeping the database volume
 
 compose-test: ## Run the backend suite inside the hermetic test-runner container
 	$(COMPOSE) -f docker-compose.test.yml run --rm --build tests
+
+## ---------------------------------------------------------------- database
+
+# Migrations run inside the api image as the migrator role (env.py reads the migrator
+# credentials from .env); the runtime role never holds DDL rights (THREAT_MODEL T-5.3).
+migrate: require-env ## Apply every pending migration (alembic upgrade head)
+	$(COMPOSE) run --rm api alembic upgrade head
+
+migrate-status: require-env ## Show the revision the database holds and the head this build expects
+	$(COMPOSE) run --rm api alembic current
+	$(COMPOSE) run --rm api alembic heads
+
+# The database suite: migrations, grants and schema/ORM agreement against an ephemeral
+# PostgreSQL 16 (docker-compose.test.yml, profile db). Tears down the database and its
+# anonymous volume whether the suite passes or fails, and preserves the exit status.
+test-db: require-env ## Run the database suite against an ephemeral PostgreSQL 16
+	$(COMPOSE) -f docker-compose.test.yml --profile db run --rm --build tests-db; \
+	status=$$?; \
+	$(COMPOSE) -f docker-compose.test.yml --profile db down --volumes --remove-orphans; \
+	exit $$status
 
 # Decision F-5: images are pinned by minor tag, not digest. This prints the digests to paste
 # into docker-compose.yml when F-5 is applied; it does not edit any file.

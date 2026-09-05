@@ -1,12 +1,16 @@
 #!/bin/sh
 # Creates least-privilege roles on first database initialisation only.
 #
-#   aegisnet_migrator — owns the schema, runs Alembic migrations (Chunk 2 onward).
+#   aegisnet_migrator — owns the schema and runs the Alembic migrations. It also receives
+#                       CREATE on the database so a revision can install a *trusted*
+#                       extension (citext, for users.email); trusted extensions need no
+#                       superuser.
 #   aegisnet_app      — the runtime role used by the API and worker. It receives table
-#                       privileges from the migrations, never DDL rights, and will be
-#                       granted INSERT/SELECT only on audit_log (THREAT_MODEL T-2.5, T-5.3).
+#                       privileges from the migrations, never DDL rights, and holds
+#                       INSERT/SELECT only on audit_log (THREAT_MODEL T-2.5, T-5.3).
 #
-# This script does NOT create tables. No schema exists until Chunk 2.
+# This script does NOT create tables. The schema is created only by `alembic upgrade head`
+# (`make migrate`), under the migrator role.
 #
 # The role names and passwords below are interpolated into SQL text. That makes them an
 # injection surface if they ever contain a quote or a backslash, so both are validated
@@ -73,6 +77,8 @@ GRANT USAGE ON SCHEMA public TO ${AEGISNET_APP_USER}, ${AEGISNET_MIGRATOR_USER};
 GRANT CREATE ON SCHEMA public TO ${AEGISNET_MIGRATOR_USER};
 
 GRANT CONNECT ON DATABASE ${POSTGRES_DB} TO ${AEGISNET_APP_USER}, ${AEGISNET_MIGRATOR_USER};
+-- Trusted extensions (citext) require CREATE on the database; the app role never gets it.
+GRANT CREATE ON DATABASE ${POSTGRES_DB} TO ${AEGISNET_MIGRATOR_USER};
 
 -- Deny the app role the ability to create databases or roles by construction (above),
 -- and make it impossible for it to read the superuser's future objects implicitly.

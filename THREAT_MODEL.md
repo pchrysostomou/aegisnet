@@ -58,7 +58,7 @@ Last updated: 2026-08-28
 | T-2.2 | Elevation | Viewer performs analyst/admin actions; IDOR on incident ids | Deny-by-default RBAC dependency on **every** route; permission matrix test asserting each role × endpoint | Parametrized RBAC matrix test |
 | T-2.3 | Tampering | Illegal workflow transition (e.g. `new → closed` skipping triage) | Server-side state machine; client cannot supply arbitrary next state | State-machine unit tests |
 | T-2.4 | Spoofing | Token theft / replay | Short-lived access tokens, rotating refresh with reuse detection, `Secure`/`HttpOnly`/`SameSite=Strict` cookies, logout revocation list in Redis | Token-rotation test |
-| T-2.5 | Repudiation | Analyst denies closing a case as false positive | Append-only audit log; no UPDATE/DELETE grant on audit table for the app role | DB grant test |
+| T-2.5 | Repudiation | Analyst denies closing a case as false positive | Append-only audit log; no UPDATE/DELETE grant on audit table for the app role; no foreign key on `audit_log` so no referential action can rewrite a row | `backend/tests/db/test_grants.py` (Chunk 2): the app role's UPDATE, DELETE and TRUNCATE on `audit_log` are refused by PostgreSQL |
 | T-2.6 | DoS | Expensive query abuse (unbounded event drill-down) | Mandatory pagination with max page size, query timeouts, per-role rate limits | Load test in evaluation plan |
 | T-2.7 | Info disclosure | Verbose errors leak schema/stack traces | Global exception handler → generic message + correlation id; tracebacks only to server logs; `DEBUG=false` default | Error-shape test |
 
@@ -89,7 +89,7 @@ Last updated: 2026-08-28
 |---|---|---|---|---|
 | T-5.1 | Elevation | Container breakout / excessive privilege | Non-root users in all images, read-only root filesystem where feasible, no `privileged`, dropped capabilities, pinned base image digests | Compose/Dockerfile review checklist |
 | T-5.2 | Info disclosure | Database exposed on host network | Ports bound to `127.0.0.1`; `db`/`redis` publish no ports; strong generated passwords required, no defaults | Compose test |
-| T-5.3 | Elevation | App DB role can drop tables or alter audit log | Least-privilege app role; migrations run under a separate role; audit table has no UPDATE/DELETE grant | Migration + grant test |
+| T-5.3 | Elevation | App DB role can drop tables or alter audit log | Least-privilege app role; migrations run under a separate role that owns every object; audit table has no UPDATE/DELETE grant; no DELETE granted on any table | `backend/tests/db/test_grants.py` (Chunk 2): exact privilege matrix via `has_table_privilege`, ownership by the migrator, and CREATE/ALTER/DROP/DELETE refused for the app role |
 | T-5.4 | Info disclosure | Secrets committed | `.env` gitignored, `.env.example` only, pre-commit + CI secret scanning, no secrets in compose defaults | CI secret scan |
 | T-5.5 | Availability | Lab traffic generation escapes to the internet | Lab compose uses an `internal: true` network, separate opt-in file, documented "authorised systems only" banner | Manual verification step in `docs/evaluation.md` |
 | T-5.6 | Tampering | Vulnerable dependency | Pinned lockfiles, Dependabot, `pip-audit` + `npm audit` in CI | CI job |

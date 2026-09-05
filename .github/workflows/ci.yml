@@ -130,13 +130,38 @@ jobs:
           dockerfile: frontend/Dockerfile
           config: .hadolint.yaml
 
+  migrations:
+    # The database suite from docker-compose.test.yml (profile db): the baseline revision
+    # upgrades, the ORM matches the migrated schema, the runtime role holds exactly the
+    # documented privileges (T-5.3), and downgrade leaves nothing behind. The only .env is
+    # the throwaway one generated on the runner.
+    name: migrations · upgrade, grants, downgrade on PostgreSQL 16
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Generate a throwaway .env
+        run: python3 infra/scripts/bootstrap_env.py
+
+      - name: Run the database suite against an ephemeral PostgreSQL
+        run: docker compose -f docker-compose.test.yml --profile db run --rm --build tests-db
+
+      - name: Show database logs
+        if: failure()
+        run: docker compose -f docker-compose.test.yml --profile db logs --no-color --tail=100 db-test
+
+      - name: Tear down, including the anonymous data volume
+        if: always()
+        run: docker compose -f docker-compose.test.yml --profile db down --volumes --remove-orphans
+
   stack:
     # The Milestone 1 gate as stated in ADR-011: `make bootstrap && docker compose up
-    # --build` reaches healthy from a clean clone. Every service has a healthcheck, so
-    # `--wait` only returns once all five report healthy.
-    name: stack · compose up --build reaches healthy
+    # --build` reaches healthy from a clean clone, then `make migrate` brings the schema
+    # to head. Every service has a healthcheck, so `--wait` only returns once all five
+    # report healthy.
+    name: stack · compose up --build reaches healthy, migrate
     runs-on: ubuntu-latest
-    needs: [backend, frontend, manifests]
+    needs: [backend, frontend, manifests, migrations]
     steps:
       - uses: actions/checkout@v6
 
@@ -148,6 +173,11 @@ jobs:
           GIT_SHA: ${{ github.sha }}
         run: docker compose up --build --detach --wait --wait-timeout 240
 
+      - name: Apply the migrations as the migrator role
+        run: |
+          docker compose run --rm api alembic upgrade head
+          docker compose run --rm api alembic current
+
       - name: Probe the published endpoints from the runner
         run: |
           set -eu
@@ -155,8 +185,9 @@ jobs:
           echo
           curl --fail --silent --show-error http://127.0.0.1:8000/readyz
           echo
-          curl --fail --silent --show-error http://127.0.0.1:8000/api/v1/meta/version
-          echo
+          version=$(curl --fail --silent --show-error http://127.0.0.1:8000/api/v1/meta/version)
+          echo "$version"
+          echo "$version" | grep -q '"schema_revision":"0001_m1_baseline"'
           curl --fail --silent --show-error http://127.0.0.1:3000/api/health
           echo
 

@@ -9,6 +9,40 @@ Nothing is released yet. There is no tagged version.
 ## [Unreleased]
 
 ### Added
+- **Chunk 2 — schema baseline.** Alembic revision `0001_m1_baseline` creates the nine
+  Milestone 1 tables from `docs/data-model.md` (`users`, `service_tokens`, `refresh_tokens`,
+  `audit_log`, `ingest_batches`, `events`, `ingest_rejects`, `assets`, `asset_networks`),
+  nine PostgreSQL enum types, every documented index including `UNIQUE (event_hash)`,
+  `GIST (cidr inet_ops)`, `GIN (payload jsonb_path_ops)` and the partial indexes, and
+  check constraints for hash lengths, port ranges, criticality and text caps. It runs as
+  the migrator role and grants the runtime role `SELECT, INSERT, UPDATE` on the ordinary
+  tables, `SELECT, INSERT` on `audit_log` plus `USAGE` on its identity sequence, and
+  `SELECT` on `alembic_version`; no `DELETE` anywhere and no DDL (T-2.5, T-5.3).
+  `audit_log` has no foreign keys so no referential action can rewrite it. The migration
+  environment ships inside the package (`adapters/db/migrations/`), `alembic.ini` carries
+  no URL, and `env.py` reads the migrator credentials from `Settings.migration_url`
+  (ADR-012).
+- SQLAlchemy 2.0 models for the same nine tables (`adapters/db/models.py`) and the schema
+  enumerations in `domain/enums.py`, the first module of the pure domain layer.
+- `schema_revision()` in `version.py` reads the head of the packaged revisions;
+  `/api/v1/meta/version` now reports it (`0001_m1_baseline`).
+- `make migrate` (`alembic upgrade head` inside the api image), `make migrate-status`, and
+  `make test-db`, which runs the new database suite against an ephemeral PostgreSQL 16
+  started from `docker-compose.test.yml --profile db` (`db-test`, `tests-db`; decision F-2)
+  and tears it down afterwards. The hermetic `tests` service is unchanged.
+- Database suite `backend/tests/db/` (marker `db`, opt-in via `AEGISNET_DB_TESTS=1`):
+  the nine tables and nothing else, `alembic_version` equals the packaged head, Alembic's
+  `compare_metadata` reports no difference between the models and the migrated schema,
+  enum labels, specialised index definitions, the `event_hash` length and uniqueness
+  constraints, case-insensitive `users.email` (citext), server-side defaults, the runtime
+  role's exact privilege matrix and table ownership, refusal of UPDATE/DELETE/TRUNCATE on
+  `audit_log` and of every DDL and DELETE statement, and a head → base → head round trip
+  that leaves nothing behind.
+- CI job `migrations` runs that suite on every push; the `stack` job now applies the
+  migrations with `alembic upgrade head` inside the started stack and asserts the version
+  endpoint reports the head.
+- The init script grants the migrator `CREATE` on the database so a revision can install
+  the trusted `citext` extension; the runtime role never receives it.
 - Repository scaffolding: ignore rules that treat secrets, packet captures, and live sensor
   output as never-committable; Docker ignore rules; MIT licence; this changelog.
 - `.gitattributes` normalising every text file to LF on every platform, so files that are

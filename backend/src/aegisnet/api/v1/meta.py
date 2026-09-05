@@ -11,7 +11,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
-from aegisnet.version import APP_VERSION, SCHEMA_REVISION, git_sha
+from aegisnet.version import APP_VERSION, git_sha, schema_revision
 
 router = APIRouter(prefix="/api/v1/meta", tags=["meta"])
 
@@ -32,5 +32,5 @@ async def version(request: Request) -> VersionResponse:
         version=APP_VERSION,
         environment=str(settings.env),
         git_sha=None if settings.is_production else git_sha(),
-        schema_revision=SCHEMA_REVISION,
+        schema_revision=schema_revision(),
     )

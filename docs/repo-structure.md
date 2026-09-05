@@ -38,8 +38,7 @@ aegisnet/
 │   ├── pyproject.toml            # ruff, mypy, pytest config
 │   ├── uv.lock                   # pinned deps
 │   ├── Dockerfile                # multi-stage, non-root
-│   ├── alembic.ini
-│   ├── alembic/versions/
+│   ├── alembic.ini               # no URL; points into the package (ADR-012)
 │   ├── src/aegisnet/
 │   │   ├── main.py               # FastAPI app factory
 │   │   ├── config.py             # pydantic-settings, SecretStr for all secrets
@@ -70,7 +69,8 @@ aegisnet/
 │   │   │   ├── auth_service.py    audit_service.py
 │   │   │
 │   │   ├── adapters/
-│   │   │   ├── db/               # engine, session, ORM models, repositories/
+│   │   │   ├── db/               # engine, session, ORM models, repositories/,
+│   │   │   │                     # migrations/ (Alembic env + versions, in-package: ADR-012)
 │   │   │   ├── queue/            # dramatiq broker setup, actors/, periodiq schedule
 │   │   │   ├── cache/            # redis client, rate limiter, response cache
 │   │   │   ├── perplexity/       # client.py, prompts/, response_schema.py, citations.py

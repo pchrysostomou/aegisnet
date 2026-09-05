@@ -11,13 +11,13 @@
 
 | | |
 |---|---|
-| Phase | **M1 — Chunk 1 (foundation) complete locally; Chunk 2 (migrations) not started** |
-| Application code written | Settings, JSON logging, error envelope, `/healthz`, `/readyz`, `/api/v1/meta/version`, DB/Redis connectivity adapters, Dramatiq broker with zero actors |
+| Phase | **M1 — Chunk 2 (schema baseline) complete and verified against PostgreSQL 16 locally; Chunk 3 (EVE domain) not started** |
+| Application code written | Settings, JSON logging, error envelope, `/healthz`, `/readyz`, `/api/v1/meta/version`, DB/Redis connectivity adapters, Dramatiq broker with zero actors; Alembic baseline `0001_m1_baseline` for the nine M1 tables, ORM models, schema enums in `domain/`, `schema_revision()` (ADR-012) |
 | Frontend | Health placeholder: one page, `GET /api/health` |
-| Tests written | 124 (unit, integration, security), all hermetic |
-| Tests run | **Yes, locally** — see evidence E-1, E-2 |
+| Tests written | 137 hermetic (unit, integration, security) plus 19 database tests (marker `db`, opt-in, real PostgreSQL) |
+| Tests run | **Yes, locally** — hermetic suite E-1, E-2, E-19; database suite E-18 |
 | Docker stack | **Built and started locally; all five services healthy** — see evidence E-3 |
-| Database | Roles `aegisnet_migrator` / `aegisnet_app` created at init; **no migrations, no tables** |
+| Database | Roles `aegisnet_migrator` / `aegisnet_app` created at init; **nine tables created by `make migrate`** under the migrator role, runtime-role privileges proven exact by the database suite (E-18); `/api/v1/meta/version` reports the packaged head |
 | Perplexity integration | **Not implemented; no API call has been made** |
 | CI | `ci` **green** end to end, including the stack job (E-10, E-13). `security` failed on real findings on the first push (E-11), fixed by dependency upgrades (E-12), **green** since (E-13). Every job carried a Node 20 deprecation annotation; cleared by moving to Node 24 action releases (E-15) |
 | SonarCloud | External GitHub App check (automatic analysis, not a workflow in this repository). **Quality gate failed** on every analysis since the first; single failing condition *Security Rating on New Code C*. Finding not readable from the check (E-17) |
@@ -43,6 +43,9 @@
 | E-14 | 2026-09-04, macOS host: `uvx pip-audit --strict` on the exported lockfile, `pnpm audit --prod --audit-level=high`, `ruff check`, `ruff format --check`, `mypy`, `ENV=test uv run pytest`, `pnpm typecheck` | all clean against that day's advisory data; `124 passed` |
 | E-15 | Annotations on every job of runs 33332243290 (`ci`) and 33399756070 (`security`) | ⚠️ "Node.js 20 is deprecated … forced to run on Node.js 24" for `checkout@v4`, `setup-node@v4`, `upload-artifact@v4`, `setup-uv@v5`, `gitleaks-action@v2`; GitHub removes Node 20 from hosted runners on 2026-09-16. Fixed by moving each to a Node 24 release; the result is recorded on the push that carries it |
 | E-16 | Push a8e9510 (Node 24 actions): `security` run **33918434907**, `ci` run **33918434915** | ✅ both green, no Node 20 annotation. One new annotation on the `ci` backend job: "Failed to save: Unable to reserve cache … another job may be creating this cache" — the `security` pip-audit job had saved a 7.9 MiB cache under the shared key first. Fixed by disabling the cache in that job and deleting the stale entry. Verified on push e712429: `security` run **33918817419** and `ci` run **33918817392** both green with no annotation, and the backend job saved a 41 MiB cache (the runtime set) under its key |
+| E-18 | 2026-09-05, macOS host, native PostgreSQL 16.15 (Homebrew) initialised with `infra/postgres/init/01_roles.sh`: `AEGISNET_DB_TESTS=1 uv run pytest -m db -v` | `19 passed`: the nine tables and nothing else; `alembic_version` equals the packaged head; Alembic `compare_metadata` reports **no** difference between `models.py` and the migrated schema; enum labels; GIST `inet_ops`, GIN `jsonb_path_ops`, partial and DESC index definitions; `event_hash` 32-byte check and uniqueness; case-insensitive `users.email`; server-side defaults; app-role privilege matrix exactly `SELECT, INSERT, UPDATE` on the ordinary tables, `SELECT, INSERT` on `audit_log`, `SELECT` on `alembic_version`; the migrator owns every table; UPDATE/DELETE/TRUNCATE on `audit_log`, DELETE on every table, and CREATE/ALTER/DROP/CREATE EXTENSION all refused; head → base → head round trip leaves only the empty `alembic_version` |
+| E-19 | 2026-09-05: `ruff check`, `ruff format --check`, `mypy`, `ENV=test uv run pytest --cov=aegisnet --cov-fail-under=85` | clean; `137 passed, 19 skipped`; coverage 98% (the migration environment is excluded from the hermetic gate and exercised by E-18 instead, ADR-012) |
+| E-20 | `make test-db` (Compose path: `db-test` + `tests-db`) and `make up && make migrate` | **Not run to completion locally.** Docker Desktop on this host hung on every image pull during the session and did not recover after two restarts; `db-test` itself started healthy and its init script applied the new `CREATE ON DATABASE` grant before the hang. The Compose path is exercised by the CI jobs `migrations` and `stack` (which now runs `alembic upgrade head` and asserts the version endpoint) on the push carrying this chunk; the result is recorded there |
 | E-17 | SonarCloud Code Analysis check (`sonarqubecloud` app) on 9ef3024, 89f8dae, a8e9510, e712429, fc53775 | ❌ every one "Quality Gate failed"; the only failing condition is **Security Rating on New Code C** (required A). The project is private on sonarcloud.io, the check carries no annotation and no notification e-mail exists, so the exact finding could not be read. The two request-derived flows Sonar's Python taint rules cover are now neutralised at the sink (`untrusted_text` in the unhandled-exception log call; `canonical_correlation_id` before the response header); 135 tests, 96% coverage. Result recorded on the push carrying it |
 
 ## Milestone tracker
@@ -50,7 +53,7 @@
 | Milestone | Status | Evidence | Notes |
 |---|---|---|---|
 | M0 Planning | ✅ Complete | This doc set | PRD, architecture, threat model, data model, M1 API, delivery plan, evaluation plan |
-| M1 Foundation / ingest / normalize / assets | 🟡 In progress — Chunk 1 done | E-1 – E-8 | Next: Chunk 2 Alembic baseline |
+| M1 Foundation / ingest / normalize / assets | 🟡 In progress — Chunks 1–2 done | E-1 – E-8, E-18 – E-20 | Next: Chunk 3 EVE domain |
 | M2 Five detectors + labelled fixtures | ⬜ Not started | — | Blocked on M1 |
 | M3 Correlation / incidents / workflow | ⬜ Not started | — | Blocked on M2 |
 | M4 Analyst dashboard | ⬜ Not started | — | Blocked on M3 |
@@ -62,7 +65,7 @@
 | Chunk | Contents | Status |
 |---|---|---|
 | 1 | Skeleton, Compose, config, logging, health, worker topology, web placeholder, tests, CI | ✅ Locally verified |
-| 2 | Alembic baseline migration, ORM models, DB grants incl. `audit_log` | ⬜ |
+| 2 | Alembic baseline migration, ORM models, DB grants incl. `audit_log` | ✅ Verified locally against PostgreSQL 16 (E-18, E-19); Compose path via CI (E-20) |
 | 3 | EVE domain: schema, sanitizer, normalizer, `event_hash`, synthetic generator, registry | ⬜ |
 | 4 | Ingest service, first Dramatiq actor, rejects, idempotency | ⬜ |
 | 5 | Assets API, events read API | ⬜ |
@@ -135,10 +138,12 @@
 | Metadata egress to Perplexity is non-zero even when redacted | Opt-in per incident, off by default, offline mode supported — R-2 |
 | Public-dataset licence obligations | Provenance + required citation stored per ingest batch |
 | `/api/v1/meta/version` is unauthenticated | No auth layer exists yet; git SHA already withheld in production; permission-gated in Chunk 6 |
+| A `db_data` volume initialised before Chunk 2 lacks the migrator's `CREATE ON DATABASE` grant (init scripts run once) | `make down && make up` re-initialises it; recorded in ADR-012 |
 | Base images and GitHub Actions pinned by tag, not digest | Decision F-5; `make pin-digests` prints the digests. `astral-sh/setup-uv` publishes no major tags from v8 on and is already pinned to an exact release |
 
 ## Next actions
 
 1. Both workflows are green on the Node 24 action releases with no annotations, and the `ci` backend job saves its uv cache (E-16). The SonarCloud check, an external app rather than a workflow here, still fails its quality gate and the finding is visible only on the private dashboard (E-17): confirm the outcome of the sink-side neutralisation on the push carrying it; if the gate still fails, read the finding there or remove the app from the repository.
-2. Chunk 2: Alembic baseline migration for the nine M1 tables, ORM models, `audit_log` grants, `SCHEMA_REVISION` wired to the Alembic head, `db-test` service in `docker-compose.test.yml`.
-3. Keep this file and `THREAT_MODEL.md` updated per chunk, not afterwards.
+2. Confirm the CI jobs `migrations` and `stack` are green on the push carrying Chunk 2 (E-20).
+3. Chunk 3: EVE domain — Pydantic schema, sanitizer, normalizer, canonical `event_hash`, synthetic generator, dataset registry.
+4. Keep this file and `THREAT_MODEL.md` updated per chunk, not afterwards.

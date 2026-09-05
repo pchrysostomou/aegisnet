@@ -53,7 +53,7 @@ RUN apt-get update \
 COPY --from=deps /opt/venv /opt/venv
 WORKDIR /app
 COPY --chown=aegisnet:aegisnet src ./src
-COPY --chown=aegisnet:aegisnet pyproject.toml ./
+COPY --chown=aegisnet:aegisnet pyproject.toml alembic.ini ./
 
 USER aegisnet
 EXPOSE 8000

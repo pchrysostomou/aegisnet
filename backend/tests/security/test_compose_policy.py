@@ -131,6 +131,38 @@ def test_test_runner_has_no_secrets_and_cannot_reach_a_datastore() -> None:
     assert not any(SECRET_KEY_NAME.search(key) for key in env)
     assert env["POSTGRES_HOST"].endswith("-unused")
     assert env["REDIS_HOST"].endswith("-unused")
+    assert "env_file" not in _services(TEST_COMPOSE)["tests"]
+
+
+def test_ephemeral_test_database_is_opt_in_hardened_and_unpublished() -> None:
+    """F-2: the database suite's PostgreSQL mirrors the real db and leaves nothing behind."""
+    services = _services(TEST_COMPOSE)
+    db = services["db-test"]
+    assert db["profiles"] == ["db"]
+    assert db["image"] == services_main()["db"]["image"]
+    assert db.get("user") == "postgres"
+    assert "ports" not in db and "expose" not in db
+    assert db["volumes"] == ["./infra/postgres/init:/docker-entrypoint-initdb.d:ro"]
+    assert "healthcheck" in db
+    for key, value in _environment(db).items():
+        assert INTERPOLATION.match(value), f"db-test sets {key} to a literal"
+
+
+def test_database_suite_runner_targets_only_the_ephemeral_database() -> None:
+    runner = _services(TEST_COMPOSE)["tests-db"]
+    env = _environment(runner)
+    assert runner["profiles"] == ["db"]
+    assert runner["depends_on"] == {"db-test": {"condition": "service_healthy"}}
+    assert env["ENV"] == "test"
+    assert env["AEGISNET_DB_TESTS"] == "1"
+    assert env["POSTGRES_HOST"] == "db-test"
+    assert env["REDIS_HOST"].endswith("-unused")
+    assert runner["command"][:3] == ["pytest", "-m", "db"]
+    assert not any(SECRET_KEY_NAME.search(key) for key in env)
+
+
+def services_main() -> dict[str, dict[str, Any]]:
+    return _services(COMPOSE)
 
 
 def test_postgres_init_scripts_are_mounted_read_only() -> None:

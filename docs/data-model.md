@@ -1,7 +1,12 @@
 # AegisNet — PostgreSQL Data Model
 
-Target: PostgreSQL 16. All migrations via Alembic. Status: **planned schema, not yet implemented.**
-Last updated: 2026-08-28
+Target: PostgreSQL 16. All migrations via Alembic. Status: **Milestone 1 tables implemented**
+by revision `0001_m1_baseline` (`ingest_batches`, `events`, `ingest_rejects`, `assets`,
+`asset_networks`, `users`, `service_tokens`, `refresh_tokens`, `audit_log`); the rest is planned.
+Implementation notes that refine this document are in
+[ADR-012](adr/ADR-012-migrations-in-package-and-role-grants.md): `audit_log` carries no foreign
+keys, `service_tokens.created_by` is nullable, and hash columns carry a 32-byte length check.
+Last updated: 2026-09-04
 
 Conventions: `uuid` primary keys (`gen_random_uuid()`, pgcrypto), all times `timestamptz` in UTC,
 `created_at`/`updated_at` on mutable tables, soft-delete only where noted, JSONB for open-ended structures with a

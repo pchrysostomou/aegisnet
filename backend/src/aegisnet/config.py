@@ -122,6 +122,18 @@ class Settings(BaseSettings):
         )
 
     @property
+    def migration_url(self) -> URL:
+        """Async SQLAlchemy URL for the migrator role, used only by Alembic (T-5.3)."""
+        return URL.create(
+            drivername="postgresql+asyncpg",
+            username=self.postgres_migrator_user,
+            password=self.postgres_migrator_password.get_secret_value(),
+            host=self.postgres_host,
+            port=self.postgres_port,
+            database=self.postgres_db,
+        )
+
+    @property
     def redis_url(self) -> str:
         return f"redis://{self.redis_host}:{self.redis_port}/0"
 

@@ -71,7 +71,10 @@ def test_the_committed_fixtures_match_their_generator(tmp_path: Path) -> None:
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module  # dataclasses resolve string annotations via sys.modules
     spec.loader.exec_module(module)
+    # `write_all` takes a destination; the command line does not, and refuses outside a
+    # checkout the same way every other tool here does.
     module.write_all(tmp_path)
+    assert module.repository_root(REPO_ROOT / "tools") == REPO_ROOT
     regenerated = sorted(p.relative_to(tmp_path) for p in tmp_path.rglob("*") if p.is_file())
     committed = sorted(p.relative_to(LABELLED) for p in LABELLED.rglob("*") if p.is_file())
     assert regenerated == committed

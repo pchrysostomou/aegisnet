@@ -21,6 +21,8 @@ Nothing is released yet. There is no tagged version.
   reading "has an rcode" as "is an answer" made every real record look like an answer: no
   query name was ever tallied and every lookup was attributed to the resolver. An unfamiliar
   `type` is treated as a question.
+- Neither generator accepts a path on its command line any more; each resolves its own
+  destination under the checkout it finds, the rule every other tool here already followed.
 - Both generators had the same assumptions inside them and were corrected: a flow record now
   carries `flow.start = when` and `timestamp = when + age`. The committed corpus (generator
   version 2, new sha256) and all 34 labelled fixtures were regenerated. The normalised event

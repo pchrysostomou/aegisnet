@@ -12,9 +12,11 @@ generator contains no capture, scan or traffic-sending capability of any kind.
 Alongside the corpus it writes a manifest with the expected count per ``event_type``,
 which the ingest acceptance test compares against what was stored.
 
+No path is accepted on the command line: the corpus and its manifest are written at fixed
+names under the repository root this script finds above its working directory.
+
 Usage:
-    python3 tools/gen_synthetic_eve.py --seed 20260905 --events 2000 \\
-        --out samples/synthetic/benign-baseline-01.ndjson
+    python3 tools/gen_synthetic_eve.py --seed 20260905 --events 2000
 """
 
 from __future__ import annotations
@@ -34,6 +36,24 @@ from pathlib import Path
 # EVE v3, where a request carries an `rcode` too. Both are what real Suricata does, and both
 # were assumptions this generator had backwards (docs/evaluation.md §9, L-F1 and L-F2).
 GENERATOR_VERSION = 2
+
+CORPUS_FILE = Path("samples/synthetic/benign-baseline-01.ndjson")
+# What identifies a checkout, for a script that must not be told where to write.
+LAYOUT = (Path("samples/registry.yml"), Path("tools/gen_synthetic_eve.py"))
+
+
+def repository_root(start: Path) -> Path:
+    """The nearest directory at or above ``start`` that holds the whole layout."""
+    for candidate in (start, *start.parents):
+        if all((candidate / relative).exists() for relative in LAYOUT):
+            return candidate
+    raise FileNotFoundError(
+        "not inside a repository checkout: "
+        + ", ".join(str(relative) for relative in LAYOUT)
+        + " were not all found at or above the working directory"
+    )
+
+
 SENSOR_INTERFACE = "lab0"
 
 # RFC 1918 lab hosts and RFC 5737 "internet" endpoints. No real address can appear.
@@ -460,11 +480,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--events", type=int, default=2000)
     parser.add_argument("--start", default="2026-09-01T00:00:00Z", help="ISO 8601, UTC")
     parser.add_argument("--duration-minutes", type=int, default=120)
-    parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument(
-        "--manifest", type=Path, default=None, help="default: <out>.manifest.json next to --out"
-    )
     return parser.parse_args(argv)
+
+
+def write_corpus(out: Path, args: argparse.Namespace) -> tuple[int, int, Path]:
+    """Render the corpus and its manifest at ``out``; returns events, bytes and the manifest."""
+    start = datetime.fromisoformat(args.start.replace("Z", "+00:00")).astimezone(UTC)
+    corpus = Corpus(args.seed, start, timedelta(minutes=args.duration_minutes), args.events)
+    records = corpus.generate()
+    payload = render(records)
+    manifest_path = out.with_name(f"{out.stem}.manifest.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(payload)
+    manifest_path.write_text(
+        json.dumps(manifest_for(args, corpus, payload, records), indent=2) + "\n", encoding="utf-8"
+    )
+    return len(records), len(payload), manifest_path
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -472,18 +503,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.events < 1:
         print("--events must be positive", file=sys.stderr)  # noqa: T201 - CLI
         return 2
-    start = datetime.fromisoformat(args.start.replace("Z", "+00:00")).astimezone(UTC)
-    corpus = Corpus(args.seed, start, timedelta(minutes=args.duration_minutes), args.events)
-    records = corpus.generate()
-    payload = render(records)
-    manifest_path = args.manifest or args.out.with_suffix("").with_suffix(".manifest.json")
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_bytes(payload)
-    manifest_path.write_text(
-        json.dumps(manifest_for(args, corpus, payload, records), indent=2) + "\n", encoding="utf-8"
-    )
-    summary = f"wrote {len(records)} events to {args.out} ({len(payload)} bytes)"
-    print(f"{summary}; manifest {manifest_path}")  # noqa: T201 - CLI
+    try:
+        out = repository_root(Path.cwd()) / CORPUS_FILE
+    except FileNotFoundError as error:
+        print(f"error: {error}", file=sys.stderr)  # noqa: T201 - CLI
+        return 1
+    events, size, manifest_path = write_corpus(out, args)
+    print(f"wrote {events} events to {CORPUS_FILE} ({size} bytes); manifest {manifest_path.name}")  # noqa: T201
     return 0
 
 

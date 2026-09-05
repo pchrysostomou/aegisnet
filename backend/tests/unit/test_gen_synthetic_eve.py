@@ -48,11 +48,26 @@ def _moment(text: str) -> datetime:
 
 
 def _run(tmp_path: Path, name: str, *args: str) -> tuple[bytes, dict[str, object]]:
+    """Render a corpus into ``tmp_path``. The command line takes no path — it writes at a fixed
+    name under the checkout it finds — so tests call `write_corpus` with a destination, which
+    is a parameter rather than something a caller can steer."""
     module = _load_generator()
     out = tmp_path / f"{name}.ndjson"
-    assert module.main(["--out", str(out), "--events", "300", *args]) == 0
-    manifest = json.loads(out.with_suffix("").with_suffix(".manifest.json").read_text())
+    parsed = module.parse_args(["--events", "300", *args])
+    module.write_corpus(out, parsed)
+    manifest = json.loads((tmp_path / f"{name}.manifest.json").read_text())
     return out.read_bytes(), manifest
+
+
+def test_the_command_line_accepts_no_path_and_refuses_outside_a_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The rule every tool in this repository follows: resolve your own destination."""
+    module = _load_generator()
+    monkeypatch.chdir(tmp_path)
+    assert module.main([]) == 1
+    assert "not inside a repository checkout" in capsys.readouterr().err
+    assert module.repository_root(REPO_ROOT / "backend") == REPO_ROOT
 
 
 def test_same_seed_is_byte_identical_and_a_different_seed_is_not(tmp_path: Path) -> None:

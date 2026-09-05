@@ -300,7 +300,7 @@ alerts: require-env ## List alerts, newest first (LIMIT=20)
 # Regenerates the labelled T1 fixtures from tools/gen_labelled_fixtures.py. A test fails
 # until the regenerated files are committed, so a case change is always reviewable.
 gen-fixtures: ## Regenerate backend/tests/fixtures/labelled from the case definitions
-	python3 tools/gen_labelled_fixtures.py --out backend/tests/fixtures/labelled
+	python3 tools/gen_labelled_fixtures.py
 
 # T1 = the labelled cases, T2 = the benign synthetic corpus; rewrites the marked block in
 # docs/evaluation.md §8. A test pins that block, so run this after touching a rule. The
@@ -312,8 +312,7 @@ eval: ## Score the rules on the labelled cases and the benign corpus; refresh do
 # generator, run this, then update sha256 in samples/registry.yml; the integration suite
 # fails until the checksum matches.
 gen-synthetic: ## Regenerate samples/synthetic/benign-baseline-01 from its fixed seed
-	python3 tools/gen_synthetic_eve.py --seed 20260905 --events 2000 \
-		--out samples/synthetic/benign-baseline-01.ndjson
+	python3 tools/gen_synthetic_eve.py --seed 20260905 --events 2000
 
 # Decision F-5: images are pinned by minor tag, not digest. This prints the digests to paste
 # into docker-compose.yml when F-5 is applied; it does not edit any file.

@@ -75,9 +75,10 @@ class FlowInfo(_SubObject):
     pkts_toclient: int | None = Field(default=None, ge=0)
     bytes_toserver: int | None = Field(default=None, ge=0)
     bytes_toclient: int | None = Field(default=None, ge=0)
-    # Kept as text and parsed separately (``started_at``) rather than typed as a datetime:
-    # a malformed ``start`` must not turn an otherwise good flow record into a reject, and
-    # the normaliser falls back to the record's own timestamp when it cannot read this.
+    # Kept as text and parsed separately (``parse_suricata_time`` below) rather than typed as
+    # a datetime: a malformed ``start`` must not turn an otherwise good flow record into a
+    # reject, and the normaliser falls back to the record's own timestamp when it cannot read
+    # this (ADR-022).
     start: str | None = None
     end: str | None = None
     age: int | None = Field(default=None, ge=0)

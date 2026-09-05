@@ -9,7 +9,7 @@ and are byte-identical on regeneration: every ephemeral port and jitter comes fr
 seeded generator, and the test suite fails if the committed files drift from this script.
 
 Usage:
-    python3 tools/gen_labelled_fixtures.py --out backend/tests/fixtures/labelled
+    python3 tools/gen_labelled_fixtures.py
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import sys
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -1156,14 +1157,38 @@ RULE_DIRS = {
 }
 
 
+FIXTURES_DIR = Path("backend/tests/fixtures/labelled")
+# What identifies a checkout, for a script that must not be told where to write.
+LAYOUT = (Path("samples/registry.yml"), Path("tools/gen_labelled_fixtures.py"))
+
+
+def repository_root(start: Path) -> Path:
+    """The nearest directory at or above ``start`` that holds the whole layout."""
+    for candidate in (start, *start.parents):
+        if all((candidate / relative).exists() for relative in LAYOUT):
+            return candidate
+    raise FileNotFoundError(
+        "not inside a repository checkout: "
+        + ", ".join(str(relative) for relative in LAYOUT)
+        + " were not all found at or above the working directory"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
+    """No path is accepted: the cases are written under the repository root this script finds
+    above its working directory. Tests call ``write_all`` with a destination instead, which is
+    a parameter rather than something a caller can steer from a command line."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--out", type=Path, required=True, help="the labelled fixtures root")
-    args = parser.parse_args(argv)
-    for directory in write_all(args.out):
+    parser.parse_args(argv)
+    try:
+        out = repository_root(Path.cwd()) / FIXTURES_DIR
+    except FileNotFoundError as error:
+        print(f"error: {error}", file=sys.stderr)  # noqa: T201 - CLI
+        return 1
+    for directory in write_all(out):
         events = directory / "events.ndjson"
         count = sum(1 for _ in events.open("rb"))
-        print(f"{directory.relative_to(args.out)}: {count} events")  # noqa: T201 - CLI
+        print(f"{directory.relative_to(out)}: {count} events")  # noqa: T201 - CLI
     return 0
 
 

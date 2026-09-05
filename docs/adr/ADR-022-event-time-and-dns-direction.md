@@ -47,10 +47,16 @@ flow record, and refusing it would lose data over a field that has a sound fallb
 own timestamp and the instant the event is filed under, so a sensor whose flow start is
 decades out is refused rather than quietly believed.
 
-Deduplication is untouched. The event hash is built from the record's own timestamp
-(`domain/eve/hashing.py`), not from the normalised `event_time`, so changing which instant an
-event is filed under cannot make the same line hash twice or two lines collide. A test says
-so, because that is the property the whole change rests on.
+Deduplication is untouched *by the normalisation change*. The event hash is built from the
+record's own timestamp (`domain/eve/hashing.py`), not from the normalised `event_time`, so
+changing which instant an event is filed under cannot make the same line hash twice or two
+lines collide. A test says so, because that is the property the whole change rests on.
+
+The regenerated corpus is a different matter and worth saying plainly: its flow records carry
+different timestamps now, so their hashes differ from the old corpus's. An operator who
+ingested the previous corpus and then ingests this one gets both, because they are different
+records. That is correct — they are — and it is the one visible cost of correcting data rather
+than only code.
 
 ### A DNS record's direction comes from its own `type`
 
@@ -70,8 +76,17 @@ so a flow record now carries `flow.start = when` and `timestamp = when + age`. T
 corpus and all 34 labelled fixtures were regenerated; the corpus generator's version moved to
 2 and its sha256 changed.
 
-This is the part that matters for the future: the synthetic data now models the timing
-behaviour of a real sensor, so the next detector written against it inherits the truth rather
+Both also write EVE DNS v3 now — mostly, in the corpus's case, with a fifth still in v2 the
+way a real fleet carries more than one sensor version. Without that, the shape that blinded
+D-003 would be exercised nowhere but the lab.
+
+Neither generator accepts a path any more: each resolves its destination under the repository
+root it finds above its working directory, which is the rule the dataset import, the
+evaluation harness and the capture sanitiser already follow. Tests pass a destination to the
+functions instead, which is a parameter rather than something a caller can steer.
+
+This is the part that matters for the future: the synthetic data now models the timing and the
+shape of a real sensor, so the next detector written against it inherits the truth rather
 than the assumption. The normalised event times are unchanged by the regeneration — `when`
 was the record timestamp before and is the flow start now — which is why the T1 and T2 numbers
 in `docs/evaluation.md` §8 did not move.

@@ -51,6 +51,7 @@
 | E-25 | 2026-09-05, native PostgreSQL 16.15: `AEGISNET_DB_TESTS=1 uv run pytest -m db -v` | `24 passed`: the committed corpus imports with counts equal to its manifest (2000 stored), a second import stores 0 and reports 2000 duplicates, the batch row carries method/dataset/licence/timestamps, hostile lines persist as rejects with line numbers and reason codes, promoted columns match the normaliser, and `import_dataset` runs end to end through a `StubBroker` against a pre-opened batch |
 | E-26 | 2026-09-05, Docker Desktop 29.4 / Compose v5.1: `make test-db` | ✅ `24 passed` inside `tests-db` against `db-test`, teardown clean |
 | E-27 | Same day: `make up && make migrate`, then the CLI inside the api image: `import-dataset synthetic-benign-baseline-01` (sync) twice, once more with `--mode async`, `batch <id>` polled, worker log read, `make down` | ✅ first run `stored 2000, duplicate 0`; second run `stored 0, duplicate 2000`; the async run returned `{"status": "received", "message_id": …}` at once and the worker finished it two seconds later (`worker_started … "actors_registered": ["import_dataset"]`, then `ingest_batch_finished` and `import_dataset_done` with `duplicate 2000`); `SELECT count(*) FROM events` as the app role = 2000 across three `complete` batches; stack torn down |
+| E-28 | Push b8791bc (Chunk 4): GitHub Actions `ci` run **33953478893** and `security` run | ✅ all five `ci` jobs green with no annotation — `migrations` now includes the ingest store tests and the actor through a `StubBroker` (45s), `stack` migrates and probes (1m46s); `security` green. SonarCloud unchanged: *Quality Gate failed* on the same single condition (E-17) |
 | E-23 | Push cae5d5d (Chunk 3): GitHub Actions `ci` run **33952182281** and `security` run **33952182289** | ✅ all five `ci` jobs green with no annotation, including the backend job's new `lint-imports` step and ruff over `tools/`; `security` green. SonarCloud unchanged: *Quality Gate failed* on the same single condition (E-17) |
 | E-21 | Push 2d3a437: GitHub Actions `ci` run **33950753099** and `security` run **33950753033** | ✅ all five `ci` jobs green with no annotation — `backend`, `frontend`, `manifests`, **`migrations` (upgrade, grants, downgrade on PostgreSQL 16, 32s)** and **`stack` (compose up --build reaches healthy, migrate, 1m53s)**; `security` green. SonarCloud still reports *Quality Gate failed* on the same single condition (E-17) |
 | E-17 | SonarCloud Code Analysis check (`sonarqubecloud` app) on 9ef3024, 89f8dae, a8e9510, e712429, fc53775 | ❌ every one "Quality Gate failed"; the only failing condition is **Security Rating on New Code C** (required A). The project is private on sonarcloud.io, the check carries no annotation and no notification e-mail exists, so the exact finding could not be read. The two request-derived flows Sonar's Python taint rules cover are now neutralised at the sink (`untrusted_text` in the unhandled-exception log call; `canonical_correlation_id` before the response header); 135 tests, 96% coverage. Result recorded on the push carrying it |
@@ -60,7 +61,7 @@
 | Milestone | Status | Evidence | Notes |
 |---|---|---|---|
 | M0 Planning | ✅ Complete | This doc set | PRD, architecture, threat model, data model, M1 API, delivery plan, evaluation plan |
-| M1 Foundation / ingest / normalize / assets | 🟡 In progress — Chunks 1–4 done | E-1 – E-8, E-18 – E-27 | Next: Chunk 5 assets and events |
+| M1 Foundation / ingest / normalize / assets | 🟡 In progress — Chunks 1–4 done | E-1 – E-8, E-18 – E-28 | Next: Chunk 5 assets and events |
 | M2 Five detectors + labelled fixtures | ⬜ Not started | — | Blocked on M1 |
 | M3 Correlation / incidents / workflow | ⬜ Not started | — | Blocked on M2 |
 | M4 Analyst dashboard | ⬜ Not started | — | Blocked on M3 |
@@ -74,7 +75,7 @@
 | 1 | Skeleton, Compose, config, logging, health, worker topology, web placeholder, tests, CI | ✅ Locally verified |
 | 2 | Alembic baseline migration, ORM models, DB grants incl. `audit_log` | ✅ Verified locally (native E-18, Compose and stack paths E-20) and in CI (E-21) |
 | 3 | EVE domain: schema, sanitizer, normalizer, `event_hash`, synthetic generator, registry | ✅ Verified locally (E-22) and in CI (E-23) |
-| 4 | Ingest service, first Dramatiq actor, rejects, idempotency | ✅ Verified locally: hermetic and native database suites (E-24, E-25), Compose suite (E-26), stack demo path incl. the worker (E-27) |
+| 4 | Ingest service, first Dramatiq actor, rejects, idempotency | ✅ Verified locally (E-24 – E-27) and in CI (E-28) |
 | 5 | Assets API, events read API | ⬜ |
 | 6 | Auth, RBAC, audit, rate limits, `SECURITY.md` | ⬜ |
 | 7 | Docs update at the M1 gate with CI evidence | ⬜ |
@@ -152,6 +153,6 @@
 ## Next actions
 
 1. Both workflows are green on the Node 24 action releases with no annotations, and the `ci` backend job saves its uv cache (E-16). The SonarCloud check, an external app rather than a workflow here, still fails its quality gate and the finding is visible only on the private dashboard (E-17): confirm the outcome of the sink-side neutralisation on the push carrying it; if the gate still fails, read the finding there or remove the app from the repository.
-2. Confirm CI is green on the push carrying Chunk 4.
+2. Chunk 4 is confirmed in CI (E-28); nothing is outstanding for it.
 3. Chunk 5: asset inventory — service, CIDR resolution with most-specific-match, bulk seed (`make seed`) — and the event read queries with keyset pagination. Their HTTP routes land together with authentication in Chunk 6 (ADR-014).
 4. Keep this file and `THREAT_MODEL.md` updated per chunk, not afterwards.

@@ -54,6 +54,10 @@ COPY --from=deps /opt/venv /opt/venv
 WORKDIR /app
 COPY --chown=aegisnet:aegisnet src ./src
 COPY --chown=aegisnet:aegisnet pyproject.toml alembic.ini ./
+# The upload spool (SPOOL_DIR, ADR-016). Created here, owned by the runtime user, so the
+# named volume Compose mounts over it inherits that ownership on first use instead of
+# root's; the process must never need to be root to write an upload.
+RUN mkdir -p /app/spool && chown aegisnet:aegisnet /app/spool
 
 USER aegisnet
 EXPOSE 8000

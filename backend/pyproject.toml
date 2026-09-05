@@ -23,6 +23,9 @@ dependencies = [
   "dramatiq[redis]>=1.17,<2.0",
   "alembic>=1.19,<2.0",
   "pyyaml>=6.0,<7.0",
+  "argon2-cffi>=23.1,<24.0",
+  "pyjwt>=2.9,<3.0",
+  "python-multipart>=0.0.12,<0.1",
 ]
 
 [tool.uv]
@@ -41,6 +44,7 @@ dev = [
   "mypy>=1.11,<2.0",
   "types-pyyaml>=6.0,<7.0",
   "import-linter>=2.0,<3.0",
+  "fakeredis>=2.26,<3.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -151,6 +155,8 @@ omit = [
   "*/__init__.py",
   "*/adapters/db/migrations/*",
   "*/adapters/db/asset_store.py",
+  "*/adapters/db/audit_store.py",
+  "*/adapters/db/auth_store.py",
   "*/adapters/db/event_read_store.py",
   "*/adapters/db/ingest_store.py",
   "*/workers/*",

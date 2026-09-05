@@ -22,7 +22,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from aegisnet.config import Environment, Settings
+from aegisnet.domain.enums import UserRole
 from aegisnet.main import create_app
+from tests.fakes import FakeWiring
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_ROOT = REPO_ROOT / "backend"
@@ -45,13 +47,25 @@ def make_settings(**overrides: object) -> Settings:
 
 
 @pytest.fixture
-def settings() -> Settings:
-    return make_settings()
+def settings(tmp_path: Path) -> Settings:
+    # cookie_secure=False: the test client speaks plain http to "testserver"; a separate
+    # test asserts the flag is on by default.
+    return make_settings(
+        cookie_secure=False,
+        spool_dir=tmp_path / "spool",
+        secret_key="test-signing-key-0123456789-abcdefghijklmnop",
+    )
 
 
 @pytest.fixture
-def app(settings: Settings) -> FastAPI:
-    return create_app(settings)
+def wiring(settings: Settings) -> FakeWiring:
+    """In-memory ports behind the real routes; inspect ``wiring.audit_store`` etc."""
+    return FakeWiring(settings, settings.spool_dir)
+
+
+@pytest.fixture
+def app(settings: Settings, wiring: FakeWiring) -> FastAPI:
+    return create_app(settings, services_factory=wiring.factory())  # type: ignore[arg-type]
 
 
 @pytest.fixture
@@ -79,3 +93,33 @@ def no_secret_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Guarantee the process environment supplies no secret values."""
     for name in SECRET_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
+
+
+PASSWORD = "correct horse battery"
+
+
+async def _headers_for(wiring: FakeWiring, role: UserRole) -> dict[str, str]:
+    email = f"{role.value}@example.test"
+    if await wiring.users.get_by_email(email) is None:
+        await wiring.add_user(email, role, PASSWORD)
+    return await wiring.login_headers(email, PASSWORD)
+
+
+@pytest.fixture
+async def admin_headers(wiring: FakeWiring) -> dict[str, str]:
+    return await _headers_for(wiring, UserRole.admin)
+
+
+@pytest.fixture
+async def analyst_headers(wiring: FakeWiring) -> dict[str, str]:
+    return await _headers_for(wiring, UserRole.analyst)
+
+
+@pytest.fixture
+async def viewer_headers(wiring: FakeWiring) -> dict[str, str]:
+    return await _headers_for(wiring, UserRole.viewer)
+
+
+@pytest.fixture
+async def service_headers(wiring: FakeWiring) -> dict[str, str]:
+    return await wiring.service_token_headers()

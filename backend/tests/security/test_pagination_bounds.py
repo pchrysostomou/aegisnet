@@ -14,9 +14,8 @@ from aegisnet.services.asset_service import AssetService
 from aegisnet.services.event_read_service import EventQueryError, EventReadService
 from aegisnet.services.ingest_service import BatchNotFoundError, IngestService, limits_from_settings
 from tests.conftest import make_settings
-from tests.unit.test_asset_service import FakeAssetStore
-from tests.unit.test_event_read_service import FakeEventStore
-from tests.unit.test_ingest_service import FakeStore
+from tests.fakes import FakeAssetStore, FakeEventStore
+from tests.fakes import FakeIngestStore as FakeStore
 
 pytestmark = pytest.mark.security
 

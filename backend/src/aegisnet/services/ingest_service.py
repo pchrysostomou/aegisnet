@@ -113,12 +113,14 @@ class IngestService:
     async def ingest(
         self,
         lines: Iterable[bytes | str],
-        provenance: BatchProvenance,
+        provenance: BatchProvenance | None = None,
         *,
         batch_id: UUID | None = None,
     ) -> BatchSummary:
         started_at = self._clock()
         if batch_id is None:
+            if provenance is None:
+                raise ValueError("a new batch needs its provenance")
             batch_id = await self._store.open_batch(provenance, started_at)
         await self._store.mark_normalizing(batch_id)
 

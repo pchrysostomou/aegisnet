@@ -11,6 +11,7 @@ from aegisnet.config import Environment
 from aegisnet.main import create_app
 from aegisnet.version import APP_VERSION, schema_revision
 from tests.conftest import make_settings
+from tests.fakes import FakeWiring
 
 pytestmark = pytest.mark.integration
 
@@ -18,7 +19,7 @@ REAL = "production-grade-secret-0123456789"
 
 
 @pytest.fixture
-def production_client() -> Iterator[TestClient]:
+def production_wiring(tmp_path: object) -> FakeWiring:
     settings = make_settings(
         env=Environment.production,
         secret_key=REAL,
@@ -26,15 +27,28 @@ def production_client() -> Iterator[TestClient]:
         postgres_migrator_password=REAL,
         redis_password=REAL,
     )
-    with TestClient(create_app(settings), raise_server_exceptions=False) as client:
+    return FakeWiring(settings, settings.spool_dir)
+
+
+@pytest.fixture
+def production_client(production_wiring: FakeWiring) -> Iterator[TestClient]:
+    app = create_app(production_wiring.settings, services_factory=production_wiring.factory())  # type: ignore[arg-type]
+    with TestClient(app, raise_server_exceptions=False) as client:
         yield client
 
 
+def test_version_requires_authentication(client: TestClient) -> None:
+    response = client.get("/api/v1/meta/version")
+    assert response.status_code == 401
+    assert response.headers["WWW-Authenticate"] == "Bearer"
+    assert response.json()["error"]["code"] == "unauthenticated"
+
+
 def test_version_reports_build_metadata(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, viewer_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("GIT_SHA", "abc1234")
-    body = client.get("/api/v1/meta/version").json()
+    body = client.get("/api/v1/meta/version", headers=viewer_headers).json()
     assert body == {
         "app_name": "aegisnet",
         "version": APP_VERSION,
@@ -45,14 +59,15 @@ def test_version_reports_build_metadata(
     assert body["schema_revision"] == "0002_asset_network_delete_grant"
 
 
-def test_git_sha_is_withheld_in_production(
-    production_client: TestClient, monkeypatch: pytest.MonkeyPatch
+async def test_git_sha_is_withheld_in_production(
+    production_client: TestClient, production_wiring: FakeWiring, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("GIT_SHA", "abc1234")
-    body = production_client.get("/api/v1/meta/version").json()
+    headers = await production_wiring.service_token_headers()
+    body = production_client.get("/api/v1/meta/version", headers=headers).json()
     assert body["environment"] == "production"
     assert body["git_sha"] is None
-    assert "abc1234" not in production_client.get("/api/v1/meta/version").text
+    assert "abc1234" not in production_client.get("/api/v1/meta/version", headers=headers).text
 
 
 def test_interactive_docs_are_served_outside_production(client: TestClient) -> None:

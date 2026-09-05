@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -10,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from aegisnet.main import create_app
 from tests.conftest import Probe, make_settings, probe_ok
+from tests.fakes import FakeWiring
 
 pytestmark = pytest.mark.integration
 
@@ -52,9 +54,14 @@ def test_readyz_discloses_no_component_names_or_errors(app: FastAPI, client: Tes
         assert word not in body
 
 
-def test_readyz_times_out_a_hung_dependency() -> None:
-    settings = make_settings(probe_timeout_seconds=0.05)
-    app = create_app(settings)
+def test_readyz_times_out_a_hung_dependency(tmp_path: Path) -> None:
+    settings = make_settings(
+        probe_timeout_seconds=0.05,
+        secret_key="test-signing-key-0123456789-abcdefghijklmnop",
+        spool_dir=tmp_path,
+    )
+    wiring = FakeWiring(settings, tmp_path)
+    app = create_app(settings, services_factory=wiring.factory())  # type: ignore[arg-type]
 
     async def hangs() -> bool:
         await asyncio.sleep(5)

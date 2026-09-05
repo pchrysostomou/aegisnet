@@ -3,74 +3,25 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
 from aegisnet.domain.enums import EventType
 from aegisnet.domain.pagination import encode_time_id
-from aegisnet.domain.ports import EventQuery, EventRow, EventStats, Page
+from aegisnet.domain.ports import EventQuery
 from aegisnet.services.event_read_service import (
     EventNotFoundError,
     EventQueryError,
     EventReadService,
 )
+from tests.fakes import FakeEventStore
+from tests.fakes import event_row_stub as _row
 
 pytestmark = pytest.mark.unit
 
 FROM = datetime(2026, 9, 1, tzinfo=UTC)
 TO = FROM + timedelta(days=2)
-
-
-def _row(event_id: UUID | None = None, payload: dict[str, object] | None = None) -> EventRow:
-    return EventRow(
-        id=event_id or uuid4(),
-        batch_id=uuid4(),
-        event_time=FROM,
-        ingested_at=FROM,
-        event_type=EventType.dns,
-        flow_id=1,
-        src_ip=None,
-        dest_ip=None,
-        src_port=None,
-        dest_port=None,
-        proto=None,
-        app_proto=None,
-        bytes_toserver=None,
-        bytes_toclient=None,
-        pkts_toserver=None,
-        pkts_toclient=None,
-        dns_query="www.example.test",
-        dns_rrtype="A",
-        dns_rcode=None,
-        http_host=None,
-        http_url_path=None,
-        sig_signature=None,
-        sig_category=None,
-        sig_signature_id=None,
-        sig_severity=None,
-        payload=payload,
-    )
-
-
-class FakeEventStore:
-    def __init__(self) -> None:
-        self.queries: list[EventQuery] = []
-        self.rows: dict[UUID, EventRow] = {}
-
-    async def query(self, query: EventQuery) -> Page[EventRow]:
-        self.queries.append(query)
-        return Page(items=tuple(self.rows.values()), next_cursor=None)
-
-    async def get(self, event_id: UUID, *, include_payload: bool) -> EventRow | None:
-        row = self.rows.get(event_id)
-        if row is None:
-            return None
-        return row if include_payload else _row(row.id, None)
-
-    async def stats(self, query: EventQuery) -> EventStats:
-        self.queries.append(query)
-        return EventStats(total=len(self.rows), by_type=(("dns", len(self.rows)),), by_hour=())
 
 
 @pytest.fixture

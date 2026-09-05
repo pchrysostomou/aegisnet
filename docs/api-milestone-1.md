@@ -11,8 +11,8 @@ Base path: `/api/v1`. All responses `application/json`. All request bodies valid
 
 M1 ships the *minimum viable* auth so ingest is never anonymous; full RBAC hardening lands in M6.
 
-- `Authorization: Bearer <jwt>` for user endpoints.
-- `X-Ingest-Token: <token>` for ingest endpoints (service tokens, `ingest_service` role).
+- `Authorization: Bearer <jwt>` for user endpoints (HS256, 15 min; ADR-016).
+- `X-Ingest-Token: <token>` for ingest endpoints (service tokens, `ingest_service` role; may also read `/meta/version`).
 - Roles present from M1: `admin`, `analyst`, `viewer`, `ingest_service`. Every route declares a required
   permission via a FastAPI dependency; there is no implicit-allow path.
 
@@ -34,12 +34,12 @@ No stack traces, no SQL, no internal paths (T-2.7). `correlation_id` matches the
 
 | Endpoint group | Limit |
 |---|---|
-| `POST /auth/login` | 5 / 15 min per IP **and** per account, then exponential lockout |
+| `POST /auth/login` | 5 / 15 min per IP **and** per account; 5 consecutive failures lock the account for 15 min (exponential backoff: M6) |
 | `POST /ingest/*` | 30 requests/min per token; 200 MB/hour per token |
 | Read endpoints | 120 requests/min per user |
 | Everything else | 60 requests/min per subject |
 
-Exceeded → `429` with `Retry-After`.
+Exceeded → `429` with `Retry-After`. If Redis is unreachable, login and ingest refuse (`429`); reads and the default group proceed and log an error (ADR-016).
 
 ---
 
@@ -179,9 +179,9 @@ document so the milestone gate is unambiguous.
 
 ## Acceptance criteria for the M1 API
 
-- [ ] OpenAPI docs generated and reachable at `/docs` (disabled when `ENV=production`).
-- [ ] Every route has an explicit permission dependency; a test enumerates routes and fails on any route without one.
-- [ ] Posting the committed synthetic sample twice yields identical stored-event counts (idempotency test).
-- [ ] Oversized body, oversized line, deep JSON, and traversal attempts all return `4xx` and are audit-logged.
-- [ ] `GET /api/v1/assets/resolve` returns the most specific CIDR match under an overlapping-network fixture.
-- [ ] `viewer` cannot read `events[].payload`; `analyst` can. Asserted in the RBAC matrix test.
+- [x] OpenAPI docs generated and reachable at `/docs` (disabled when `ENV=production`) — `tests/integration/test_meta.py`.
+- [x] Every route has an explicit permission dependency; a test enumerates routes and fails on any route without one — `tests/security/test_rbac.py` (Chunk 6).
+- [x] Posting the committed synthetic sample twice yields identical stored-event counts (idempotency test) — `tests/db/test_ingest_store.py`, `make demo-ingest` twice (Chunk 4).
+- [ ] Oversized body, oversized line, deep JSON, and traversal attempts all return `4xx` and are audit-logged — body refusals are audited (`ingest.refused`, Chunk 6); an oversized line or deep JSON becomes a reject row inside an audited batch; a traversal attempt in `dataset_id` is refused by validation (`422`) before any handler and is not separately audited yet.
+- [x] `GET /api/v1/assets/resolve` returns the most specific CIDR match under an overlapping-network fixture — `tests/db/test_asset_store.py` (Chunk 5), `tests/integration/test_asset_routes.py` (Chunk 6).
+- [x] `viewer` cannot read `events[].payload`; `analyst` can. Asserted in the RBAC matrix test — `tests/security/test_rbac.py`, `tests/integration/test_event_routes.py` (Chunk 6).

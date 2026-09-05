@@ -18,11 +18,48 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from aegisnet.adapters.files.registry import (
+    ChecksumMismatchError,
+    DatasetNotFoundError,
+    InvalidRegistryError,
+    UnsafeDatasetPathError,
+)
+from aegisnet.adapters.files.spool import SpoolTooLargeError
+from aegisnet.api.deps import RateLimitedError
+from aegisnet.domain.assets import (
+    AssetNotFoundError,
+    BulkTooLargeError,
+    HostnameConflictError,
+    NetworkOverlapError,
+)
+from aegisnet.domain.auth import (
+    InvalidCredentialsError,
+    NotAuthenticatedError,
+    PasswordPolicyError,
+    PermissionDeniedError,
+    RefreshReuseError,
+)
+from aegisnet.domain.pagination import InvalidCursorError
 from aegisnet.logging import correlation_id_var, get_logger, untrusted_text
+from aegisnet.services.event_read_service import EventNotFoundError, EventQueryError
+from aegisnet.services.ingest_service import BatchNotFoundError, IngestLimitExceededError
 
 logger = get_logger(__name__)
 
 GENERIC_SERVER_MESSAGE = "An internal error occurred. Quote the correlation id when reporting it."
+
+
+class PayloadTooLargeError(Exception):
+    """A body, line count or batch exceeds a documented cap (T-1.4)."""
+
+
+class ValidationFailedError(Exception):
+    """A route-level check a Pydantic model could not express."""
+
+    def __init__(self, field: str, issue: str) -> None:
+        self.field = field
+        self.issue = issue
+        super().__init__(issue)
 
 
 def _envelope(
@@ -90,7 +127,113 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     )
 
 
+def _respond(
+    status_code: int,
+    code: str,
+    message: str,
+    *,
+    details: list[dict[str, Any]] | None = None,
+    headers: dict[str, str] | None = None,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code, content=_envelope(code, message, details), headers=headers
+    )
+
+
+def invalid_credentials_response() -> JSONResponse:
+    """The refresh route builds this itself so it can also clear the dead cookie."""
+    return _respond(status.HTTP_401_UNAUTHORIZED, "invalid_credentials", "Invalid credentials.")
+
+
+async def not_authenticated_handler(request: Request, exc: NotAuthenticatedError) -> JSONResponse:
+    return _respond(
+        status.HTTP_401_UNAUTHORIZED,
+        "unauthenticated",
+        "Authentication required.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+async def invalid_credentials_handler(
+    request: Request, exc: InvalidCredentialsError
+) -> JSONResponse:
+    # Same body for a wrong password, an unknown account, a locked account, an expired or
+    # reused refresh token: nothing here tells an attacker which one it was (T-2.1).
+    return invalid_credentials_response()
+
+
+async def forbidden_handler(request: Request, exc: PermissionDeniedError) -> JSONResponse:
+    return _respond(status.HTTP_403_FORBIDDEN, "forbidden", "This action is not permitted.")
+
+
+async def rate_limited_handler(request: Request, exc: RateLimitedError) -> JSONResponse:
+    return _respond(
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        "rate_limited",
+        "Too many requests. Retry after the indicated number of seconds.",
+        headers={"Retry-After": str(exc.retry_after)},
+    )
+
+
+async def not_found_handler(request: Request, exc: Exception) -> JSONResponse:
+    return _respond(status.HTTP_404_NOT_FOUND, "not_found", "No such resource.")
+
+
+async def conflict_handler(request: Request, exc: Exception) -> JSONResponse:
+    code = "network_overlap" if isinstance(exc, NetworkOverlapError) else "conflict"
+    return _respond(status.HTTP_409_CONFLICT, code, str(exc))
+
+
+async def dataset_unavailable_handler(request: Request, exc: Exception) -> JSONResponse:
+    return _respond(status.HTTP_409_CONFLICT, "dataset_unavailable", str(exc))
+
+
+async def payload_too_large_handler(request: Request, exc: Exception) -> JSONResponse:
+    return _respond(status.HTTP_413_CONTENT_TOO_LARGE, "payload_too_large", str(exc))
+
+
+async def domain_validation_handler(request: Request, exc: Exception) -> JSONResponse:
+    field = getattr(exc, "field", "query")
+    issue = getattr(exc, "issue", str(exc))
+    return _respond(
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "validation_failed",
+        "Request failed validation.",
+        details=[{"field": field, "issue": issue}],
+    )
+
+
 def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)  # type: ignore[arg-type]
     app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(NotAuthenticatedError, not_authenticated_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(InvalidCredentialsError, invalid_credentials_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(RefreshReuseError, invalid_credentials_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(PermissionDeniedError, forbidden_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(RateLimitedError, rate_limited_handler)  # type: ignore[arg-type]
+    for missing in (
+        AssetNotFoundError,
+        BatchNotFoundError,
+        EventNotFoundError,
+        DatasetNotFoundError,
+    ):
+        app.add_exception_handler(missing, not_found_handler)
+    for conflict in (HostnameConflictError, NetworkOverlapError):
+        app.add_exception_handler(conflict, conflict_handler)
+    for unavailable in (UnsafeDatasetPathError, ChecksumMismatchError, InvalidRegistryError):
+        app.add_exception_handler(unavailable, dataset_unavailable_handler)
+    for too_large in (
+        PayloadTooLargeError,
+        SpoolTooLargeError,
+        IngestLimitExceededError,
+        BulkTooLargeError,
+    ):
+        app.add_exception_handler(too_large, payload_too_large_handler)
+    for invalid in (
+        ValidationFailedError,
+        EventQueryError,
+        InvalidCursorError,
+        PasswordPolicyError,
+    ):
+        app.add_exception_handler(invalid, domain_validation_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)

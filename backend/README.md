@@ -19,7 +19,7 @@ Application foundation only:
 - `api/errors.py` — one error envelope for every failure, with no internals disclosed
 - `api/v1/health.py` — `/healthz` liveness and `/readyz` readiness, where readiness means
   PostgreSQL and Redis reachability and nothing else
-- `api/v1/meta.py` — `/api/v1/meta/version`
+- `api/v1/meta.py` — `/api/v1/meta/version` (requires `meta.read` since Chunk 6)
 - `adapters/db/engine.py`, `adapters/cache` — async PostgreSQL engine and async Redis
   client, connectivity only
 - `adapters/db/models.py` — SQLAlchemy 2.0 models for the nine Milestone 1 tables
@@ -47,10 +47,26 @@ Application foundation only:
   bounded event reads; `adapters/db/asset_store.py`, `adapters/db/event_read_store.py`
   implement their ports
 - `workers/main.py`, `workers/actors.py` — the worker entrypoint (`dramatiq
-  aegisnet.workers.main`) and the `import_dataset` actor
-- `cli.py` — `python -m aegisnet.cli datasets | import-dataset | batch`
+  aegisnet.workers.main`) and the `import_dataset` and `import_upload` actors
+- `domain/auth.py` — permissions, the role matrix, principals, the password policy and
+  the hashed-token helpers; `services/auth_service.py` — Argon2id login with lockout,
+  HS256 access tokens, rotating refresh tokens with reuse detection, logout denylist,
+  service tokens; `services/audit_service.py` — the bounded audit writer and reader
+  (ADR-016)
+- `api/deps.py` — the deny-by-default `require(permission)` dependency, rate-limit
+  dependencies, the `AppServices` container the routes read from; `api/schemas.py` — the
+  request and response DTOs; `api/v1/auth.py`, `ingest.py`, `assets.py`, `events.py`,
+  `audit.py` — the Milestone 1 routes
+- `adapters/db/auth_store.py`, `adapters/db/audit_store.py` — the SQL user, refresh-token,
+  service-token and audit stores; `adapters/cache/rate_limiter.py` — fixed-window limiter
+  and access-token denylist on Redis; `adapters/files/spool.py` — the capped upload spool
+- `cli.py` — `python -m aegisnet.cli` with `datasets`, `import-dataset`, `batch`,
+  `batches`, `rejects`, `seed-assets`, `assets`, `asset`, `resolve`, `events`,
+  `event-stats`, `create-user`, `users`, `create-service-token`, `revoke-service-token`,
+  `service-tokens`
 
-No HTTP ingest route, detection, or authentication exists yet.
+No detection exists yet; `SECURITY.md` at the repository root describes what the auth
+layer enforces and what it still lacks.
 
 ## Tests
 
@@ -59,10 +75,10 @@ opt-in and needs the ephemeral PostgreSQL from `docker-compose.test.yml --profil
 
 | Directory | Marker | What it covers |
 |---|---|---|
-| `tests/unit/` | `unit` | settings, log hygiene, broker factory, `bootstrap_env.py`; EVE sanitiser, limits, schema, hash and normaliser over `tests/fixtures/eve/`; the synthetic generator; the ingest, asset and event read services against in-memory stores; asset rules, cursors, the CLI and the seed loader |
-| `tests/integration/` | `integration` | the assembled app in-process: health, readiness with faked probes, version, correlation IDs; the committed corpus, its manifest and the registry checksum |
-| `tests/security/` | `security` | THREAT_MODEL mitigations: the error envelope (T-2.7), and the committed Compose files, Dockerfiles, `.env.example`, `.gitignore` and pre-commit config read as data (T-5.1, T-5.2, T-5.4); payload limits (T-1.4, T-1.5); dataset path traversal (T-1.6); pagination bounds (T-2.6) |
-| `tests/db/` | `db` (+ `integration` / `security`) | the baseline revision against a real PostgreSQL 16: the nine tables and enum types, ORM/schema agreement via `compare_metadata`, constraint behaviour, the runtime role's privilege matrix and the audit-log guarantee (T-2.5, T-5.3), downgrade to base; the SQL ingest store (idempotent corpus import, provenance, rejects, promoted columns), the `import_dataset` actor through a `StubBroker`, the asset store (resolution precedence, atomic bulk, seeding) and the event read store (filters, a full keyset walk, stats, batch and reject listing) |
+| `tests/unit/` | `unit` | settings, log hygiene, broker factory, `bootstrap_env.py`; EVE sanitiser, limits, schema, hash and normaliser over `tests/fixtures/eve/`; the synthetic generator; the ingest, asset and event read services against in-memory stores; asset rules, cursors, the CLI and the seed loader; the auth domain and service (lockout, rotation, reuse, forged tokens), the audit writer's bounds, the Redis limiter and denylist on `fakeredis`, the spool, the auth CLI commands |
+| `tests/integration/` | `integration` | the assembled app in-process over `tests/fakes.py` (in-memory stores, a settable clock, a breakable limiter): health, readiness with faked probes, version, correlation IDs; the auth, ingest, asset, event and audit routes including cookies, refresh replay, rate limits and the audit trail each route leaves; the committed corpus, its manifest and the registry checksum |
+| `tests/security/` | `security` | THREAT_MODEL mitigations: the error envelope (T-2.7), and the committed Compose files, Dockerfiles, `.env.example`, `.gitignore` and pre-commit config read as data (T-5.1, T-5.2, T-5.4); payload limits (T-1.4, T-1.5); dataset path traversal (T-1.6); pagination bounds (T-2.6); the RBAC route enumeration and role × route matrix, credential downgrade refusal and audited denials (T-2.1, T-2.2, T-2.4) |
+| `tests/db/` | `db` (+ `integration` / `security`) | the baseline revision against a real PostgreSQL 16: the nine tables and enum types, ORM/schema agreement via `compare_metadata`, constraint behaviour, the runtime role's privilege matrix and the audit-log guarantee (T-2.5, T-5.3), downgrade to base; the SQL ingest store (idempotent corpus import, provenance, rejects, promoted columns), the `import_dataset` actor through a `StubBroker`, the asset store (resolution precedence, atomic bulk, seeding) and the event read store (filters, a full keyset walk, stats, batch and reject listing); the SQL user, refresh-token, service-token and audit stores, and the auth service end to end on PostgreSQL |
 
 `conftest.py` sets `ENV=test` before the package is imported so that collection does not
 depend on the developer's shell.

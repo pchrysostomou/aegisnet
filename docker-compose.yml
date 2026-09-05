@@ -75,9 +75,13 @@ services:
       POSTGRES_HOST: db
       REDIS_HOST: redis
       SAMPLES_DIR: /app/samples
+      SPOOL_DIR: /app/spool
     volumes:
       # Registered datasets only; read-only, and resolution is confined to it (T-1.6).
       - ./samples:/app/samples:ro
+      # Uploads wait here between the request and the worker (T-1.4); shared with the
+      # worker and nothing else. Messages carry the spool name only (TB-5).
+      - ingest_spool:/app/spool
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -91,8 +95,9 @@ services:
       retries: 6
       start_period: 20s
 
-  # Dramatiq worker. Registers one actor, `import_dataset` (Chunk 4, ADR-014); the
-  # scheduler and periodic sweeps stay deferred (ADR-010). Its healthcheck is process-level
+  # Dramatiq worker. Registers two actors, `import_dataset` (Chunk 4, ADR-014) and
+  # `import_upload` (Chunk 6, ADR-016); the scheduler and periodic sweeps stay deferred
+  # (ADR-010). Its healthcheck is process-level
   # liveness only and deliberately makes no readiness claim.
   worker:
     build:
@@ -107,8 +112,10 @@ services:
       POSTGRES_HOST: db
       REDIS_HOST: redis
       SAMPLES_DIR: /app/samples
+      SPOOL_DIR: /app/spool
     volumes:
       - ./samples:/app/samples:ro
+      - ingest_spool:/app/spool
     depends_on:
       db: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -144,3 +151,4 @@ services:
 
 volumes:
   db_data:
+  ingest_spool:

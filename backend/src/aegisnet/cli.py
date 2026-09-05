@@ -17,6 +17,11 @@ Commands:
     resolve IP                     the asset owning an address, or {"matched": false}
     events --from T --to T         query events (filters, keyset pagination, --payload)
     event-stats --from T --to T    counts by type and by hour
+    create-user EMAIL --role R     create a user; the password is read from stdin
+    users                          list users (never hashes)
+    create-service-token NAME      mint an ingest service token; the token is printed once
+    revoke-service-token TOKEN_ID  revoke a service token
+    service-tokens                 list service tokens (never hashes)
 
 Every result is one JSON object on stdout; exit status 0 on success, 1 on a failure the
 operator can act on (failed batch, registry or inventory error), 2 on usage errors.
@@ -30,11 +35,11 @@ import json
 import sys
 from collections.abc import Callable, Coroutine, Sequence
 from dataclasses import asdict, is_dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from ipaddress import ip_address, ip_network
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, TextIO
 from uuid import UUID
 
 import yaml
@@ -42,6 +47,14 @@ from pydantic import ValidationError
 
 from aegisnet.adapters.db import engine as db_engine
 from aegisnet.adapters.db.asset_store import SqlAssetStore
+from aegisnet.adapters.db.audit_store import SqlAuditStore
+from aegisnet.adapters.db.auth_store import (
+    EmailTakenError,
+    ServiceTokenNameTakenError,
+    SqlRefreshTokenStore,
+    SqlServiceTokenStore,
+    SqlUserStore,
+)
 from aegisnet.adapters.db.event_read_store import SqlEventReadStore
 from aegisnet.adapters.db.ingest_store import SqlIngestStore
 from aegisnet.adapters.db.session import make_session_factory
@@ -50,11 +63,20 @@ from aegisnet.adapters.queue.broker import install as install_broker
 from aegisnet.adapters.queue.ingest_queue import RedisIngestQueue
 from aegisnet.config import Settings, get_settings
 from aegisnet.domain.assets import AssetError, AssetSpec
-from aegisnet.domain.enums import AssetEnvironment, EventType, IngestStatus
+from aegisnet.domain.auth import check_password_policy
+from aegisnet.domain.enums import AssetEnvironment, EventType, IngestStatus, UserRole
 from aegisnet.domain.pagination import DEFAULT_LIMIT, InvalidCursorError
-from aegisnet.domain.ports import AssetFilter, BatchFilter, EventQuery
+from aegisnet.domain.ports import (
+    AssetFilter,
+    BatchFilter,
+    EventQuery,
+    ServiceTokenRecord,
+    UserRecord,
+)
 from aegisnet.logging import configure_logging
 from aegisnet.services.asset_service import AssetService
+from aegisnet.services.audit_service import AuditService
+from aegisnet.services.auth_service import AuthPolicy, AuthService
 from aegisnet.services.event_read_service import EventQueryError, EventReadService
 from aegisnet.services.ingest_service import (
     BatchNotFoundError,
@@ -71,6 +93,16 @@ EXIT_USAGE = 2
 ASSETS_DIR = "assets"
 
 
+class _NoDenylist:
+    """The CLI never verifies or revokes access tokens, so it holds no denylist."""
+
+    async def add(self, token_id: str, ttl_seconds: int) -> None:
+        raise NotImplementedError("the CLI does not revoke access tokens")
+
+    async def contains(self, token_id: str) -> bool:
+        raise NotImplementedError("the CLI does not verify access tokens")
+
+
 class Services:
     """Every service on one engine, built per command and disposed afterwards."""
 
@@ -80,6 +112,15 @@ class Services:
         self.ingest = IngestService(SqlIngestStore(sessions), limits_from_settings(settings))
         self.assets = AssetService(SqlAssetStore(sessions))
         self.events = EventReadService(SqlEventReadStore(sessions))
+        self.auth = AuthService(
+            SqlUserStore(sessions),
+            SqlRefreshTokenStore(sessions),
+            SqlServiceTokenStore(sessions),
+            _NoDenylist(),
+            secret=settings.secret_key.get_secret_value(),
+            policy=AuthPolicy.from_settings(settings),
+        )
+        self.audit = AuditService(SqlAuditStore(sessions))
 
     async def dispose(self) -> None:
         await db_engine.dispose(self._engine)
@@ -113,6 +154,16 @@ def _timestamp(text: str) -> datetime:
     if moment.tzinfo is None:
         raise argparse.ArgumentTypeError("timestamps must carry a UTC offset, e.g. ...Z")
     return moment
+
+
+def _ttl_days(text: str) -> int:
+    try:
+        days = int(text)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("ttl must be a whole number of days") from error
+    if not 1 <= days <= 365:
+        raise argparse.ArgumentTypeError("ttl must be between 1 and 365 days")
+    return days
 
 
 def _ip_or_cidr(text: str) -> Any:
@@ -199,6 +250,28 @@ def build_parser() -> argparse.ArgumentParser:
         "--type", dest="types", action="append", default=[], choices=[t.value for t in EventType]
     )
     stats.add_argument("--asset-id", type=UUID, default=None)
+
+    create_user = commands.add_parser(
+        "create-user", help="create a user; the password is read from stdin, never argv"
+    )
+    create_user.add_argument("email")
+    create_user.add_argument("--role", choices=[r.value for r in UserRole], required=True)
+    create_user.add_argument("--display-name", default=None)
+    create_user.add_argument(
+        "--password-stdin",
+        action="store_true",
+        required=True,
+        help="read the password from the first line of stdin (the only way to supply it)",
+    )
+    commands.add_parser("users", help="list users (never hashes)")
+    token = commands.add_parser(
+        "create-service-token", help="mint an ingest service token; printed exactly once"
+    )
+    token.add_argument("name")
+    token.add_argument("--ttl-days", type=_ttl_days, default=90, help="1 to 365, default 90")
+    revoke = commands.add_parser("revoke-service-token", help="revoke a service token by id")
+    revoke.add_argument("token_id", type=UUID)
+    commands.add_parser("service-tokens", help="list service tokens (never hashes)")
     return parser
 
 
@@ -375,6 +448,117 @@ def cmd_event_stats(settings: Settings, args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+# ---------------------------------------------------------------- users and service tokens
+
+
+def public_user(user: UserRecord) -> dict[str, object]:
+    """The operator's view of a user: never the password hash."""
+    return {
+        "id": user.id,
+        "email": user.email,
+        "display_name": user.display_name,
+        "role": user.role,
+        "is_active": user.is_active,
+        "failed_login_count": user.failed_login_count,
+        "locked_until": user.locked_until,
+        "last_login_at": user.last_login_at,
+        "created_at": user.created_at,
+    }
+
+
+def public_service_token(token: ServiceTokenRecord) -> dict[str, object]:
+    """The operator's view of a service token: never the hash."""
+    return {
+        "id": token.id,
+        "name": token.name,
+        "role": token.role,
+        "created_by": token.created_by,
+        "expires_at": token.expires_at,
+        "revoked_at": token.revoked_at,
+        "last_used_at": token.last_used_at,
+        "created_at": token.created_at,
+    }
+
+
+def read_password(stream: TextIO) -> str:
+    """The first line of ``stream``, checked against the policy before any connection."""
+    password = stream.readline().rstrip("\r\n")
+    check_password_policy(password)
+    return password
+
+
+def cmd_create_user(settings: Settings, args: argparse.Namespace) -> int:
+    password = read_password(sys.stdin)
+    display_name = args.display_name or args.email.split("@")[0]
+    role = UserRole(args.role)
+
+    async def action(services: Services) -> UserRecord:
+        user = await services.auth.register_user(args.email, display_name, password, role)
+        await services.audit.record(
+            "user.created",
+            target_type="user",
+            target_id=str(user.id),
+            detail={"role": role.value, "via": "cli"},
+        )
+        return user
+
+    _emit(public_user(_run(settings, action)))
+    return EXIT_OK
+
+
+def cmd_users(settings: Settings) -> int:
+    users = _run(settings, lambda services: services.auth.list_users())
+    _emit({"users": [public_user(user) for user in users]})
+    return EXIT_OK
+
+
+def cmd_create_service_token(settings: Settings, args: argparse.Namespace) -> int:
+    name = args.name.strip()
+    if not 1 <= len(name) <= 64:
+        raise ValueError("service token name must be 1 to 64 characters")
+    ttl = timedelta(days=args.ttl_days)
+
+    async def action(services: Services) -> tuple[str, ServiceTokenRecord]:
+        plaintext, record = await services.auth.create_service_token(name, created_by=None, ttl=ttl)
+        await services.audit.record(
+            "service_token.created",
+            target_type="service_token",
+            target_id=str(record.id),
+            detail={"name": record.name, "expires_at": record.expires_at.isoformat(), "via": "cli"},
+        )
+        return plaintext, record
+
+    plaintext, record = _run(settings, action)
+    _emit({**public_service_token(record), "token": plaintext})
+    return EXIT_OK
+
+
+def cmd_revoke_service_token(settings: Settings, token_id: UUID) -> int:
+    async def action(services: Services) -> ServiceTokenRecord | None:
+        record = await services.auth.revoke_service_token(token_id)
+        if record is not None:
+            await services.audit.record(
+                "service_token.revoked",
+                target_type="service_token",
+                target_id=str(record.id),
+                detail={"name": record.name, "via": "cli"},
+            )
+        return record
+
+    record = _run(settings, action)
+    if record is None:
+        _emit({"error": "unknown service token"})
+        return EXIT_FAILED
+    _emit(public_service_token(record))
+    return EXIT_OK
+
+
+def cmd_service_tokens(settings: Settings) -> int:
+    tokens = _run(settings, lambda services: services.auth.list_service_tokens())
+    _emit({"service_tokens": [public_service_token(token) for token in tokens]})
+    return EXIT_OK
+
+
 # ---------------------------------------------------------------- entrypoint
 
 
@@ -402,6 +586,16 @@ def dispatch(settings: Settings, samples_dir: Path, args: argparse.Namespace) ->
             return cmd_events(settings, args)
         case "event-stats":
             return cmd_event_stats(settings, args)
+        case "create-user":
+            return cmd_create_user(settings, args)
+        case "users":
+            return cmd_users(settings)
+        case "create-service-token":
+            return cmd_create_service_token(settings, args)
+        case "revoke-service-token":
+            return cmd_revoke_service_token(settings, args.token_id)
+        case "service-tokens":
+            return cmd_service_tokens(settings)
     return EXIT_USAGE  # pragma: no cover - argparse enforces the command set
 
 
@@ -419,6 +613,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         AssetError,
         EventQueryError,
         InvalidCursorError,
+        EmailTakenError,
+        ServiceTokenNameTakenError,
     ) as error:
         _emit({"error": str(error)})
         return EXIT_FAILED

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from ipaddress import ip_address, ip_network
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 
@@ -15,98 +14,17 @@ from aegisnet.domain.assets import (
     AssetSpec,
     BulkTooLargeError,
     HostnameConflictError,
-    IPAddress,
     NetworkOverlapError,
-    NetworkRecord,
-    resolve_ip,
 )
 from aegisnet.domain.enums import AssetEnvironment
 from aegisnet.domain.pagination import InvalidCursorError, encode_time_id
-from aegisnet.domain.ports import AssetFilter, AssetRecord, NetworkView, Page, ResolvedAsset
+from aegisnet.domain.ports import AssetFilter
 from aegisnet.services.asset_service import AssetService
+from tests.fakes import FakeAssetStore
 
 pytestmark = pytest.mark.unit
 
 T0 = datetime(2026, 9, 1, tzinfo=UTC)
-
-
-class FakeAssetStore:
-    def __init__(self) -> None:
-        self.rows: dict[UUID, AssetRecord] = {}
-        self.create_many_calls = 0
-
-    def _build(self, spec: AssetSpec, now: datetime, asset_id: UUID | None = None) -> AssetRecord:
-        return AssetRecord(
-            id=asset_id or uuid4(),
-            hostname=spec.hostname,
-            environment=spec.environment,
-            owner=spec.owner,
-            criticality=spec.criticality,
-            tags=tuple(spec.tags),
-            description=spec.description,
-            is_active=True,
-            created_at=now,
-            updated_at=now,
-            networks=tuple(NetworkView(uuid4(), n.cidr, n.is_primary) for n in spec.networks),
-        )
-
-    async def create(self, spec: AssetSpec, now: datetime) -> AssetRecord:
-        record = self._build(spec, now)
-        self.rows[record.id] = record
-        return record
-
-    async def create_many(
-        self, specs: Sequence[AssetSpec], now: datetime
-    ) -> tuple[AssetRecord, ...]:
-        self.create_many_calls += 1
-        created = tuple(self._build(spec, now) for spec in specs)
-        for record in created:
-            self.rows[record.id] = record
-        return created
-
-    async def get(self, asset_id: UUID) -> AssetRecord | None:
-        return self.rows.get(asset_id)
-
-    async def get_by_hostname(self, hostname: str) -> AssetRecord | None:
-        return next((r for r in self.rows.values() if r.hostname == hostname), None)
-
-    async def list(self, query: AssetFilter) -> Page[AssetRecord]:
-        rows = [r for r in self.rows.values() if query.include_inactive or r.is_active]
-        return Page(items=tuple(rows[: query.limit]), next_cursor=None)
-
-    async def update(self, asset_id: UUID, patch: AssetPatch, now: datetime) -> AssetRecord | None:
-        current = self.rows.get(asset_id)
-        if current is None:
-            return None
-        values = {field: getattr(current, field) for field in current.__dataclass_fields__}
-        for field in patch.model_fields_set:
-            if field == "networks":
-                assert patch.networks is not None
-                values["networks"] = tuple(
-                    NetworkView(uuid4(), n.cidr, n.is_primary) for n in patch.networks
-                )
-            elif field == "tags":
-                values["tags"] = tuple(patch.tags or ())
-            else:
-                values[field] = getattr(patch, field)
-        values["updated_at"] = now
-        self.rows[asset_id] = AssetRecord(**values)
-        return self.rows[asset_id]
-
-    async def deactivate(self, asset_id: UUID, now: datetime) -> AssetRecord | None:
-        return await self.update(asset_id, AssetPatch(is_active=False), now)
-
-    async def networks(self, *, active_only: bool = True) -> tuple[NetworkRecord, ...]:
-        return tuple(
-            NetworkRecord(r.id, n.cidr, n.is_primary, r.created_at)
-            for r in self.rows.values()
-            if r.is_active or not active_only
-            for n in r.networks
-        )
-
-    async def resolve(self, address: IPAddress) -> ResolvedAsset | None:
-        hit = resolve_ip(address, await self.networks())
-        return None if hit is None else ResolvedAsset(self.rows[hit.asset_id], hit.cidr)
 
 
 def _spec(hostname: str, *cidrs: str, **extra: object) -> AssetSpec:

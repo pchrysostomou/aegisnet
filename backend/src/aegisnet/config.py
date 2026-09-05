@@ -73,6 +73,21 @@ class Settings(BaseSettings):
     ingest_max_keys_per_object: Annotated[int, Field(ge=8)] = 200
     ingest_timestamp_max_past_days: Annotated[int, Field(ge=1)] = 3650
     ingest_timestamp_max_future_hours: Annotated[int, Field(ge=0)] = 24
+    ingest_sync_max_lines: Annotated[int, Field(ge=1)] = 1000
+    spool_dir: Path = Path("spool")
+
+    # ---- authentication and rate limits (docs/api-milestone-1.md; T-2.1, T-2.4; ADR-016)
+    jwt_issuer: str = "aegisnet"
+    access_ttl_seconds: Annotated[int, Field(ge=60, le=3600)] = 900
+    refresh_ttl_days: Annotated[int, Field(ge=1, le=90)] = 14
+    login_max_failures: Annotated[int, Field(ge=1)] = 5
+    login_lockout_minutes: Annotated[int, Field(ge=1)] = 15
+    cookie_secure: bool = True
+    rate_limit_login_per_15min: Annotated[int, Field(ge=1)] = 5
+    rate_limit_ingest_per_min: Annotated[int, Field(ge=1)] = 30
+    rate_limit_ingest_bytes_per_hour: Annotated[int, Field(ge=1024)] = 200 * 1024 * 1024
+    rate_limit_read_per_min: Annotated[int, Field(ge=1)] = 120
+    rate_limit_default_per_min: Annotated[int, Field(ge=1)] = 60
 
     @field_validator("api_cors_origins")
     @classmethod

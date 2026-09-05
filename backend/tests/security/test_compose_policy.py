@@ -191,3 +191,19 @@ def test_official_images_are_started_as_their_service_user() -> None:
     services = _services(COMPOSE)
     assert services["db"].get("user") == "postgres"
     assert services["redis"].get("user") == "redis"
+
+
+def test_the_upload_spool_is_a_named_volume_shared_by_api_and_worker_only() -> None:
+    """T-1.4 / TB-5: uploads wait in a private named volume; a message carries only the
+    spool name, and only the two services that need the bytes can reach them."""
+    services = _services(COMPOSE)
+    for name in ("api", "worker"):
+        assert "ingest_spool:/app/spool" in services[name]["volumes"], name
+        assert _environment(services[name])["SPOOL_DIR"] == "/app/spool", name
+    for name, service in services.items():
+        if name not in ("api", "worker"):
+            assert not any("spool" in str(v) for v in service.get("volumes", [])), name
+    assert "ingest_spool" in _load(COMPOSE)["volumes"]
+    assert not any(
+        "spool" in str(v) for s in _services(TEST_COMPOSE).values() for v in s.get("volumes", [])
+    )

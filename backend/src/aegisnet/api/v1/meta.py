@@ -1,16 +1,16 @@
 """Build metadata.
 
-The git SHA is withheld in production to avoid disclosing the exact deployed commit to
-an unauthenticated caller. This route becomes permission-gated in Chunk 6, when the
-authentication layer exists; it is unauthenticated in Chunk 1 because no auth exists yet,
-and that limitation is recorded in docs/STATUS.md rather than hidden.
+The git SHA is withheld in production to avoid disclosing the exact deployed commit. The
+route requires ``meta.read``, which every role and service token holds (Chunk 6).
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
+from aegisnet.api.deps import rate_limit, require
+from aegisnet.domain.auth import Permission
 from aegisnet.version import APP_VERSION, git_sha, schema_revision
 
 router = APIRouter(prefix="/api/v1/meta", tags=["meta"])
@@ -24,7 +24,12 @@ class VersionResponse(BaseModel):
     schema_revision: str | None = None
 
 
-@router.get("/version", response_model=VersionResponse, summary="Application version")
+@router.get(
+    "/version",
+    response_model=VersionResponse,
+    summary="Application version (any authenticated principal)",
+    dependencies=[Depends(require(Permission.meta_read)), Depends(rate_limit("read"))],
+)
 async def version(request: Request) -> VersionResponse:
     settings = request.app.state.settings
     return VersionResponse(

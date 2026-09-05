@@ -18,11 +18,14 @@ from uuid import UUID
 from aegisnet.domain.assets import AssetPatch, AssetSpec, IPAddress, IPNetwork, NetworkRecord
 from aegisnet.domain.enums import (
     AssetEnvironment,
+    AuditResult,
     EventType,
     IngestMethod,
     IngestStatus,
     RejectReason,
+    ServiceTokenRole,
     SourceType,
+    UserRole,
 )
 from aegisnet.domain.models import NormalizedEvent, Reject
 from aegisnet.domain.pagination import DEFAULT_LIMIT
@@ -254,3 +257,176 @@ class EventReadStore(Protocol):
     async def get(self, event_id: UUID, *, include_payload: bool) -> EventRow | None: ...
 
     async def stats(self, query: EventQuery) -> EventStats: ...
+
+
+# ---------------------------------------------------------------- users, tokens (FR-10)
+
+
+@dataclass(frozen=True, slots=True)
+class UserRecord:
+    id: UUID
+    email: str
+    display_name: str
+    password_hash: str
+    role: UserRole
+    is_active: bool
+    failed_login_count: int
+    locked_until: datetime | None
+    last_login_at: datetime | None
+    created_at: datetime
+
+
+class UserStore(Protocol):
+    async def create(
+        self, email: str, display_name: str, password_hash: str, role: UserRole, now: datetime
+    ) -> UserRecord: ...
+
+    async def get(self, user_id: UUID) -> UserRecord | None: ...
+
+    async def get_by_email(self, email: str) -> UserRecord | None: ...
+
+    async def record_failure(
+        self, user_id: UUID, now: datetime, *, lock_until: datetime | None
+    ) -> None:
+        """Increment the failure count; when ``lock_until`` is given, lock the account."""
+        ...
+
+    async def record_success(self, user_id: UUID, now: datetime) -> None:
+        """Reset the failure count, clear any lock, stamp ``last_login_at``."""
+        ...
+
+    async def list(self) -> tuple[UserRecord, ...]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class RefreshTokenRecord:
+    id: UUID
+    user_id: UUID
+    token_hash: bytes
+    issued_at: datetime
+    expires_at: datetime
+    rotated_to: UUID | None
+    revoked_at: datetime | None
+
+
+class RefreshTokenStore(Protocol):
+    async def create(
+        self,
+        user_id: UUID,
+        token_hash: bytes,
+        issued_at: datetime,
+        expires_at: datetime,
+        user_agent_hash: bytes | None,
+        ip_hash: bytes | None,
+    ) -> RefreshTokenRecord: ...
+
+    async def get_by_hash(self, token_hash: bytes) -> RefreshTokenRecord | None: ...
+
+    async def rotate(self, old_id: UUID, new_id: UUID, now: datetime) -> None:
+        """Mark ``old_id`` rotated to ``new_id`` and revoked."""
+        ...
+
+    async def revoke_chain(self, token_id: UUID, now: datetime) -> int:
+        """Revoke ``token_id`` and every token it was rotated into. Returns how many."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class ServiceTokenRecord:
+    id: UUID
+    name: str
+    token_hash: bytes
+    role: ServiceTokenRole
+    created_by: UUID | None
+    expires_at: datetime
+    revoked_at: datetime | None
+    last_used_at: datetime | None
+    created_at: datetime
+
+
+class ServiceTokenStore(Protocol):
+    async def create(
+        self,
+        name: str,
+        token_hash: bytes,
+        role: ServiceTokenRole,
+        created_by: UUID | None,
+        expires_at: datetime,
+        now: datetime,
+    ) -> ServiceTokenRecord: ...
+
+    async def get_by_hash(self, token_hash: bytes) -> ServiceTokenRecord | None: ...
+
+    async def touch(self, token_id: UUID, now: datetime) -> None: ...
+
+    async def revoke(self, token_id: UUID, now: datetime) -> ServiceTokenRecord | None: ...
+
+    async def list(self) -> tuple[ServiceTokenRecord, ...]: ...
+
+
+# ---------------------------------------------------------------- audit (FR-10.3, T-2.5)
+
+
+@dataclass(frozen=True, slots=True)
+class AuditEntry:
+    occurred_at: datetime
+    action: str
+    target_type: str
+    target_id: str | None
+    result: AuditResult
+    detail: dict[str, Any]
+    actor_user_id: UUID | None = None
+    actor_token_id: UUID | None = None
+    actor_ip: IPAddress | None = None
+    correlation_id: UUID | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AuditRow:
+    id: int
+    entry: AuditEntry
+
+
+@dataclass(frozen=True, slots=True)
+class AuditFilter:
+    action: str | None = None
+    actor_user_id: UUID | None = None
+    result: AuditResult | None = None
+    time_from: datetime | None = None
+    time_to: datetime | None = None
+    limit: int = DEFAULT_LIMIT
+    cursor: str | None = None
+
+
+class AuditSink(Protocol):
+    async def write(self, entry: AuditEntry) -> None:
+        """Append one row in its own short transaction, so a rolled-back request still
+        leaves its audit trail."""
+        ...
+
+
+class AuditReadStore(Protocol):
+    async def list(self, query: AuditFilter) -> Page[AuditRow]: ...
+
+
+# ---------------------------------------------------------------- rate limits, denylist
+
+
+@dataclass(frozen=True, slots=True)
+class RateLimitDecision:
+    allowed: bool
+    remaining: int
+    retry_after: int
+    """Seconds until the window resets; meaningful when ``allowed`` is false."""
+
+
+class RateLimiter(Protocol):
+    async def hit(
+        self, name: str, subject: str, *, limit: int, window_seconds: int, cost: int = 1
+    ) -> RateLimitDecision: ...
+
+
+class TokenDenylist(Protocol):
+    async def add(self, token_id: str, ttl_seconds: int) -> None: ...
+
+    async def contains(self, token_id: str) -> bool: ...

@@ -9,6 +9,39 @@ Nothing is released yet. There is no tagged version.
 ## [Unreleased]
 
 ### Added
+- **Chunk 6 — authentication, RBAC, audit, rate limits and the HTTP routes.**
+  `domain/auth.py`: the permission set, the role matrix (`viewer ⊂ analyst ⊂ admin`,
+  `ingest_service` = ingest + version), principals, the length-only password policy,
+  opaque tokens stored as sha256. `services/auth_service.py`: Argon2id users, login with
+  generic failures, timing equalisation and lockout, HS256 access tokens verified against
+  the service clock, rotating refresh tokens with reuse detection that revokes the chain,
+  logout with a Redis `jti` denylist, service tokens with expiry and revocation.
+  `services/audit_service.py`: bounded, credential-free audit detail. `api/deps.py`: the
+  deny-by-default `require(permission)` dependency, rate-limit dependencies and the
+  `AppServices` factory injection (ADR-016).
+- HTTP routes: `/api/v1/auth/{login,refresh,logout,me}`, `/api/v1/ingest/eve` (NDJSON
+  body or multipart, `mode=sync|async` through a capped spool), `/api/v1/ingest/import`,
+  `/api/v1/ingest/batches[/{id}[/rejects]]`, `/api/v1/assets` (create, bulk, resolve,
+  list, get, patch, deactivate), `/api/v1/events[/stats|/{id}]`, `/api/v1/audit`.
+  Response DTOs in `api/schemas.py`; new error codes `unauthenticated` (with
+  `WWW-Authenticate: Bearer`), `invalid_credentials`, `forbidden`, `rate_limited` (with
+  `Retry-After`), `payload_too_large`.
+- Adapters: `adapters/db/auth_store.py` (users, refresh tokens, service tokens),
+  `adapters/db/audit_store.py`, `adapters/cache/rate_limiter.py` (fixed-window limiter and
+  token denylist on Redis), `adapters/files/spool.py`; the `import_upload` worker actor
+  finishes an async upload from the spool; Compose gains the `ingest_spool` volume shared
+  by `api` and `worker` only.
+- CLI: `create-user` (password from stdin), `users`, `create-service-token` (printed
+  once), `revoke-service-token`, `service-tokens`; Makefile targets `create-user`,
+  `users`, `create-service-token`, `revoke-service-token`, `service-tokens`.
+- `SECURITY.md`: the credential model, the RBAC matrix, the audit actions, the rate-limit
+  policy, ingest hardening, known gaps and disclosure.
+- 184 new hermetic tests (auth domain and service, audit service, Redis adapters on
+  fakeredis, spool, CLI, the RBAC route-enumeration and 19 × 4 matrix suite, route
+  integration for auth, ingest, assets, events and audit) and 5 database tests (SQL auth
+  and audit stores, the auth service end to end on PostgreSQL). The `stack` CI job now
+  creates a user and a service token through the CLI, proves the unauthenticated `401`,
+  ingests the synthetic corpus over HTTP and reads the finished batch and the audit trail.
 - **Chunk 5 — asset inventory and event reads.** `domain/assets.py`: validated
   `AssetSpec`/`AssetPatch` (hostname grammar, tags, criticality 1–5, strict CIDRs, one
   primary network), cross-asset overlap detection and the reference `resolve_ip`
@@ -175,6 +208,10 @@ Nothing is released yet. There is no tagged version.
   the runner — and `security` failed on the genuine dependency findings fixed below.
 
 ### Changed
+- `/api/v1/meta/version` requires a credential (`meta.read`); the CI stack probe and the
+  README quickstart obtain a service token first (Chunk 6).
+- `IngestService.ingest` accepts a pre-opened `batch_id` so the worker can finish a batch
+  the API opened; `bounded_detail` keeps one level of nested mapping (Chunk 6).
 - The hermetic coverage gate now also excludes the SQL stores and the worker package,
   which the database suite and the stack exercise; both results are recorded in
   `docs/STATUS.md`.
@@ -208,6 +245,11 @@ Nothing is released yet. There is no tagged version.
   not been written.
 
 ### Security
+- Chunk 6: no route answers without a permission dependency; a present-but-invalid
+  credential is `401`, never anonymous; refresh-token reuse revokes the chain and clears
+  the cookie; refused uploads and permission denials are audited; login and ingest rate
+  limits fail closed when Redis is unavailable; passwords never appear in argv and tokens
+  are stored only as hashes (ADR-016, `SECURITY.md`).
 - The first `security` workflow run flagged real, known-vulnerable dependencies; both
   findings are fixed by upgrade, verified by a clean local `pip-audit --strict` and
   `pnpm audit --prod --audit-level=high`, with the suite unchanged at 124 passed:
@@ -223,6 +265,11 @@ Nothing is released yet. There is no tagged version.
   `node:22-alpine`, matching the CI node version.
 
 ### Fixed
+- The `ingest_spool` named volume was mounted root-owned while the api and worker run as
+  uid 10001, so the first HTTP upload failed with `500`. The image now creates `/app/spool`
+  owned by the runtime user (a named volume inherits it on first use) and both processes
+  run `Spool.ensure_writable()` at startup so a wrong mount fails loudly, not per request
+  (Chunk 6, E-37).
 - The `security` workflow's pip-audit job used the same uv cache key as the `ci` backend
   job. Finishing first, it saved a cache that held only pip-audit's own dependencies, so the
   backend job could never save the runtime set it had just installed; setup-uv v10 surfaces

@@ -181,18 +181,62 @@ jobs:
           docker compose run --rm api alembic upgrade head
           docker compose run --rm api alembic current
 
+      - name: Create an admin user and an ingest service token through the CLI
+        run: |
+          set -euo pipefail
+          password=$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')
+          echo "::add-mask::$password"
+          printf '%s\n' "$password" | docker compose run --rm -T api \
+            python -m aegisnet.cli create-user ci-admin@example.test --role admin --password-stdin \
+            | tail -n 1
+          token=$(docker compose run --rm -T api \
+            python -m aegisnet.cli create-service-token ci-sensor --ttl-days 1 \
+            | tail -n 1 | python3 -c 'import json, sys; print(json.load(sys.stdin)["token"])')
+          echo "::add-mask::$token"
+          echo "CI_PASSWORD=$password" >> "$GITHUB_ENV"
+          echo "INGEST_TOKEN=$token" >> "$GITHUB_ENV"
+
       - name: Probe the published endpoints from the runner
         run: |
-          set -eu
+          set -euo pipefail
           curl --fail --silent --show-error http://127.0.0.1:8000/healthz
-          echo
           curl --fail --silent --show-error http://127.0.0.1:8000/readyz
-          echo
-          version=$(curl --fail --silent --show-error http://127.0.0.1:8000/api/v1/meta/version)
+          # Deny by default: without a credential the version route answers 401.
+          code=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            http://127.0.0.1:8000/api/v1/meta/version)
+          test "$code" = "401"
+          version=$(curl --fail --silent --show-error -H "X-Ingest-Token: $INGEST_TOKEN" \
+            http://127.0.0.1:8000/api/v1/meta/version)
           echo "$version"
           echo "$version" | grep -q '"schema_revision":"0002_asset_network_delete_grant"'
           curl --fail --silent --show-error http://127.0.0.1:3000/api/health
-          echo
+
+      - name: Ingest the synthetic corpus over HTTP and watch the worker finish it
+        run: |
+          set -euo pipefail
+          accepted=$(curl --fail --silent --show-error -H "X-Ingest-Token: $INGEST_TOKEN" \
+            -H 'content-type: application/x-ndjson' \
+            --data-binary @samples/synthetic/benign-baseline-01.ndjson \
+            'http://127.0.0.1:8000/api/v1/ingest/eve?source_label=ci-sensor&mode=async')
+          echo "$accepted"
+          poll=$(echo "$accepted" | python3 -c 'import json, sys; print(json.load(sys.stdin)["poll_url"])')
+          access=$(curl --fail --silent --show-error -X POST http://127.0.0.1:8000/api/v1/auth/login \
+            -H 'content-type: application/json' \
+            -d "{\"email\":\"ci-admin@example.test\",\"password\":\"$CI_PASSWORD\"}" \
+            | python3 -c 'import json, sys; print(json.load(sys.stdin)["access_token"])')
+          echo "::add-mask::$access"
+          batch=""
+          for _ in $(seq 1 30); do
+            batch=$(curl --fail --silent --show-error -H "Authorization: Bearer $access" \
+              "http://127.0.0.1:8000$poll")
+            case "$batch" in *'"status":"complete"'*) break ;; esac
+            sleep 2
+          done
+          echo "$batch"
+          echo "$batch" | grep -q '"status":"complete"'
+          echo "$batch" | grep -q '"stored":2000'
+          curl --fail --silent --show-error -H "Authorization: Bearer $access" \
+            'http://127.0.0.1:8000/api/v1/audit?limit=5' | grep -q '"ingest.batch_created"'
 
       - name: Show service state and logs
         if: always()

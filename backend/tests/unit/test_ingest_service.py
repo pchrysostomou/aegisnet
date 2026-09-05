@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from uuid import UUID, uuid4
 
 import pytest
 
 from aegisnet.adapters.files.registry import ChecksumMismatchError, DatasetNotFoundError
 from aegisnet.domain.enums import IngestMethod, IngestStatus, RejectReason, SourceType
-from aegisnet.domain.models import NormalizedEvent
-from aegisnet.domain.ports import BatchCounts, BatchProvenance, BatchSummary, RejectedLine
+from aegisnet.domain.ports import BatchCounts, BatchProvenance
 from aegisnet.services.ingest_service import (
     IngestLimitExceededError,
     IngestLimits,
@@ -21,6 +18,7 @@ from aegisnet.services.ingest_service import (
     limits_from_settings,
 )
 from tests.conftest import REPO_ROOT, make_settings
+from tests.fakes import FakeIngestStore as FakeStore
 
 pytestmark = pytest.mark.unit
 
@@ -31,76 +29,6 @@ PROVENANCE = BatchProvenance(
     source_label="unit",
     ingest_method=IngestMethod.api_ndjson,
 )
-
-
-class FakeStore:
-    """The IngestStore port, in memory, with a call log for chunking assertions."""
-
-    def __init__(self) -> None:
-        self.batches: dict[UUID, dict[str, object]] = {}
-        self.events: dict[bytes, tuple[UUID, NormalizedEvent, datetime]] = {}
-        self.rejects: list[tuple[UUID, RejectedLine]] = []
-        self.event_calls: list[int] = []
-        self.fail_on_store = False
-
-    async def open_batch(self, provenance: BatchProvenance, started_at: datetime) -> UUID:
-        batch_id = uuid4()
-        self.batches[batch_id] = {
-            "provenance": provenance,
-            "status": IngestStatus.received,
-            "counts": BatchCounts(),
-            "started_at": started_at,
-            "finished_at": None,
-        }
-        return batch_id
-
-    async def mark_normalizing(self, batch_id: UUID) -> None:
-        self.batches[batch_id]["status"] = IngestStatus.normalizing
-
-    async def store_events(
-        self, batch_id: UUID, events: Sequence[NormalizedEvent], ingested_at: datetime
-    ) -> int:
-        if self.fail_on_store:
-            raise RuntimeError("storage unavailable")
-        self.event_calls.append(len(events))
-        new = 0
-        for event in events:
-            if event.event_hash not in self.events:
-                self.events[event.event_hash] = (batch_id, event, ingested_at)
-                new += 1
-        return new
-
-    async def store_rejects(self, batch_id: UUID, rejects: Sequence[RejectedLine]) -> None:
-        self.rejects.extend((batch_id, item) for item in rejects)
-
-    async def finish_batch(
-        self, batch_id: UUID, status: IngestStatus, counts: BatchCounts, finished_at: datetime
-    ) -> None:
-        self.batches[batch_id].update(status=status, counts=counts, finished_at=finished_at)
-
-    async def get_batch(self, batch_id: UUID) -> BatchSummary | None:
-        row = self.batches.get(batch_id)
-        if row is None:
-            return None
-        provenance = row["provenance"]
-        assert isinstance(provenance, BatchProvenance)
-        counts = row["counts"]
-        assert isinstance(counts, BatchCounts)
-        status = row["status"]
-        assert isinstance(status, IngestStatus)
-        started = row["started_at"]
-        assert isinstance(started, datetime)
-        finished = row["finished_at"]
-        assert finished is None or isinstance(finished, datetime)
-        return BatchSummary(
-            batch_id=batch_id,
-            status=status,
-            source_label=provenance.source_label,
-            dataset_id=provenance.dataset_id,
-            counts=counts,
-            started_at=started,
-            finished_at=finished,
-        )
 
 
 def _limits(max_lines: int = 200_000) -> IngestLimits:

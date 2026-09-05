@@ -9,7 +9,8 @@ COMPOSE ?= docker compose
 UV ?= uv
 BACKEND := backend
 
-.PHONY: help bootstrap bootstrap-force verify-ignore require-env compose-config \
+.PHONY: create-user users create-service-token revoke-service-token service-tokens \
+        help bootstrap bootstrap-force verify-ignore require-env compose-config \
         build up down compose-ps compose-logs compose-down compose-test pin-digests clean \
         backend-install lint format format-check typecheck test test-cov check \
         migrate migrate-status test-db gen-synthetic demo-ingest batch seed
@@ -161,6 +162,35 @@ batch: require-env ## Show an ingest batch by id (ID=<uuid>)
 SEED ?= lab-assets
 seed: require-env ## Seed the asset inventory (SEED=lab-assets)
 	$(COMPOSE) run --rm api python -m aegisnet.cli seed-assets $(SEED)
+
+## ---------------------------------------------------------------- users and tokens
+
+# Users and ingest service tokens are created through the api image (Chunk 6, ADR-016).
+# The password never appears in argv: it is prompted without echo on a terminal, or read
+# from a pipe (`printf '%s\n' "$$PW" | make create-user EMAIL=... ROLE=admin`). A service
+# token is printed exactly once and stored only as a sha256 hash.
+ROLE ?= analyst
+TTL_DAYS ?= 90
+create-user: require-env ## Create a user (EMAIL=, ROLE=admin|analyst|viewer); password from stdin
+	@test -n "$(EMAIL)" || { echo "EMAIL=<address> is required"; exit 2; }
+	@if [ -t 0 ]; then \
+	    printf 'Password for $(EMAIL) (not echoed): '; stty -echo; read -r pw; stty echo; printf '\n'; \
+	    printf '%s\n' "$$pw"; \
+	else cat; fi | $(COMPOSE) run --rm -T api python -m aegisnet.cli create-user $(EMAIL) \
+	    --role $(ROLE) --password-stdin
+
+users: require-env ## List users (never hashes)
+	$(COMPOSE) run --rm -T api python -m aegisnet.cli users
+
+create-service-token: require-env ## Mint an ingest service token (NAME=, TTL_DAYS=90); printed once
+	@test -n "$(NAME)" || { echo "NAME=<label> is required"; exit 2; }
+	$(COMPOSE) run --rm -T api python -m aegisnet.cli create-service-token $(NAME) --ttl-days $(TTL_DAYS)
+
+revoke-service-token: require-env ## Revoke a service token (ID=<uuid>)
+	$(COMPOSE) run --rm -T api python -m aegisnet.cli revoke-service-token $(ID)
+
+service-tokens: require-env ## List service tokens (never hashes)
+	$(COMPOSE) run --rm -T api python -m aegisnet.cli service-tokens
 
 # Regenerates the committed synthetic corpus byte-for-byte (seeded). After changing the
 # generator, run this, then update sha256 in samples/registry.yml; the integration suite

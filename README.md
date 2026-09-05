@@ -99,22 +99,40 @@ make demo-ingest LABEL=second-run
 make demo-ingest MODE=async LABEL=via-worker     # enqueues for the worker; prints the batch id
 make batch ID=<uuid>                            # poll it
 
-# Explore through the operator CLI (JSON out; the HTTP routes arrive with auth in Chunk 6).
+# 5. Create an admin and an ingest service token (Chunk 6). The password is prompted
+#    without echo (or piped in); the token is printed exactly once and stored as a hash.
+make create-user EMAIL=admin@example.test ROLE=admin
+make create-service-token NAME=sensor-1            # copy the "token" field
+
+# 6. Use the API. Everything except login, refresh and the health probes needs a credential:
+#    users log in for a 15-minute bearer plus a rotating HttpOnly refresh cookie, sensors
+#    send X-Ingest-Token. Roles: viewer < analyst < admin; a service token can only ingest.
+API=http://127.0.0.1:8000/api/v1
+ACCESS=$(curl -s -X POST $API/auth/login -H 'content-type: application/json' \
+    -d '{"email":"admin@example.test","password":"<the password>"}' \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+curl -H "Authorization: Bearer $ACCESS" "$API/assets/resolve?ip=10.10.0.53"
+curl -H "Authorization: Bearer $ACCESS" "$API/events?from=2026-09-01T00:00:00Z&to=2026-09-02T00:00:00Z&event_type=dns&limit=5"
+curl -H "X-Ingest-Token: <token>" -H 'content-type: application/x-ndjson' \
+    --data-binary @samples/synthetic/benign-baseline-01.ndjson \
+    "$API/ingest/eve?source_label=sensor-1&mode=async"   # 202 with a poll_url; the worker finishes it
+curl -H "Authorization: Bearer $ACCESS" "$API/audit?limit=5"        # admin only, newest first
+
+# The operator CLI covers the same ground without a token (JSON out).
 docker compose run --rm api python -m aegisnet.cli resolve 10.10.0.53
 docker compose run --rm api python -m aegisnet.cli assets -q resolver
 docker compose run --rm api python -m aegisnet.cli events --from 2026-09-01T00:00:00Z \
     --to 2026-09-02T00:00:00Z --type dns --limit 5
-docker compose run --rm api python -m aegisnet.cli event-stats --from 2026-09-01T00:00:00Z \
-    --to 2026-09-02T00:00:00Z
+docker compose run --rm api python -m aegisnet.cli service-tokens
 
-# 5. Probe it. Everything is bound to 127.0.0.1.
+# 7. Probe it. Everything is bound to 127.0.0.1; the version route needs a credential too.
 curl http://127.0.0.1:8000/healthz              # {"status":"ok"}
 curl http://127.0.0.1:8000/readyz               # {"status":"ok"} once PostgreSQL and Redis answer
-curl http://127.0.0.1:8000/api/v1/meta/version  # includes "schema_revision":"0002_asset_network_delete_grant"
+curl -H "X-Ingest-Token: <token>" $API/meta/version  # includes "schema_revision":"0002_asset_network_delete_grant"
 curl http://127.0.0.1:3000/api/health           # {"status":"ok"}
 open http://127.0.0.1:8000/docs                 # OpenAPI UI (disabled when ENV=production)
 
-# 6. Tear down, including the database volume.
+# 8. Tear down, including the database volume.
 make down
 ```
 

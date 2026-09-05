@@ -2,7 +2,6 @@
 
 [![ci](https://github.com/pchrysostomou/aegisnet/actions/workflows/ci.yml/badge.svg)](https://github.com/pchrysostomou/aegisnet/actions/workflows/ci.yml)
 [![security](https://github.com/pchrysostomou/aegisnet/actions/workflows/security.yml/badge.svg)](https://github.com/pchrysostomou/aegisnet/actions/workflows/security.yml)
-[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=pchrysostomou_aegisnet&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=pchrysostomou_aegisnet)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)](backend/pyproject.toml)
 [![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
 

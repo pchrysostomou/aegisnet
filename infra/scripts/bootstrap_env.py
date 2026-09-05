@@ -2,8 +2,9 @@
 """Generate a local development-only .env from .env.example (decision F-1 / ADR-011).
 
 Every ``__REPLACE_ME__`` placeholder is replaced with a cryptographically random,
-URL-safe secret. The result is written with 0600 permissions where the platform
-supports it.
+URL-safe secret. The file is created with mode 0600 in the ``os.open`` call itself, so
+on POSIX there is never a moment when it is readable by anyone else; the umask can only
+tighten that mode, never loosen it, which is why no ``chmod`` follows.
 
 Guarantees:
   * Idempotent: running it again when .env already exists is a no-op unless --force.

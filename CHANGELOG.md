@@ -278,6 +278,11 @@ Nothing is released yet. There is no tagged version.
   `node:22-alpine`, matching the CI node version.
 
 ### Fixed
+- The last SonarCloud quality-gate condition (*Security Rating on New Code C*): a
+  redundant `Path.chmod` after creating `.env` with mode 0600 in `bootstrap_env.py`,
+  located by bisecting the analysis scope (E-41). The gate passes.
+- Dependabot GHSA-6w46-j5rx-g56g: pytest upgraded to 9.x (with pytest-asyncio 1.x); both
+  suites unchanged.
 - Sonar `python:S7493` (a synchronous `Path.open()` inside an `async def`) in the dataset
   importer and the upload actor, the two Major bugs behind the *Reliability Rating on New
   Code C*: NDJSON is now read through `anyio` and `IngestService.ingest` accepts a sync or

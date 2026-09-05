@@ -38,7 +38,7 @@ Nothing is released yet. There is no tagged version.
   rule reads "has an rcode" as "is an answer". Both are open defects with a chunk of their own;
   neither is fixed here, because both change `event_hash` and therefore the corpus, the
   fixtures and the pinned metrics table.
-- 106 hermetic tests: the lab policy suite (`backend/tests/security/test_lab_policy.py`), the
+- 108 hermetic tests: the lab policy suite (`backend/tests/security/test_lab_policy.py`), the
   sanitiser (`backend/tests/unit/test_sanitize_eve.py`) and the fidelity suite over the real
   capture. The lab manifest joins the shared compose policy checks and the CI `manifests` job.
 - **Milestone 2 closes.** Every acceptance criterion in `docs/delivery-plan.md` is ticked with

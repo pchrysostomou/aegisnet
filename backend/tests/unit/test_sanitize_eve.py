@@ -200,17 +200,18 @@ def test_a_key_nobody_classified_stops_the_run_by_name() -> None:
         sanitize_eve.sanitize([_line(quic={"version": 1})])
 
 
+# Built from expressions rather than written out: the secret-scanning job rejects a
+# secret-shaped literal even in a test that exists to prove secrets are refused.
+NOT_A_SECRET = "x" * 12
+
+
 @pytest.mark.parametrize(
-    "url",
-    [
-        "/login?user=admin&password=hunter2",
-        "/v1/data?api_key=sk-live-9f3ac1",
-        "/oauth/callback?code=4/0AY0e",
-    ],
-    ids=["password", "api-key", "oauth-code"],
+    "parameter",
+    ["password", "api_key", "token", "client_secret", "code"],
 )
-def test_a_url_whose_parameter_announces_a_credential_is_refused(url: str) -> None:
+def test_a_url_whose_parameter_announces_a_credential_is_refused(parameter: str) -> None:
     """The value is unknowable; the parameter name is not, and it is enough to stop."""
+    url = f"/login?user=operator&{parameter}={NOT_A_SECRET}"
     with pytest.raises(sanitize_eve.UnpublishableCaptureError, match="credential"):
         sanitize_eve.sanitize([_line(event_type="http", http={"url": url})])
 

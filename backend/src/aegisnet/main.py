@@ -136,7 +136,7 @@ def canonical_correlation_id(supplied: str) -> str:
         parsed = uuid.UUID(supplied)
     except (ValueError, AttributeError, TypeError):
         return str(uuid.uuid4())
-    return str(uuid.UUID(int=parsed.int))
+    return str(uuid.UUID(int=int(parsed.int)))
 
 
 def _install_correlation_middleware(app: FastAPI) -> None:

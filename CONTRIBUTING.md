@@ -26,7 +26,9 @@ requests are welcome; the rules below keep the repository honest about what work
 
 3. Keep the change scoped. Behavioural changes come with tests; security-relevant changes
    also update `THREAT_MODEL.md` (which test verifies the mitigation) and, when the
-   credential or permission model moves, `SECURITY.md`.
+   credential or permission model moves, `SECURITY.md`. A change to a detection rule or a
+   labelled case comes with `make gen-fixtures` and `make eval`: one test pins the fixtures
+   to their generator, another pins `docs/evaluation.md` §8 to the harness.
 4. Architectural decisions get an ADR under `docs/adr/`, numbered after the last one.
 5. Open the pull request with the template filled in. CI must be green: the `ci` workflow
    (lint, types, tests, migrations against PostgreSQL, the full Compose stack) and the

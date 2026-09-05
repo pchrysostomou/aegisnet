@@ -1,6 +1,6 @@
 # AegisNet — Milestone 2 API additions
 
-Status: **Chunks 9 and 11 (alerts, rules, runs, sweeps, baselines) implemented.**
+Status: **Chunks 9, 11 and 12 (alerts, rules, runs, sweeps, baselines, the post-ingest sweep) implemented.**
 Conventions, the error envelope, auth and rate limits are those of
 [`api-milestone-1.md`](api-milestone-1.md). Permissions: `alerts.read` (viewer and above),
 `detections.read` (analyst and above), `detections.run` (admin).
@@ -47,6 +47,16 @@ The worker summarises each asset's hourly outbound history. Audit: `detection.ba
 (aware timestamps, `to` after `from`, at most 24 hours) → `202 { "window_start", "window_end",
 "queued": true, "message_id" }`. The worker runs every rule over the interval (ADR-018); poll
 `/detections/runs`. Audit: `detection.sweep_requested`. `422 validation_failed` for a bad interval.
+
+### Sweeps nobody asked for (ADR-020)
+
+A batch that completes with stored events queues `run_detectors` over the hour-aligned span
+of its event times: after `import_dataset` and `import_upload` in the worker, and inline after
+`POST /api/v1/ingest/eve?mode=sync`, whose `ingest.batch_created` audit entry now carries
+`sweeps_queued`. The `scheduler` service sends `scheduled_sweep` every ten minutes over the
+last hour and `nightly_baselines` at 02:00. All of them show up as ordinary rows in
+`GET /api/v1/detections/runs`; a client that wants to know whether an upload has been judged
+polls the runs after the batch reports `complete`.
 
 ## Acceptance criteria for the M2 API
 

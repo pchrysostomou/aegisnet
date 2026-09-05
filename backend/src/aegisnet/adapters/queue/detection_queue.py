@@ -7,7 +7,6 @@ from datetime import datetime
 from typing import Any
 
 import dramatiq
-from dramatiq.brokers.redis import RedisBroker
 
 from aegisnet.adapters.queue.names import (
     DETECTION_QUEUE,
@@ -17,7 +16,7 @@ from aegisnet.adapters.queue.names import (
 
 
 class RedisDetectionQueue:
-    def __init__(self, broker: RedisBroker) -> None:
+    def __init__(self, broker: dramatiq.Broker) -> None:
         self._broker = broker
 
     def enqueue_sweep(self, start: datetime, end: datetime) -> str:

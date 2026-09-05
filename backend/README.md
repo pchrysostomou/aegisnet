@@ -57,9 +57,16 @@ Application foundation only:
   on each rule's grid, severity with the inventory's criticality, per-rule failure isolation
   (ADR-018); `adapters/db/detection_store.py` — rules, runs and alerts with the UNIQUE
   dedup key; `adapters/queue/detection_queue.py` — enqueue a sweep by actor name
-- `workers/main.py`, `workers/actors.py` — the worker entrypoint (`dramatiq
-  aegisnet.workers.main`) and the `import_dataset`, `import_upload`, `run_detectors` and
-  `recompute_baselines` actors
+- `workers/main.py`, `workers/actors.py`, `workers/schedule.py` — the entrypoint both the
+  worker (`dramatiq aegisnet.workers.main`) and the scheduler (`periodiq
+  aegisnet.workers.main`) load; the `import_dataset`, `import_upload`, `run_detectors` and
+  `recompute_baselines` actors, which queue the post-ingest sweep when a batch completes; and
+  the two periodic actors, `scheduled_sweep` and `nightly_baselines` (ADR-020)
+- `services/schedule.py` — the cron lines, the scheduled interval on the cadence grid and the
+  hour-aligned post-ingest intervals; `services/evaluation_service.py`,
+  `domain/detectors/evaluation.py`, `adapters/files/labelled.py` — `make eval`: the labelled
+  cases and the benign corpus scored with strict verdicts and written into
+  `docs/evaluation.md` §8
 - `domain/auth.py` — permissions, the role matrix, principals, the password policy and
   the hashed-token helpers; `services/auth_service.py` — Argon2id login with lockout,
   HS256 access tokens, rotating refresh tokens with reuse detection, logout denylist,
@@ -77,10 +84,11 @@ Application foundation only:
   `batches`, `rejects`, `seed-assets`, `assets`, `asset`, `resolve`, `events`,
   `event-stats`, `create-user`, `users`, `create-service-token`, `revoke-service-token`,
   `service-tokens`, `run-detectors`, `alerts`, `alert`, `detector-runs`,
-  `recompute-baselines`, `baselines`
+  `recompute-baselines`, `baselines`, `eval-detectors` (files in, files out: needs no
+  database and no settings)
 
-No detection exists yet; `SECURITY.md` at the repository root describes what the auth
-layer enforces and what it still lacks.
+`SECURITY.md` at the repository root describes what the auth layer enforces and what it
+still lacks.
 
 ## Tests
 

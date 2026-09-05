@@ -131,3 +131,21 @@ def test_get_settings_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
         assert isinstance(get_settings(), Settings)
     finally:
         get_settings.cache_clear()
+
+
+@pytest.mark.parametrize("cadence", [1, 5, 10, 15, 30, 60])
+def test_sweep_cadence_must_divide_the_hour(cadence: int) -> None:
+    assert make_settings(sweep_cadence_minutes=cadence).sweep_cadence_minutes == cadence
+
+
+@pytest.mark.parametrize("cadence", [7, 25, 45])
+def test_a_cadence_off_the_hour_grid_is_refused(cadence: int) -> None:
+    with pytest.raises(ValidationError, match="divide 60"):
+        make_settings(sweep_cadence_minutes=cadence)
+
+
+def test_schedule_defaults_are_the_documented_ones() -> None:
+    settings = make_settings()
+    assert (settings.sweep_cadence_minutes, settings.sweep_lookback_minutes) == (10, 60)
+    assert (settings.baseline_recompute_hour, settings.baseline_window_days) == (2, 7)
+    assert settings.schedule_skip_delay_seconds == 300 and settings.post_ingest_sweep is True

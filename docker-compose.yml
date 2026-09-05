@@ -129,6 +129,31 @@ services:
       retries: 4
       start_period: 20s
 
+  scheduler:
+    # periodiq: sends the periodic actors (the ten-minute sweep, the nightly baseline
+    # recompute) to the detection queue; the worker runs them (ADR-020). It talks to
+    # Redis only, mounts nothing, and if it is down nothing periodic happens.
+    build:
+      context: ./backend
+      target: runtime
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
+    <<: *hardening
+    command: ["periodiq", "aegisnet.workers.main"]
+    env_file: [.env]
+    environment:
+      POSTGRES_HOST: db
+      REDIS_HOST: redis
+    depends_on:
+      redis: {condition: service_healthy}
+    healthcheck:
+      # Liveness only, same shape as the worker's probe.
+      test: ["CMD-SHELL", "pgrep -f '[p]eriodiq aegisnet.workers.main' > /dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 20s
+
   web:
     build:
       context: ./frontend

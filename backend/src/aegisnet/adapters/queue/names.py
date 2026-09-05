@@ -15,3 +15,6 @@ IMPORT_UPLOAD_ACTOR: Final = "import_upload"
 DETECTION_QUEUE: Final = "detection"
 RUN_DETECTORS_ACTOR: Final = "run_detectors"
 RECOMPUTE_BASELINES_ACTOR: Final = "recompute_baselines"
+# Periodic actors (ADR-020); only the periodiq scheduler sends these.
+SCHEDULED_SWEEP_ACTOR: Final = "scheduled_sweep"
+NIGHTLY_BASELINES_ACTOR: Final = "nightly_baselines"

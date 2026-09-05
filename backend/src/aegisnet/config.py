@@ -89,6 +89,28 @@ class Settings(BaseSettings):
     rate_limit_read_per_min: Annotated[int, Field(ge=1)] = 120
     rate_limit_default_per_min: Annotated[int, Field(ge=1)] = 60
 
+    # ---- schedule and post-ingest sweeps (ADR-020)
+    # The scheduler fires a sweep every SWEEP_CADENCE_MINUTES (must divide 60 so the ticks
+    # sit on a fixed grid) over the last SWEEP_LOOKBACK_MINUTES; late-arriving events are
+    # picked up by the overlap, duplicates are absorbed by the alert dedup key.
+    sweep_cadence_minutes: Annotated[int, Field(ge=1, le=60)] = 10
+    sweep_lookback_minutes: Annotated[int, Field(ge=10, le=1440)] = 60
+    # The nightly baseline recompute: hour on the scheduler's clock (UTC in the image).
+    baseline_recompute_hour: Annotated[int, Field(ge=0, le=23)] = 2
+    baseline_window_days: Annotated[int, Field(ge=1, le=90)] = 7
+    # A scheduled message older than this when a worker picks it up is skipped, so a
+    # worker that was down does not replay a backlog of stale ticks.
+    schedule_skip_delay_seconds: Annotated[int, Field(ge=30, le=3600)] = 300
+    # Queue a sweep over a batch's event-time span as soon as the batch completes.
+    post_ingest_sweep: bool = True
+
+    @field_validator("sweep_cadence_minutes")
+    @classmethod
+    def _cadence_divides_the_hour(cls, value: int) -> int:
+        if 60 % value:
+            raise ValueError("SWEEP_CADENCE_MINUTES must divide 60")
+        return value
+
     @field_validator("api_cors_origins")
     @classmethod
     def _strip_origins(cls, value: str) -> str:

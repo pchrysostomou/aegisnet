@@ -17,7 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from aegisnet.adapters.db.ingest_store import SqlIngestStore
 from aegisnet.adapters.db.session import make_session_factory
 from aegisnet.adapters.queue.ingest_queue import RedisIngestQueue
-from aegisnet.adapters.queue.names import IMPORT_DATASET_ACTOR, INGEST_QUEUE
+from aegisnet.adapters.queue.names import (
+    DETECTION_QUEUE,
+    IMPORT_DATASET_ACTOR,
+    INGEST_QUEUE,
+    RUN_DETECTORS_ACTOR,
+)
 from aegisnet.config import Settings, get_settings
 from aegisnet.domain.enums import IngestMethod, IngestStatus, RejectReason, SourceType
 from aegisnet.domain.ports import BatchCounts, BatchProvenance
@@ -183,13 +188,20 @@ async def test_the_actor_imports_a_pre_opened_batch_through_a_stub_broker(
         )
         RedisIngestQueue(broker).enqueue_import(batch_id, DATASET_ID, "actor-run")  # type: ignore[arg-type]
 
-        worker = Worker(broker, worker_timeout=100, worker_threads=1)
+        # Only the ingest queue is consumed: the sweep the actor queues afterwards must
+        # still be waiting on the detection queue to be inspected (ADR-020).
+        worker = Worker(broker, queues={INGEST_QUEUE}, worker_timeout=100, worker_threads=1)
         worker.start()
         try:
             broker.join(INGEST_QUEUE)
             worker.join()
         finally:
             worker.stop()
+        sweeps = broker.queues[DETECTION_QUEUE]
+        assert sweeps.qsize() == 1
+        message = dramatiq.Message.decode(sweeps.get_nowait())
+        assert message.actor_name == RUN_DETECTORS_ACTOR
+        assert list(message.args) == ["2026-09-01T00:00:00+00:00", "2026-09-01T02:00:00+00:00"]
     finally:
         dramatiq.set_broker(previous)
         get_settings.cache_clear()

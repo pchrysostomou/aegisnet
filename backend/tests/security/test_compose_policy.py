@@ -53,9 +53,9 @@ def test_every_published_port_binds_to_loopback(path: Path) -> None:
             assert LOOPBACK_PORT.match(str(entry)), f"{path.name}:{name} publishes {entry!r}"
 
 
-def test_datastores_and_worker_publish_no_port() -> None:
+def test_datastores_worker_and_scheduler_publish_no_port() -> None:
     services = _services(COMPOSE)
-    for name in ("db", "redis", "worker"):
+    for name in ("db", "redis", "worker", "scheduler"):
         assert "ports" not in services[name], f"{name} must not publish a host port"
         assert "expose" not in services[name]
 
@@ -136,6 +136,17 @@ def test_worker_liveness_probe_cannot_match_its_own_shell() -> None:
 def test_worker_runs_the_dedicated_entrypoint_module() -> None:
     command = _services(COMPOSE)["worker"]["command"]
     assert command[:2] == ["dramatiq", "aegisnet.workers.main"]
+
+
+def test_scheduler_runs_periodiq_against_the_same_entrypoint_and_mounts_nothing() -> None:
+    """ADR-020: the scheduler only sends; it needs Redis, no volume, no database."""
+    scheduler = _services(COMPOSE)["scheduler"]
+    assert scheduler["command"] == ["periodiq", "aegisnet.workers.main"]
+    assert "volumes" not in scheduler and "ports" not in scheduler
+    assert scheduler["depends_on"] == {"redis": {"condition": "service_healthy"}}
+    test = scheduler["healthcheck"]["test"]
+    assert test[0] == "CMD-SHELL"
+    assert "pgrep -f '[p]eriodiq aegisnet.workers.main'" in test[1]
 
 
 def test_test_runner_has_no_secrets_and_cannot_reach_a_datastore() -> None:

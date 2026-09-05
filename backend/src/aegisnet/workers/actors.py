@@ -6,6 +6,9 @@ runs synchronously, against a batch row the enqueuing side has already opened, s
 caller can poll the batch by id from the moment the message is sent. It does not retry:
 ingest is idempotent, so a re-run is always safe, but a failed batch should be visible as
 ``failed`` rather than silently re-attempted against a registry error.
+
+A batch that completes with stored events queues the post-ingest sweep over its span
+(ADR-020) unless ``POST_INGEST_SWEEP`` is off. The periodic actors are in ``schedule``.
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from datetime import datetime
 from uuid import UUID
 
 import dramatiq
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from aegisnet.adapters.db import engine as db_engine
 from aegisnet.adapters.db.asset_store import SqlAssetStore
@@ -28,6 +32,7 @@ from aegisnet.adapters.db.event_read_store import SqlEventReadStore
 from aegisnet.adapters.db.ingest_store import SqlIngestStore
 from aegisnet.adapters.db.session import make_session_factory
 from aegisnet.adapters.files.spool import Spool
+from aegisnet.adapters.queue.detection_queue import RedisDetectionQueue
 from aegisnet.adapters.queue.names import (
     DETECTION_QUEUE,
     IMPORT_DATASET_ACTOR,
@@ -36,16 +41,40 @@ from aegisnet.adapters.queue.names import (
     RECOMPUTE_BASELINES_ACTOR,
     RUN_DETECTORS_ACTOR,
 )
-from aegisnet.config import get_settings
+from aegisnet.config import Settings, get_settings
+from aegisnet.domain.enums import IngestStatus
+from aegisnet.domain.ports import BatchSummary
 from aegisnet.logging import get_logger
 from aegisnet.services.asset_service import AssetService
 from aegisnet.services.baseline_service import BaselineService
 from aegisnet.services.detection_service import DetectionService, describe
 from aegisnet.services.ingest_service import IngestService, limits_from_settings
+from aegisnet.services.schedule import sweep_batch
 
 logger = get_logger(__name__)
 
 IMPORT_TIME_LIMIT_MS = 30 * 60 * 1000
+
+
+async def sweep_after(summary: BatchSummary, engine: AsyncEngine, settings: Settings) -> int:
+    """Queue the post-ingest sweep for a completed batch; returns how many were queued."""
+    if not settings.post_ingest_sweep or summary.status is not IngestStatus.complete:
+        return 0
+    if summary.counts.stored == 0:
+        return 0
+    queue = RedisDetectionQueue(dramatiq.get_broker())
+
+    async def enqueue(start: datetime, end: datetime) -> str:
+        return queue.enqueue_sweep(start, end)
+
+    intervals = await sweep_batch(
+        SqlEventReadStore(make_session_factory(engine)), summary.batch_id, enqueue
+    )
+    logger.info(
+        "post_ingest_sweep_queued",
+        extra={"batch_id": str(summary.batch_id), "sweeps": len(intervals)},
+    )
+    return len(intervals)
 
 
 async def run_import(batch_id: UUID, dataset_id: str, source_label: str) -> None:
@@ -68,6 +97,7 @@ async def run_import(batch_id: UUID, dataset_id: str, source_label: str) -> None
                 "rejected": summary.counts.rejected,
             },
         )
+        await sweep_after(summary, engine, settings)
     finally:
         await db_engine.dispose(engine)
 
@@ -107,6 +137,7 @@ async def run_upload(batch_id: UUID, spool_name: str) -> None:
                 "rejected": summary.counts.rejected,
             },
         )
+        await sweep_after(summary, engine, settings)
     finally:
         await db_engine.dispose(engine)
 

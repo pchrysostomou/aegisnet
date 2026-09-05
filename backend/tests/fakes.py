@@ -291,6 +291,9 @@ class FakeEventStore:
     def __init__(self) -> None:
         self.queries: list[EventQuery] = []
         self.rows: dict[UUID, EventRow] = {}
+        # What ``batch_span`` answers for a batch with no rows here (the ingest fake keeps
+        # its own rows); tests set it to exercise the post-ingest sweep.
+        self.default_span: tuple[datetime, datetime] | None = None
 
     async def query(self, query: EventQuery) -> Page[EventRow]:
         self.queries.append(query)
@@ -310,6 +313,12 @@ class FakeEventStore:
             key=lambda r: (r.event_time, r.id.int),
         )
         return tuple(rows[:max_events]), len(rows) > max_events
+
+    async def batch_span(self, batch_id: UUID) -> tuple[datetime, datetime] | None:
+        times = sorted(r.event_time for r in self.rows.values() if r.batch_id == batch_id)
+        if times:
+            return times[0], times[-1]
+        return self.default_span
 
     async def hourly_outbound_bytes(
         self, networks: Sequence[IPNetwork], start: datetime, end: datetime

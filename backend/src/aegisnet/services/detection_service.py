@@ -98,7 +98,7 @@ def validate_interval(start: datetime, end: datetime) -> None:
         raise SweepError(f"a sweep covers at most {MAX_WINDOW}; split longer intervals")
 
 
-def _buckets(
+def grid_buckets(
     start: datetime, end: datetime, window_seconds: int
 ) -> list[tuple[datetime, datetime]]:
     """The rule's grid over ``[start, end)``: aligned bucket starts, so the dedup keys a
@@ -240,7 +240,7 @@ class DetectionService:
         spec = detector.spec
         created = 0
         now = self._clock()
-        for bucket_start, bucket_end in _buckets(start, end, spec.window_seconds):
+        for bucket_start, bucket_end in grid_buckets(start, end, spec.window_seconds):
             window = EventWindow(
                 bucket_start,
                 bucket_end,
@@ -322,6 +322,10 @@ class DetectionService:
         )
 
     # ---------------------------------------------------------------- reads
+    async def batch_span(self, batch_id: UUID) -> tuple[datetime, datetime] | None:
+        """The event-time span a completed batch covers, for the post-ingest sweep."""
+        return await self._events.batch_span(batch_id)
+
     async def list_alerts(self, query: AlertFilter) -> Page[AlertRecord]:
         check_limit(query.limit)
         if query.cursor is not None:

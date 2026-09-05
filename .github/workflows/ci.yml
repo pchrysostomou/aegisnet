@@ -160,7 +160,7 @@ jobs:
   stack:
     # The Milestone 1 gate as stated in ADR-011: `make bootstrap && docker compose up
     # --build` reaches healthy from a clean clone, then `make migrate` brings the schema
-    # to head. Every service has a healthcheck, so `--wait` only returns once all five
+    # to head. Every service has a healthcheck, so `--wait` only returns once all six
     # report healthy.
     name: stack · compose up --build reaches healthy, migrate
     runs-on: ubuntu-latest
@@ -238,6 +238,22 @@ jobs:
           curl --fail --silent --show-error -H "Authorization: Bearer $access" \
             'http://127.0.0.1:8000/api/v1/audit?limit=5' | grep -q '"ingest.batch_created"'
           echo "ACCESS=$access" >> "$GITHUB_ENV"
+
+      - name: The completed batch queued its own sweep (ADR-020) and the scheduler registered both periodic actors
+        run: |
+          set -euo pipefail
+          runs=""
+          for _ in $(seq 1 30); do
+            runs=$(curl --fail --silent --show-error -H "Authorization: Bearer $ACCESS" \
+              'http://127.0.0.1:8000/api/v1/detections/runs?limit=10')
+            case "$runs" in *'"rule_id":"D-005"'*) break ;; esac
+            sleep 2
+          done
+          echo "$runs"
+          echo "$runs" | grep -q '"rule_id":"D-005"'
+          docker compose logs --no-color worker | grep -q 'post_ingest_sweep_queued'
+          docker compose logs --no-color scheduler | grep -q 'scheduled_sweep@detection'
+          docker compose logs --no-color scheduler | grep -q 'nightly_baselines@detection'
 
       - name: Queue a detection sweep over HTTP and watch the worker record every rule
         run: |

@@ -9,6 +9,27 @@ Nothing is released yet. There is no tagged version.
 ## [Unreleased]
 
 ### Added
+- **Chunk 12 (Milestone 2) — the periodiq schedule, the post-ingest sweep, `make eval`.**
+  A sixth Compose service, `scheduler`, runs `periodiq aegisnet.workers.main` (Redis only,
+  no volume, no port) and sends two periodic actors from `workers/schedule.py`:
+  `scheduled_sweep` every `SWEEP_CADENCE_MINUTES` (10) over the last
+  `SWEEP_LOOKBACK_MINUTES` (60) on a fixed grid, and `nightly_baselines` at
+  `BASELINE_RECOMPUTE_HOUR` (02:00) over `BASELINE_WINDOW_DAYS` (7). The broker carries
+  `PeriodiqMiddleware` with `SCHEDULE_SKIP_DELAY_SECONDS` (300) so stale ticks are skipped
+  rather than replayed (ADR-020).
+- A batch that completes with stored events queues `run_detectors` over the hour-aligned
+  span of its event times (`EventWindowStore.batch_span`, `services/schedule.py`), from the
+  worker after `import_dataset` and `import_upload` and inline after a `mode=sync` upload,
+  which now audits `sweeps_queued`; `POST_INGEST_SWEEP=false` turns it off.
+- `aegisnet eval-detectors` and `make eval`: the labelled cases through their rules (T1) and
+  every rule over the benign corpus on its own grid (T2), rendered into the marked block of
+  `docs/evaluation.md` §8 with strict verdicts and a note that D-005 abstains without
+  baselines; `tests/detectors/test_evaluation.py` pins the committed block to the harness.
+  The case loader moved from the test suite into `adapters/files/labelled.py`; the verdict
+  and metrics arithmetic live in `domain/detectors/evaluation.py`.
+- The CI stack job waits for the post-ingest sweep to record D-005 and checks the scheduler
+  registered both periodic actors; compose policy tests cover the new service. 29 hermetic
+  tests and 1 database test; `periodiq` added as a dependency.
 - **Chunk 11 (Milestone 2) — D-004 beaconing, D-005 outbound volume, the baseline job.**
   `domain/detectors/beaconing.py`: per host and `destination:port`, inter-arrival intervals
   with a jitter bound and a minimum interval; internal destinations, DNS/DHCP/NTP/mDNS and

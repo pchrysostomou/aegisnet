@@ -27,6 +27,7 @@ dependencies = [
   "argon2-cffi>=23.1,<24.0",
   "pyjwt>=2.9,<3.0",
   "python-multipart>=0.0.12,<0.1",
+  "periodiq>=0.13,<1",
 ]
 
 [tool.uv]
@@ -128,6 +129,11 @@ plugins = []
 
 # Strict mode is scoped to the pure domain layer, which does not exist until Chunk 3.
 # The contract is declared here now so it is enforced the moment that package appears.
+# periodiq ships no type information; its two entry points are wrapped in typed code.
+[[tool.mypy.overrides]]
+module = "periodiq"
+ignore_missing_imports = true
+
 [[tool.mypy.overrides]]
 module = "aegisnet.domain.*"
 strict = true

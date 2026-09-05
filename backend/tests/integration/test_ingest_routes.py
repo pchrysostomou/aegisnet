@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from aegisnet.config import Settings
 from aegisnet.domain.enums import IngestMethod
+from aegisnet.main import create_app
 from tests.conftest import REPO_ROOT, TEST_SECRET_KEY, make_settings
 from tests.fakes import FakeWiring
 
@@ -72,6 +73,43 @@ def test_sync_ingest_stores_the_lines_cleans_the_spool_and_audits(
     assert entry.actor_token_id is not None and entry.actor_user_id is None
     assert entry.detail["mode"] == "sync" and entry.detail["stored"] == 3
     assert entry.detail["method"] == IngestMethod.api_ndjson.value
+    assert entry.detail["sweeps_queued"] == 0  # the fake read store knows no span for it
+
+
+def test_sync_ingest_queues_a_sweep_over_the_batch_span(
+    client: TestClient, wiring: FakeWiring, service_headers: dict[str, str]
+) -> None:
+    """ADR-020: a completed batch is swept over the hour blocks its events fall in."""
+    wiring.event_store.default_span = (
+        datetime(2026, 9, 1, 10, 0, 4, tzinfo=UTC),
+        datetime(2026, 9, 1, 11, 35, tzinfo=UTC),
+    )
+    response = _post(client, service_headers, BODY, mode="sync")
+    assert response.status_code == 200, response.text
+    assert wiring.sweeps == [
+        (datetime(2026, 9, 1, 10, tzinfo=UTC), datetime(2026, 9, 1, 12, tzinfo=UTC))
+    ]
+    assert wiring.audit_store.entries[-1].detail["sweeps_queued"] == 1
+
+
+async def test_the_post_ingest_sweep_can_be_switched_off(tmp_path: Path) -> None:
+    settings = make_settings(
+        cookie_secure=False,
+        spool_dir=tmp_path / "spool",
+        secret_key=TEST_SECRET_KEY,
+        post_ingest_sweep=False,
+    )
+    wiring = FakeWiring(settings, settings.spool_dir)
+    wiring.event_store.default_span = (
+        datetime(2026, 9, 1, 10, tzinfo=UTC),
+        datetime(2026, 9, 1, 10, 5, tzinfo=UTC),
+    )
+    headers = await wiring.service_token_headers()
+    with TestClient(create_app(settings, services_factory=wiring.factory())) as client:  # type: ignore[arg-type]
+        response = _post(client, headers, BODY, mode="sync")
+    assert response.status_code == 200, response.text
+    assert wiring.sweeps == []
+    assert wiring.audit_store.entries[-1].detail["sweeps_queued"] == 0
 
 
 def test_async_ingest_spools_the_body_and_hands_the_name_to_the_worker(

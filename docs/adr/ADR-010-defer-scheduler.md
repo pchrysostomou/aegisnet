@@ -1,6 +1,7 @@
 # ADR-010 — Defer the scheduler service and periodiq to Milestone 2
 
-- Status: accepted
+- Status: accepted; the deferral ended with ADR-020 (Milestone 2, Chunk 12), which added the
+  `scheduler` service alongside the first periodic workload
 - Date: 2026-08-28
 - Milestone: 1 (decision D-10, flag F-11)
 

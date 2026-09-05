@@ -11,15 +11,17 @@ correlating findings into incidents, and producing evidence-based investigation 
 human analysts. Everything runs on one machine with `docker compose`, binds to loopback,
 and can be exercised end to end with the committed synthetic corpus.
 
-> **Status: Milestone 1 complete (Chunks 1–7).** The stack builds and reaches healthy
-> from a clean clone; the schema is created with least-privilege grants; users, roles,
-> service tokens, rate limits and an append-only audit trail are in place; the HTTP API
-> ingests telemetry, manages the asset inventory and serves bounded event reads; and every
-> Milestone 1 acceptance criterion in [`docs/delivery-plan.md`](docs/delivery-plan.md) points
-> at its evidence. **Milestone 2 has started:** the detector contract and the first rule,
-> D-001 port scan, exist as pure code with labelled fixtures, but nothing runs them over
-> stored events yet. **There is no correlation, no AI brief and no analyst UI** — those are
-> Milestones 3 to 5. [`docs/STATUS.md`](docs/STATUS.md) is the authoritative record of what exists and
+> **Status: Milestone 1 complete (Chunks 1–7); Milestone 2 at Chunk 12 of 13.** The stack
+> builds and reaches healthy from a clean clone; the schema is created with least-privilege
+> grants; users, roles, service tokens, rate limits and an append-only audit trail are in
+> place; the HTTP API ingests telemetry, manages the asset inventory and serves bounded event
+> reads. **All five detection rules run over stored events:** a `periodiq` scheduler sweeps
+> every ten minutes and recomputes baselines nightly, every completed ingest batch queues its
+> own sweep, alerts are stored under a dedup key and served by the API, and `make eval` writes
+> the first per-detector metrics table from the labelled cases and the benign corpus. Those
+> numbers come from synthetic data authored here and say nothing yet about real traffic; the
+> isolated Suricata lab (Chunk 13) is what remains of Milestone 2. **There is no correlation,
+> no AI brief and no analyst UI** — those are Milestones 3 to 5. [`docs/STATUS.md`](docs/STATUS.md) is the authoritative record of what exists and
 > what has been verified, with the evidence for every claim below.
 
 ---
@@ -65,7 +67,7 @@ aspirational:
 
 | Capability | State |
 |---|---|
-| Five-service Compose stack (PostgreSQL 16, Redis 7, FastAPI api, Dramatiq worker, Next.js web), hardened and loopback-only | ✅ Reaches healthy from a clean clone; CI proves it on every push |
+| Six-service Compose stack (PostgreSQL 16, Redis 7, FastAPI api, Dramatiq worker, periodiq scheduler, Next.js web), hardened and loopback-only | ✅ Reaches healthy from a clean clone; CI proves it on every push |
 | Schema for the nine Milestone 1 tables, applied by Alembic under a migrator role; the runtime role gets `SELECT/INSERT/UPDATE` only, `SELECT/INSERT` on `audit_log`, `DELETE` on one table | ✅ [ADR-012](docs/adr/ADR-012-migrations-in-package-and-role-grants.md), [ADR-015](docs/adr/ADR-015-asset-inventory-and-event-reads.md); proven by the database suite |
 | Suricata EVE normalisation: parse limits, sanitiser, validated schema, canonical `event_hash`, promoted columns plus a JSONB payload | ✅ [ADR-013](docs/adr/ADR-013-event-hash-payload-and-event-type-triage.md); pure, clock-free, 100 % covered |
 | Ingest: streaming NDJSON over HTTP (body or multipart, sync or async through a capped spool) or from a registered dataset; per-line rejects with reason codes; idempotent storage; provenance and counts per batch | ✅ [ADR-014](docs/adr/ADR-014-ingest-entrypoints-ports-and-worker-layer.md), [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md) |
@@ -74,10 +76,12 @@ aspirational:
 | Authentication and authorisation: Argon2id users with lockout, 15-minute HS256 access tokens, rotating refresh cookies with reuse detection, hashed service tokens for sensors, deny-by-default permission on every route | ✅ [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md), [`SECURITY.md`](SECURITY.md) |
 | Audit trail (append-only, bounded detail, admin read API) covering logins, denials, refused uploads and rejected import ids, and Redis rate limits that fail closed for login and ingest | ✅ [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md) |
 | Operator CLI (`python -m aegisnet.cli`) for datasets, batches, assets, events, users and service tokens; `make` targets for every operator task | ✅ |
-| Tests: 566 hermetic tests (unit, integration, security) with a 94 % coverage gate, 44 database tests against a real PostgreSQL, a CI stack job that logs in and ingests over HTTP | ✅ [`docs/STATUS.md`](docs/STATUS.md) |
+| Tests: 757 hermetic tests (unit, integration, security, detectors) at 94 % coverage, 51 database tests against a real PostgreSQL, a CI stack job that logs in, ingests over HTTP, watches the post-ingest sweep and reads the alerts | ✅ [`docs/STATUS.md`](docs/STATUS.md) |
 | All five detection rules as pure, versioned functions over bounded windows with derived, bounded evidence and a recorded severity formula: D-001 port scan, D-002 auth-failure burst, D-003 DNS anomaly / tunnelling, D-004 periodic beaconing, D-005 outbound volume anomaly against per-asset baselines; 34 labelled positive and hard-negative cases pinned to their generator (`make test-detectors`) | ✅ Milestone 2, Chunks 8, 10 and 11 ([ADR-017](docs/adr/ADR-017-detector-interface-and-labelled-fixtures.md), [ADR-019](docs/adr/ADR-019-baselines-precomputed-and-address-keyed.md), [`docs/detection-rules.md`](docs/detection-rules.md)) |
 | The baseline job: each asset's hourly outbound history summarised into `asset_baselines` (mean, stddev, p95, sampled hours) by `make recompute-baselines`, the `recompute_baselines` actor or an admin's `POST /detections/baselines/recompute`; D-005 abstains without a baseline | ✅ Milestone 2, Chunk 11 ([ADR-019](docs/adr/ADR-019-baselines-precomputed-and-address-keyed.md)) |
-| The sweep: six detection tables, the registry synced from code, one load per interval sliced on each rule's grid, severity from the asset's criticality with a stored rationale, dedup by a UNIQUE key, per-rule failure isolation in `detector_runs`, the `run_detectors` actor, `make run-detectors`, and the read API for alerts, rules and runs plus the admin sweep trigger | ✅ Milestone 2, Chunk 9 ([ADR-018](docs/adr/ADR-018-detection-sweep-alert-storage-and-failure-isolation.md), [`docs/api-milestone-2.md`](docs/api-milestone-2.md)); D-002 to D-005 and the schedule follow |
+| The sweep: six detection tables, the registry synced from code, one load per interval sliced on each rule's grid, severity from the asset's criticality with a stored rationale, dedup by a UNIQUE key, per-rule failure isolation in `detector_runs`, the `run_detectors` actor, `make run-detectors`, and the read API for alerts, rules and runs plus the admin sweep trigger | ✅ Milestone 2, Chunk 9 ([ADR-018](docs/adr/ADR-018-detection-sweep-alert-storage-and-failure-isolation.md), [`docs/api-milestone-2.md`](docs/api-milestone-2.md)) |
+| The schedule: a `periodiq` scheduler service sends `scheduled_sweep` every ten minutes (a one-hour lookback on a fixed grid, overlap absorbed by dedup) and `nightly_baselines` at 02:00; a completed ingest batch queues a sweep over its own event-time span, from the worker or inline after a sync upload (`POST_INGEST_SWEEP`) | ✅ Milestone 2, Chunk 12 ([ADR-020](docs/adr/ADR-020-schedule-post-ingest-sweep-and-evaluation-harness.md)) |
+| `make eval`: every labelled case through its rule (T1) and every rule over the benign corpus (T2), written into [`docs/evaluation.md`](docs/evaluation.md) §8 and pinned by a test; strict verdicts, D-005 marked as abstaining without baselines | ✅ Milestone 2, Chunk 12 ([ADR-020](docs/adr/ADR-020-schedule-post-ingest-sweep-and-evaluation-harness.md)); synthetic data only, no claim about real traffic |
 | Correlation and incidents, analyst dashboard, AI investigation briefs | ⬜ Milestones 3–5 ([roadmap](#roadmap)) |
 
 ---
@@ -98,7 +102,8 @@ flowchart LR
         direction LR
         web["web<br/>Next.js 15<br/>127.0.0.1:3000"]
         api["api<br/>FastAPI · uvicorn<br/>127.0.0.1:8000"]
-        worker["worker<br/>Dramatiq<br/>import_dataset · import_upload · run_detectors"]
+        worker["worker<br/>Dramatiq<br/>import_dataset · import_upload<br/>run_detectors · recompute_baselines"]
+        scheduler["scheduler<br/>periodiq<br/>scheduled_sweep · nightly_baselines"]
         db[("db<br/>PostgreSQL 16<br/>no host port")]
         redis[("redis<br/>Redis 7<br/>no host port")]
         samples[/"./samples<br/>read-only mount"/]
@@ -111,6 +116,8 @@ flowchart LR
     api <-->|"rate limits · token denylist"| redis
     api -->|"enqueue: ids only"| redis
     redis -->|"messages"| worker
+    scheduler -->|"periodic messages<br/>ids only"| redis
+    worker -->|"post-ingest sweep"| redis
     worker <-->|"asyncpg, runtime role"| db
     api -.-> samples
     worker -.-> samples
@@ -120,10 +127,13 @@ flowchart LR
 
 An admin's `POST /api/v1/detections/sweeps` queues `run_detectors(start, end)` the same way an
 upload queues `import_upload`; the worker loads the interval once, runs every rule, writes alerts
-under a UNIQUE dedup key and one `detector_runs` row per rule.
+under a UNIQUE dedup key and one `detector_runs` row per rule. Nobody has to ask, though: the
+`scheduler` sends a sweep every ten minutes over the last hour and the baseline recompute
+nightly, and a batch that completes queues a sweep over its own event-time span
+([ADR-020](docs/adr/ADR-020-schedule-post-ingest-sweep-and-evaluation-harness.md)).
 
 Every service runs as a non-root user with `cap_drop: ALL` and `no-new-privileges`. `db`,
-`redis` and `worker` publish no host port. The samples directory is the only place a
+`redis`, `worker` and `scheduler` publish no host port. The samples directory is the only place a
 dataset can be imported from, and the spool is the only place an upload waits; both are
 resolved by id, never by a path a client supplied.
 
@@ -284,6 +294,7 @@ docker compose run --rm api python -m aegisnet.cli events --from 2026-09-01T00:0
 docker compose run --rm api python -m aegisnet.cli service-tokens
 make run-detectors FROM=2026-09-01T00:00:00Z TO=2026-09-01T02:00:00Z   # the same sweep, inline, one JSON line
 make recompute-baselines WINDOW_DAYS=7                                   # per-asset outbound baselines for D-005
+docker compose logs scheduler                                            # the two periodic actors and their cron lines
 
 # 7. Probe it. Everything is bound to 127.0.0.1; the version route needs a credential too.
 curl http://127.0.0.1:8000/healthz              # {"status":"ok"}
@@ -316,6 +327,7 @@ make compose-config    # parse and interpolate both Compose manifests without st
 make test-db           # the database suite against an ephemeral PostgreSQL 16 (needs .env)
 make test-detectors    # the detector suite alone: bounds, severity, every rule, every labelled fixture
 make gen-fixtures      # regenerate the labelled fixtures after a case definition changes
+make eval              # T1 + T2 metrics into docs/evaluation.md §8 (a test pins the block; run it after touching a rule)
 ```
 
 The default suite is hermetic: no PostgreSQL, no Redis, no network. Readiness probes are
@@ -334,9 +346,11 @@ stores, and downgrades to base to prove nothing is left behind. CI runs it as th
 
 ### Container topology
 
-Five services: `db` (PostgreSQL 16), `redis` (Redis 7), `api` (FastAPI), `worker`
-(Dramatiq, two actors: `import_dataset`, `import_upload`), `web` (Next.js placeholder).
-`db`, `redis` and `worker` publish no host port. `api` and `worker` mount `./samples`
+Six services: `db` (PostgreSQL 16), `redis` (Redis 7), `api` (FastAPI), `worker`
+(Dramatiq: `import_dataset`, `import_upload`, `run_detectors`, `recompute_baselines` and the
+two periodic actors), `scheduler` (periodiq, sends `scheduled_sweep` and `nightly_baselines`;
+Redis only, no volume), `web` (Next.js placeholder).
+`db`, `redis`, `worker` and `scheduler` publish no host port. `api` and `worker` mount `./samples`
 read-only at `/app/samples`, the only place a dataset can be imported from, and share the
 `ingest_spool` volume where uploads wait. `api` and `web` publish only on `127.0.0.1`, so
 nothing is reachable from another host. Every service sets `cap_drop: ["ALL"]` and
@@ -349,7 +363,7 @@ they are started directly as `postgres` and `redis` via `user:` so no privilege 
 ever attempted. `read_only` root filesystems and image digest pinning are tracked as later
 work (Milestone 6 and decision F-5) and are **not** applied.
 
-The worker's healthcheck is process liveness only and makes no readiness claim. Readiness
+The worker's and the scheduler's healthchecks are process liveness only and make no readiness claim. Readiness
 (`/readyz`) covers PostgreSQL and Redis reachability and nothing else; it names no
 component in its response.
 
@@ -392,11 +406,11 @@ reporting, as described in [`SECURITY.md`](SECURITY.md).
 ├── backend/                 FastAPI application, Dramatiq worker, operator CLI, tests
 │   ├── src/aegisnet/
 │   │   ├── api/             routers, the permission dependency, DTOs, error envelope
-│   │   ├── services/        ingest, assets, event reads, auth, audit, the detection sweep
-│   │   ├── adapters/        SQL stores (incl. alerts, rules, runs), migrations, Redis, spool, registry, queues
+│   │   ├── services/        ingest, assets, event reads, auth, audit, the sweep, baselines, schedule, evaluation
+│   │   ├── adapters/        SQL stores (incl. alerts, rules, runs), migrations, Redis, spool, registry, queues, labelled cases
 │   │   ├── domain/          EVE normaliser, asset and auth rules, ports — pure, no I/O
-│   │   │   └── detectors/   window and result bounds, severity formula, baselines, the five rules
-│   │   ├── workers/         worker entrypoint and actors (imports, uploads, detection sweeps)
+│   │   │   └── detectors/   window and result bounds, severity formula, baselines, the five rules, evaluation verdicts
+│   │   ├── workers/         entrypoint shared by worker and scheduler, the actors, the two periodic actors
 │   │   └── cli.py           python -m aegisnet.cli
 │   └── tests/               unit · integration · security · detectors · db (opt-in, real PostgreSQL)
 │       └── fixtures/labelled/  labelled detector cases, rendered by tools/gen_labelled_fixtures.py
@@ -405,7 +419,7 @@ reporting, as described in [`SECURITY.md`](SECURITY.md).
 ├── samples/                 committed synthetic corpus, asset seed file, dataset registry
 ├── tools/                   the seeded synthetic EVE generator and the labelled-fixture generator
 ├── docs/                    STATUS, PRD, data model, API contract, delivery plan, ADRs
-├── docker-compose.yml       the five-service stack
+├── docker-compose.yml       the six-service stack
 ├── docker-compose.test.yml  hermetic test runner and the ephemeral test database
 └── Makefile                 every operator and developer task
 ```
@@ -417,7 +431,7 @@ reporting, as described in [`SECURITY.md`](SECURITY.md).
 | Milestone | Scope | State |
 |---|---|---|
 | M1 | Foundation, ingest, normalisation, asset inventory, auth and audit | ✅ Complete; acceptance criteria and evidence in [`docs/delivery-plan.md`](docs/delivery-plan.md) and [`docs/STATUS.md`](docs/STATUS.md) |
-| M2 | Five deterministic detectors (port scan, auth-failure burst, DNS anomaly, periodic beaconing, outbound volume anomaly) with labelled fixtures; the isolated Suricata lab | 🟡 Chunks 8–11 done: detector contract, the sweep with alert storage and the alerts API, all five rules with fixtures, the baseline job; the schedule, `make eval` and the lab remain |
+| M2 | Five deterministic detectors (port scan, auth-failure burst, DNS anomaly, periodic beaconing, outbound volume anomaly) with labelled fixtures; the isolated Suricata lab | 🟡 Chunks 8–12 done: detector contract, the sweep with alert storage and the alerts API, all five rules with fixtures, the baseline job, the periodiq schedule with the post-ingest sweep, `make eval` with the first metrics table; the lab (Chunk 13) remains |
 | M3 | Correlation into incidents, timeline, analyst workflow | ⬜ |
 | M4 | Analyst dashboard (Next.js) | ⬜ |
 | M5 | Investigation brief via Perplexity, with redaction canaries, and Markdown export | ⬜ |
@@ -438,13 +452,13 @@ Detector accuracy is **unmeasured** and no claim is made until Milestone 6
 | [`THREAT_MODEL.md`](THREAT_MODEL.md) | Threats, mitigations, the test that verifies each, residual risks |
 | [`SECURITY.md`](SECURITY.md) | Credential model, RBAC matrix, audit actions, rate limits, disclosure |
 | [`docs/api-milestone-1.md`](docs/api-milestone-1.md) | Milestone 1 API contract and acceptance criteria |
-| [`docs/api-milestone-2.md`](docs/api-milestone-2.md) | Alerts, rules, runs and the sweep trigger |
+| [`docs/api-milestone-2.md`](docs/api-milestone-2.md) | Alerts, rules, runs, baselines, the sweep trigger and the post-ingest sweep |
 | [`docs/data-model.md`](docs/data-model.md) | PostgreSQL schema design |
 | [`docs/PRD.md`](docs/PRD.md) | Product requirements |
 | [`docs/delivery-plan.md`](docs/delivery-plan.md) | Six-milestone plan |
-| [`docs/evaluation.md`](docs/evaluation.md) | Detection evaluation methodology (results intentionally empty) |
+| [`docs/evaluation.md`](docs/evaluation.md) | Detection evaluation methodology; §8 holds the `make eval` table (synthetic T1/T2 only, pinned by a test) |
 | [`docs/detection-rules.md`](docs/detection-rules.md) | The rule contract and each detector's specification, guards and hard negatives |
-| [`docs/adr/`](docs/adr) | Architecture decision records (ADR-009 … ADR-018) |
+| [`docs/adr/`](docs/adr) | Architecture decision records (ADR-009 … ADR-020) |
 | [`PLANNING.md`](PLANNING.md) | Index of the Milestone 0 planning package |
 | [`backend/README.md`](backend/README.md) | What the backend package contains today |
 | [`frontend/README.md`](frontend/README.md) | The web placeholder |

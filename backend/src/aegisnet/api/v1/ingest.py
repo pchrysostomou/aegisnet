@@ -43,6 +43,7 @@ from aegisnet.domain.enums import AuditResult, IngestMethod, IngestStatus, Sourc
 from aegisnet.domain.pagination import DEFAULT_LIMIT, MAX_LIMIT
 from aegisnet.domain.ports import BatchFilter, BatchProvenance
 from aegisnet.services.ingest_service import provenance_for
+from aegisnet.services.schedule import sweep_batch
 
 router = APIRouter(prefix="/api/v1/ingest", tags=["ingest"])
 
@@ -155,12 +156,16 @@ async def ingest_eve(
             summary = await svc.ingest.ingest(svc.spool.lines(name), provenance)
         finally:
             svc.spool.remove(name)
+        sweeps: list[tuple[datetime, datetime]] = []
+        if settings.post_ingest_sweep and summary.counts.stored:
+            sweeps = await sweep_batch(svc.detection, summary.batch_id, svc.enqueue_sweep)
         await svc.audit.record(
             "ingest.batch_created",
             target_type="ingest_batch",
             target_id=str(summary.batch_id),
             detail={
                 "mode": "sync",
+                "sweeps_queued": len(sweeps),
                 "method": method.value,
                 "source_label": source_label,
                 "bytes": size,

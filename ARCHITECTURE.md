@@ -12,7 +12,7 @@ Last updated: 2026-09-05
 |---|---|
 | §1 layering and `domain/` purity | Implemented and enforced by import-linter in CI (two contracts) |
 | §2 `api`, `worker`, `db`, `broker/cache`, `web` | Running: FastAPI api with auth, RBAC, audit and rate limits; Dramatiq worker with `import_dataset` and `import_upload`; PostgreSQL 16; Redis 7 as broker, limiter and denylist; Next.js 15 placeholder |
-| §2 `scheduler` (periodiq) | Deferred to M2 (ADR-010); not in the M1 stack |
+| §2 `scheduler` (periodiq) | Deferred by ADR-010; **delivered in M2 Chunk 12 (ADR-020)**: a sixth service sending the ten-minute sweep and the nightly baseline recompute |
 | §2 `perplexity` client | Not started (M5); no outbound call exists |
 | §3 ingest → validate → persist → enqueue | Implemented: HTTP and registry import, capped spool, per-line rejects, idempotent `event_hash`, audit per batch |
 | §3 detectors, baselines, correlation, redaction, briefs, export | Not started (M2 – M5) |
@@ -50,7 +50,7 @@ against fixtures with no database.
 | `web` | Next.js 15 (App Router), TypeScript; Tailwind planned | Analyst dashboard (M4); a health placeholder in M1 |
 | `api` | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 (async), Alembic | REST API, auth/RBAC, validation, rate limiting, audit logging, enqueue jobs |
 | `worker` | Dramatiq | Normalization, detector sweeps, correlation, baseline recompute, Perplexity brief generation |
-| `scheduler` | periodiq (Dramatiq companion) | Periodic detector sweep + nightly baseline recompute — **deferred to M2 (ADR-010)** |
+| `scheduler` | periodiq (Dramatiq companion) | Periodic detector sweep (every 10 min, 60 min lookback) + nightly baseline recompute — **in the stack since M2 Chunk 12 (ADR-020)**; a completed ingest batch also queues its own sweep |
 | `db` | PostgreSQL 16 | System of record; JSONB for event payloads and evidence |
 | `broker/cache` | Redis 7 | Dramatiq broker, rate-limit counters, Perplexity response cache |
 | `perplexity` | External HTTPS | Sole external egress, via a single hardened client module |
@@ -183,7 +183,7 @@ bypassed.
 
 ## 6. Deployment topology (Docker Compose)
 
-Services in Milestone 1: `db`, `redis`, `api`, `worker`, `web` (`scheduler` joins in M2, ADR-010). All on one
+Services in Milestone 1: `db`, `redis`, `api`, `worker`, `web`; `scheduler` joined in Milestone 2 (ADR-010, ADR-020). All on one
 internal bridge network; only `web` (3000) and `api` (8000) publish ports. `api` and `worker` mount `./samples`
 read-only and share the `ingest_spool` named volume where uploads wait between the request and the actor (ADR-016). No service is exposed on a routable interface by default, and the compose
 file binds published ports to `127.0.0.1`. Healthchecks gate `api` on `db` + `redis`, and `web` on `api`.

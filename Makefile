@@ -9,7 +9,7 @@ COMPOSE ?= docker compose
 UV ?= uv
 BACKEND := backend
 
-.PHONY: test-detectors gen-fixtures run-detectors alerts recompute-baselines baselines create-user users create-service-token revoke-service-token service-tokens \
+.PHONY: test-detectors gen-fixtures eval run-detectors alerts recompute-baselines baselines create-user users create-service-token revoke-service-token service-tokens \
         help bootstrap bootstrap-force verify-ignore require-env compose-config \
         build up down compose-ps compose-logs compose-down compose-test pin-digests clean \
         backend-install lint format format-check typecheck test test-cov check \
@@ -224,6 +224,14 @@ alerts: require-env ## List alerts, newest first (LIMIT=20)
 # until the regenerated files are committed, so a case change is always reviewable.
 gen-fixtures: ## Regenerate backend/tests/fixtures/labelled from the case definitions
 	python3 tools/gen_labelled_fixtures.py --out backend/tests/fixtures/labelled
+
+# T1 = the labelled cases, T2 = the benign synthetic corpus; rewrites the marked block in
+# docs/evaluation.md §8. A test pins that block, so run this after touching a rule.
+eval: ## Score the rules on the labelled cases and the benign corpus; refresh docs/evaluation.md §8
+	cd $(BACKEND) && uv run python -m aegisnet.cli eval-detectors \
+	  --fixtures tests/fixtures/labelled \
+	  --corpus ../samples/synthetic/benign-baseline-01.ndjson \
+	  --write ../docs/evaluation.md
 
 # Regenerates the committed synthetic corpus byte-for-byte (seeded). After changing the
 # generator, run this, then update sha256 in samples/registry.yml; the integration suite

@@ -31,7 +31,7 @@ Last updated: 2026-09-05
 | TB-2 | Analyst browser → API | inbound | Authenticated but role-limited; browser may be compromised. |
 | TB-3 | AegisNet → Perplexity API | outbound | External third party. Assume anything sent may be retained. |
 | TB-4 | Perplexity API → AegisNet | inbound | **Untrusted content.** LLM output may be wrong, injected, or hallucinated. |
-| TB-5 | API process → worker process | internal | Semi-trusted; payloads still validated. |
+| TB-5 | API process → worker process; scheduler → worker | internal | Semi-trusted; payloads still validated. Messages carry ids and instants only; the periodic ones carry nothing at all. |
 | TB-6 | Host operator → deployment | inbound | Trusted (self-hosted, single tenant). |
 
 ## 3. Threats, mitigations, and verification
@@ -89,7 +89,7 @@ Last updated: 2026-09-05
 | ID | STRIDE | Threat | Mitigation | Verified by |
 |---|---|---|---|---|
 | T-5.1 | Elevation | Container breakout / excessive privilege | Non-root users in all images, read-only root filesystem where feasible, no `privileged`, dropped capabilities, pinned base image digests | Compose/Dockerfile review checklist |
-| T-5.2 | Info disclosure | Database exposed on host network | Ports bound to `127.0.0.1`; `db`/`redis` publish no ports; strong generated passwords required, no defaults | `backend/tests/security/test_compose_policy.py` — Chunk 1: every published port binds to loopback; `db`, `redis` and `worker` publish none |
+| T-5.2 | Info disclosure | Database exposed on host network | Ports bound to `127.0.0.1`; `db`/`redis` publish no ports; strong generated passwords required, no defaults | `backend/tests/security/test_compose_policy.py` — Chunk 1: every published port binds to loopback; `db`, `redis` and `worker` publish none; Chunk 12: `scheduler` publishes none, mounts nothing and depends on Redis only |
 | T-5.3 | Elevation | App DB role can drop tables or alter audit log | Least-privilege app role; migrations run under a separate role that owns every object; audit table has no UPDATE/DELETE grant; no DELETE granted on any table | `backend/tests/db/test_grants.py` (Chunk 2): exact privilege matrix via `has_table_privilege`, ownership by the migrator, and CREATE/ALTER/DROP/DELETE refused for the app role |
 | T-5.4 | Info disclosure | Secrets committed | `.env` gitignored, `.env.example` only, pre-commit + CI secret scanning, no secrets in compose defaults | `backend/tests/security/test_env_template.py` (every secret variable is a placeholder) and the pre-commit hook — Chunk 1; the `security` workflow's gitleaks job scans history and diff on every push (E-38) |
 | T-5.5 | Availability | Lab traffic generation escapes to the internet | Lab compose uses an `internal: true` network, separate opt-in file, documented "authorised systems only" banner | Manual verification step in `docs/evaluation.md` |

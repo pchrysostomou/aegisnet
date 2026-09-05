@@ -149,6 +149,18 @@ async def test_payload_is_read_only_when_requested(
     assert page.items[0].payload == with_payload.payload
 
 
+async def test_batch_span_is_the_batch_s_own_event_time_range(
+    loaded: tuple[IngestService, list[str]], app_engine: AsyncEngine
+) -> None:
+    ingest, _ = loaded
+    store = SqlEventReadStore(make_session_factory(app_engine))
+    page = await ingest.list_batches(BatchFilter(limit=10))
+    spans = [await store.batch_span(batch.batch_id) for batch in page.items]
+    assert all(span is not None and span[0] <= span[1] for span in spans)
+    assert all(WINDOW[0] <= span[0] and span[1] < WINDOW[1] for span in spans if span)
+    assert await store.batch_span(uuid4()) is None
+
+
 async def test_stats_count_by_type_and_hour(loaded: object, events: EventReadService) -> None:
     stats = await events.stats(_query())
     assert stats.total == 13

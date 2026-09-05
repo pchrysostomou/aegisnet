@@ -167,6 +167,16 @@ class SqlEventReadStore(EventReadStore):
         truncated = len(rows) > max_events
         return tuple(_row(row, None) for row in rows[:max_events]), truncated
 
+    async def batch_span(self, batch_id: UUID) -> tuple[datetime, datetime] | None:
+        stmt = select(func.min(Event.event_time), func.max(Event.event_time)).where(
+            Event.batch_id == batch_id
+        )
+        async with self._sessions() as session:
+            first, last = (await session.execute(stmt)).one()
+        if first is None or last is None:
+            return None
+        return first, last
+
     async def hourly_outbound_bytes(
         self, networks: Sequence[IPNetwork], start: datetime, end: datetime
     ) -> tuple[tuple[datetime, int], ...]:

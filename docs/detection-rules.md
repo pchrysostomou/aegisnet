@@ -32,6 +32,37 @@ the exception type, or `skipped` with the reason), and a rule that raises never 
 Operators trigger it with `make run-detectors FROM= TO=` (sync, in the api image) or
 `POST /api/v1/detections/sweeps` (queued to the worker; admins only).
 
+## When a sweep runs without being asked (ADR-020)
+
+Three things queue `run_detectors`; all of them end up in the same actor with the same
+semantics, and the dedup key makes any overlap harmless.
+
+| Trigger | Interval | Who sends it |
+|---|---|---|
+| `POST /api/v1/detections/sweeps`, `make run-detectors` | whatever the operator asked, at most 24 h | the API or the CLI |
+| `scheduled_sweep`, every `SWEEP_CADENCE_MINUTES` (10) | `[end − SWEEP_LOOKBACK_MINUTES, end)`, `end` = now floored to the cadence grid; 60 minutes by default | the `scheduler` service (periodiq) |
+| the post-ingest sweep, when a batch completes with stored events | the hour-aligned span of the batch's own event times, split at 24 h | the worker after an import, the API after a `mode=sync` upload; `POST_INGEST_SWEEP=false` disables it |
+
+The lookback is why late events are not missed: an event that reaches the store within
+`lookback − cadence` minutes of its timestamp is inside the next scheduled interval. Rules
+with a one-hour window (D-004, D-005) are re-evaluated on the current partial hour bucket
+each tick; the first tick that finds the pattern creates the alert, later ticks hit the same
+dedup key. A scheduled message that waited more than `SCHEDULE_SKIP_DELAY_SECONDS` (300) on
+the queue is skipped; the next tick's lookback covers the gap. The nightly
+`nightly_baselines` actor recomputes `asset_baselines` at `BASELINE_RECOMPUTE_HOUR` (02:00 on
+the scheduler's clock, UTC in the image) over `BASELINE_WINDOW_DAYS` (7).
+
+## How the rules are scored (`make eval`)
+
+`aegisnet eval-detectors` runs every labelled case under `backend/tests/fixtures/labelled/`
+through its own rule (T1) and every rule over `samples/synthetic/benign-baseline-01.ndjson`
+on that rule's grid (T2), and rewrites the marked block in `docs/evaluation.md` §8. A positive
+case counts as a true positive only when the rule alerts on exactly the expected entity, at
+or above the expected severity, and on nothing else; a negative case counts as a false
+positive on any alert. A test pins the document to the harness, so change a rule, run
+`make eval`, commit both. The table measures conformance to these specifications on
+synthetic data; it is not a measurement of detection quality on real traffic.
+
 ## D-001 Port scan — implemented, version 1
 
 **Behaviour detected.** One source opens flows to many distinct destination ports (vertical scan) or to

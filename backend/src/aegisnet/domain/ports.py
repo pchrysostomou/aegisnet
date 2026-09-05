@@ -456,6 +456,11 @@ class EventWindowStore(Protocol):
         ``max_events`` of them; the flag says whether the cap cut the window short."""
         ...
 
+    async def batch_span(self, batch_id: UUID) -> tuple[datetime, datetime] | None:
+        """``(min, max)`` event time of the batch's stored events, ``None`` when it stored
+        nothing; the post-ingest sweep covers exactly this span (ADR-020)."""
+        ...
+
 
 # ---------------------------------------------------------------- users, tokens (FR-10)
 

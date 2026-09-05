@@ -3,7 +3,8 @@
 **No actors are declared here.** Actors are entrypoints and live in
 ``aegisnet.workers.actors``; the process entrypoint the ``dramatiq`` CLI loads is
 ``aegisnet.workers.main`` (ADR-014). The worker's container healthcheck is process-level
-liveness only and asserts nothing about capability (ADR-010).
+liveness only and asserts nothing about capability (ADR-010). The periodic actors live in
+``aegisnet.workers.schedule`` and are sent by the ``periodiq`` scheduler process (ADR-020).
 
 This module is a pure factory with no import-time side effects, so it can be imported and
 tested without a running Redis.
@@ -14,6 +15,7 @@ from __future__ import annotations
 import dramatiq
 import redis
 from dramatiq.brokers.redis import RedisBroker
+from periodiq import PeriodiqMiddleware
 
 from aegisnet.config import Settings, get_settings
 
@@ -40,7 +42,13 @@ def build_redis_client(settings: Settings) -> redis.Redis:
 def build_broker(settings: Settings) -> RedisBroker:
     # Dramatiq ships no annotations for RedisBroker.__init__, so the call is untyped.
     # The ignore is narrow and deliberate rather than a project-wide mypy relaxation.
-    return RedisBroker(client=build_redis_client(settings))  # type: ignore[no-untyped-call]
+    broker = RedisBroker(client=build_redis_client(settings))  # type: ignore[no-untyped-call]
+    # Declares the ``periodic`` actor option and drops scheduled ticks that waited longer
+    # than the skip delay (ADR-020). Harmless on the API side, which never sends them.
+    broker.add_middleware(  # type: ignore[no-untyped-call]
+        PeriodiqMiddleware(skip_delay=settings.schedule_skip_delay_seconds)
+    )
+    return broker
 
 
 def install(settings: Settings | None = None) -> RedisBroker:

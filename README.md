@@ -1,18 +1,39 @@
 # AegisNet — Network Threat Detection Lab
 
-A self-hosted, **defensive-only** platform for ingesting network security telemetry,
-detecting suspicious behaviour with deterministic heuristics, correlating findings into
-incidents, and generating evidence-based AI investigation briefs for human analysts.
+[![ci](https://github.com/pchrysostomou/aegisnet/actions/workflows/ci.yml/badge.svg)](https://github.com/pchrysostomou/aegisnet/actions/workflows/ci.yml)
+[![security](https://github.com/pchrysostomou/aegisnet/actions/workflows/security.yml/badge.svg)](https://github.com/pchrysostomou/aegisnet/actions/workflows/security.yml)
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=pchrysostomou_aegisnet&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=pchrysostomou_aegisnet)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)](backend/pyproject.toml)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
 
-> **Status: Milestone 1, Chunk 5 — asset inventory and event reads.**
-> The five-service stack builds and reaches healthy from a clean clone, `make migrate`
-> creates the schema with least-privilege grants, `make seed` loads the lab inventory,
-> `make demo-ingest` stores the committed synthetic corpus idempotently, and the CLI
-> resolves addresses to assets and queries events with bounded keyset pagination. There
-> is **no HTTP API beyond health and version, no detection, no authentication and no
-> analyst UI yet**; the routes arrive with authentication in Chunk 6.
-> [`docs/STATUS.md`](docs/STATUS.md) is the authoritative record of what exists and what
-> has been verified.
+A self-hosted, **defensive-only** platform for ingesting network security telemetry
+(Suricata EVE JSON), detecting suspicious behaviour with deterministic heuristics,
+correlating findings into incidents, and producing evidence-based investigation briefs for
+human analysts. Everything runs on one machine with `docker compose`, binds to loopback,
+and can be exercised end to end with the committed synthetic corpus.
+
+> **Status: Milestone 1, Chunk 6 of 7 complete.** The stack builds and reaches healthy
+> from a clean clone; the schema is created with least-privilege grants; users, roles,
+> service tokens, rate limits and an append-only audit trail are in place; and the HTTP API
+> ingests telemetry, manages the asset inventory and serves bounded event reads. **There is
+> no detection, no correlation, no AI brief and no analyst UI yet** — those are Milestones
+> 2 to 5. [`docs/STATUS.md`](docs/STATUS.md) is the authoritative record of what exists and
+> what has been verified, with the evidence for every claim below.
+
+---
+
+## Contents
+
+- [Safety and scope boundary](#safety-and-scope-boundary)
+- [What it does today](#what-it-does-today)
+- [Architecture](#architecture)
+- [Security model](#security-model)
+- [Quickstart](#quickstart)
+- [Development](#development)
+- [Repository map](#repository-map)
+- [Roadmap](#roadmap)
+- [Documentation](#documentation)
+- [Licence](#licence)
 
 ---
 
@@ -24,8 +45,8 @@ aspirational:
 - **No offensive capability.** It does not scan, probe, exploit, enumerate, brute-force, or
   target any system. It contains no such tooling and never will.
 - **No automated response.** It never blocks traffic, changes a firewall, disables an
-  account, quarantines a host, or takes any other real-world action. The AI layer may only
-  *recommend* safe actions for a human to review and perform manually.
+  account, quarantines a host, or takes any other real-world action. The AI layer (Milestone
+  5) may only *recommend* safe actions for a human to review and perform manually.
 - **Local-only by default.** Every published port binds to `127.0.0.1`. The database and
   Redis publish no host ports at all.
 - **Analyse only what you are authorised to analyse.** Use the project's own synthetic
@@ -34,37 +55,161 @@ aspirational:
   traffic generation; the isolated Suricata lab is deferred to Milestone 2
   ([ADR-009](docs/adr/ADR-009-defer-suricata-lab.md)).
 - **Captures and live sensor output are never committed.** `.gitignore` treats `*.pcap`,
-  `*.pcapng`, and `eve*.json` as sensitive data rather than fixtures.
+  `*.pcapng` and `eve*.json` as sensitive data rather than fixtures.
 
 ---
 
-## What exists right now
+## What it does today
 
-| Area | State |
+| Capability | State |
 |---|---|
-| Milestone 0 planning package (PRD, architecture, threat model, data model, API contract, delivery plan, evaluation plan) | Complete |
-| Repository scaffolding: ignore rules, LF normalisation, licence, changelog, environment template, secret bootstrap, pre-commit config | Complete |
-| Docker Compose topology and container images (five services, hardened, loopback-only) | **Built and started locally; all five services report healthy** |
-| Backend application (FastAPI, settings, JSON logging, error envelope, `/healthz`, `/readyz`, `/api/v1/meta/version`) | Complete for Chunk 1 |
-| Dramatiq worker | Boots, authenticates to Redis, registers one actor, `import_dataset` ([ADR-014](docs/adr/ADR-014-ingest-entrypoints-ports-and-worker-layer.md)); the scheduler stays deferred ([ADR-010](docs/adr/ADR-010-defer-scheduler.md)) |
-| Frontend | Health placeholder only: one page and `GET /api/health` |
-| Schema: Alembic baseline for the nine M1 tables (`users`, `service_tokens`, `refresh_tokens`, `audit_log`, `ingest_batches`, `events`, `ingest_rejects`, `assets`, `asset_networks`), ORM models, enum types, indexes incl. `UNIQUE (event_hash)` and `GIST (cidr inet_ops)`, least-privilege grants | Complete for Chunk 2; `make migrate` applies it, `make test-db` proves it ([ADR-012](docs/adr/ADR-012-migrations-in-package-and-role-grants.md)) |
-| EVE domain (`backend/src/aegisnet/domain/eve/`): parse limits, sanitiser, Pydantic schema, canonical `event_hash`, normaliser to `NormalizedEvent` or `Reject` | Complete for Chunk 3; pure and clock-free ([ADR-013](docs/adr/ADR-013-event-hash-payload-and-event-type-triage.md)) |
-| Dataset registry with id-only, symlink-free, checksum-verified resolution; seeded synthetic generator and the committed benign corpus (2000 events) | Complete for Chunk 3 ([`samples/README.md`](samples/README.md)) |
-| Ingest service: streaming NDJSON, per-line rejects with reason codes, idempotent storage by `event_hash`, batch provenance and counts; operator CLI and `make demo-ingest` | Complete for Chunk 4 ([ADR-014](docs/adr/ADR-014-ingest-entrypoints-ports-and-worker-layer.md)); HTTP routes arrive with authentication in Chunk 6 |
-| Asset inventory: validated specs, cross-asset overlap refusal, most-specific CIDR resolution, upsert seeding (`make seed`), filtered keyset-paginated lists; event reads with bounded windows, cursors, filters incl. by asset, and stats | Complete for Chunk 5 ([ADR-015](docs/adr/ADR-015-asset-inventory-and-event-reads.md)); HTTP routes arrive with authentication in Chunk 6 |
-| Tests | Hermetic suite (unit, integration, security), no database or Redis needed; plus an opt-in database suite (`make test-db`) that migrates, compares the ORM with the schema, and asserts the runtime role's privileges against an ephemeral PostgreSQL 16 |
-| CI and security workflows | Both green: `ci` including the stack gate on the runner, and `security` after the dependency upgrades its first run demanded. Every action now runs on the Node 24 runtime — see `docs/STATUS.md` |
-| HTTP routes for ingest, assets and events, auth/RBAC/audit/rate limiting, detection, correlation, AI briefs, dashboard | Not started — Chunk 6 and later milestones |
+| Five-service Compose stack (PostgreSQL 16, Redis 7, FastAPI api, Dramatiq worker, Next.js web), hardened and loopback-only | ✅ Reaches healthy from a clean clone; CI proves it on every push |
+| Schema for the nine Milestone 1 tables, applied by Alembic under a migrator role; the runtime role gets `SELECT/INSERT/UPDATE` only, `SELECT/INSERT` on `audit_log`, `DELETE` on one table | ✅ [ADR-012](docs/adr/ADR-012-migrations-in-package-and-role-grants.md), [ADR-015](docs/adr/ADR-015-asset-inventory-and-event-reads.md); proven by the database suite |
+| Suricata EVE normalisation: parse limits, sanitiser, validated schema, canonical `event_hash`, promoted columns plus a JSONB payload | ✅ [ADR-013](docs/adr/ADR-013-event-hash-payload-and-event-type-triage.md); pure, clock-free, 100 % covered |
+| Ingest: streaming NDJSON over HTTP (body or multipart, sync or async through a capped spool) or from a registered dataset; per-line rejects with reason codes; idempotent storage; provenance and counts per batch | ✅ [ADR-014](docs/adr/ADR-014-ingest-entrypoints-ports-and-worker-layer.md), [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md) |
+| Asset inventory: validated specs, cross-asset CIDR overlap refusal, most-specific-prefix resolution, bulk create, soft delete, seed file | ✅ [ADR-015](docs/adr/ADR-015-asset-inventory-and-event-reads.md) |
+| Event reads: windows of at most 30 days, keyset cursors, page size ≤ 200, filters by type, address, CIDR, port, flow, batch and asset; stats by type and hour; payloads only for roles allowed to see them | ✅ [ADR-015](docs/adr/ADR-015-asset-inventory-and-event-reads.md) |
+| Authentication and authorisation: Argon2id users with lockout, 15-minute HS256 access tokens, rotating refresh cookies with reuse detection, hashed service tokens for sensors, deny-by-default permission on every route | ✅ [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md), [`SECURITY.md`](SECURITY.md) |
+| Audit trail (append-only, bounded detail, admin read API) and Redis rate limits that fail closed for login and ingest | ✅ [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md) |
+| Operator CLI (`python -m aegisnet.cli`) for datasets, batches, assets, events, users and service tokens; `make` targets for every operator task | ✅ |
+| Tests: 566 hermetic tests (unit, integration, security) with a 94 % coverage gate, 44 database tests against a real PostgreSQL, a CI stack job that logs in and ingests over HTTP | ✅ [`docs/STATUS.md`](docs/STATUS.md) |
+| Detectors, correlation and incidents, analyst dashboard, AI investigation briefs | ⬜ Milestones 2–5 ([roadmap](#roadmap)) |
 
 ---
 
-## Technology
+## Architecture
 
-Python 3.12 · FastAPI · SQLAlchemy · Alembic · Pydantic · PostgreSQL 16 · Redis 7 ·
-Dramatiq · Next.js 15 · TypeScript · Docker Compose · Suricata EVE JSON · pytest · Ruff ·
-mypy · GitHub Actions. Rationale is in [`ARCHITECTURE.md`](ARCHITECTURE.md). Tailwind is
-planned but not yet in the tree.
+A modular monolith with an out-of-process worker and a separate web app. Rationale and the
+full component list are in [`ARCHITECTURE.md`](ARCHITECTURE.md); the diagrams below show
+what is running today.
+
+### Deployment topology
+
+```mermaid
+flowchart LR
+    analyst(["Analyst<br/>browser / curl"])
+    sensor(["Sensor or CI<br/>X-Ingest-Token"])
+    subgraph host["Developer machine — docker compose, loopback only"]
+        direction LR
+        web["web<br/>Next.js 15<br/>127.0.0.1:3000"]
+        api["api<br/>FastAPI · uvicorn<br/>127.0.0.1:8000"]
+        worker["worker<br/>Dramatiq<br/>import_dataset · import_upload"]
+        db[("db<br/>PostgreSQL 16<br/>no host port")]
+        redis[("redis<br/>Redis 7<br/>no host port")]
+        samples[/"./samples<br/>read-only mount"/]
+        spool[/"ingest_spool<br/>named volume"/]
+    end
+    analyst -->|"Bearer access token<br/>HttpOnly refresh cookie"| api
+    analyst --> web
+    sensor -->|"NDJSON upload"| api
+    api <-->|"asyncpg, runtime role"| db
+    api <-->|"rate limits · token denylist"| redis
+    api -->|"enqueue: ids only"| redis
+    redis -->|"messages"| worker
+    worker <-->|"asyncpg, runtime role"| db
+    api -.-> samples
+    worker -.-> samples
+    api -.->|"write"| spool
+    worker -.->|"read, then remove"| spool
+```
+
+Every service runs as a non-root user with `cap_drop: ALL` and `no-new-privileges`. `db`,
+`redis` and `worker` publish no host port. The samples directory is the only place a
+dataset can be imported from, and the spool is the only place an upload waits; both are
+resolved by id, never by a path a client supplied.
+
+### Backend layering
+
+```mermaid
+flowchart TB
+    entry["<b>api/ · workers/ · cli.py</b><br/>routers, permission dependency, DTOs, actors, operator commands"]
+    services["<b>services/</b><br/>ingest · assets · event reads · auth · audit"]
+    adapters["<b>adapters/</b><br/>SQL stores · Redis limiter and denylist · spool · dataset registry · queue"]
+    domain["<b>domain/</b><br/>EVE schema and normaliser · asset rules · auth rules · ports and value objects<br/><i>no I/O, no ORM, no clock</i>"]
+    entry --> services --> adapters --> domain
+    services --> domain
+```
+
+The layering is enforced in CI by import-linter: `domain/` imports nothing from the
+infrastructure, and each layer may only depend on the ones below it. Services talk to
+storage through the Protocols in `domain/ports.py`, so the whole HTTP surface runs in the
+test suite against in-memory fakes with a settable clock.
+
+### An upload, end to end
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant S as Sensor
+    participant A as api
+    participant R as Redis
+    participant W as worker
+    participant P as PostgreSQL
+    S->>A: POST /api/v1/ingest/eve?source_label=…&mode=async<br/>X-Ingest-Token + NDJSON body
+    A->>A: authenticate · ingest.write · per-token limits · body cap
+    A->>A: mint a spool name, stream the body into it
+    A->>P: open batch (provenance, actor id)
+    A->>P: audit ingest.batch_created
+    A->>R: enqueue import_upload(batch_id, spool_name, label)
+    A-->>S: 202 Accepted + poll_url
+    R->>W: message (ids only)
+    W->>W: read spool lines · limits · sanitise · validate · normalise · hash
+    W->>P: INSERT events ON CONFLICT (event_hash) DO NOTHING · rejects · counts
+    W->>W: remove the spool entry
+    S->>A: GET poll_url (Bearer token with ingest.read)
+    A-->>S: status complete, counts {received, stored, duplicate, rejected}
+```
+
+`mode=sync` runs the same pipeline inline for uploads of at most 1000 lines and answers
+with the finished batch. Ingesting the same lines twice stores nothing the second time and
+reports every line as a duplicate.
+
+### Request handling
+
+```mermaid
+flowchart LR
+    req(["HTTP request"]) --> cid["correlation id<br/>(echoed, canonical UUID)"]
+    cid --> cred{"credential?"}
+    cred -->|"none / invalid"| r401["401 unauthenticated"]
+    cred -->|"Bearer JWT"| user["principal: user<br/>role from the database"]
+    cred -->|"X-Ingest-Token"| svc["principal: service token"]
+    user --> perm{"has the route's<br/>permission?"}
+    svc --> perm
+    perm -->|"no"| r403["403 forbidden<br/>audited rbac.denied"]
+    perm -->|"yes"| rl{"rate limit"}
+    rl -->|"exceeded"| r429["429 + Retry-After"]
+    rl -->|"ok"| handler["route → service → store"]
+    handler --> resp(["JSON response<br/>one error envelope for every failure"])
+```
+
+---
+
+## Security model
+
+Full detail, including the disclosure process, is in [`SECURITY.md`](SECURITY.md); the
+threat catalogue with the test that verifies each mitigation is in
+[`THREAT_MODEL.md`](THREAT_MODEL.md).
+
+| Permission | viewer | analyst | admin | ingest_service |
+|---|:-:|:-:|:-:|:-:|
+| `meta.read` | ✓ | ✓ | ✓ | ✓ |
+| `auth.self` · `assets.read` · `events.read` | ✓ | ✓ | ✓ | |
+| `assets.write` · `events.payload` · `ingest.read` | | ✓ | ✓ | |
+| `assets.admin` · `ingest.import` · `audit.read` | | | ✓ | |
+| `ingest.write` | | | ✓ | ✓ |
+
+- Every route declares its permission through one dependency; a security test enumerates
+  the router and fails on any route without one. The only credential-free routes are the
+  two health probes, login and refresh.
+- Passwords are Argon2id; refresh and service tokens are stored only as SHA-256 digests;
+  the signing secret must be at least 32 bytes; every secret is redacted from the logs.
+- Login is limited per client address and per account and locks the account after five
+  failures; ingest is limited per token by request count and by bytes; those limits refuse
+  requests if Redis is unreachable, read limits let them through.
+- Uploads are capped before a byte is parsed; every line is capped again in size, nesting
+  and field count; control characters never reach a log line or a screen.
+- The audit table accepts inserts only, enforced by PostgreSQL grants rather than by
+  application code.
 
 ---
 
@@ -75,7 +220,7 @@ Requirements: Docker with Compose v2, Python 3 on the host (for the bootstrap sc
 frontend Node 22 with `corepack`.
 
 ```bash
-git clone git@github.com:pchrysostomou/aegisnet.git
+git clone https://github.com/pchrysostomou/aegisnet.git
 cd aegisnet
 
 # 1. Generate a local .env containing random, development-only secrets.
@@ -92,15 +237,15 @@ make migrate-status                             # revision held by the database 
 
 # 4. Seed the lab inventory (14 hosts, idempotent by hostname), then ingest the registered
 #    synthetic corpus (2000 events). Run the ingest twice: the second run stores nothing
-#    and reports every line as a duplicate (FR-1.4).
+#    and reports every line as a duplicate.
 make seed
 make demo-ingest
 make demo-ingest LABEL=second-run
 make demo-ingest MODE=async LABEL=via-worker     # enqueues for the worker; prints the batch id
 make batch ID=<uuid>                            # poll it
 
-# 5. Create an admin and an ingest service token (Chunk 6). The password is prompted
-#    without echo (or piped in); the token is printed exactly once and stored as a hash.
+# 5. Create an admin and an ingest service token. The password is prompted without echo
+#    (or piped in); the token is printed exactly once and stored as a hash.
 make create-user EMAIL=admin@example.test ROLE=admin
 make create-service-token NAME=sensor-1            # copy the "token" field
 
@@ -137,7 +282,13 @@ make down
 ```
 
 `make help` lists every target. Targets are added by the commit that introduces the thing
-they operate on, so the Makefile never advertises a command that cannot work.
+they operate on, so the Makefile never advertises a command that cannot work. The CI
+`stack` job runs steps 1 to 3, creates a user and a token, ingests the corpus over HTTP
+and reads the finished batch, on every push.
+
+---
+
+## Development
 
 ### Checks
 
@@ -150,25 +301,28 @@ make compose-config    # parse and interpolate both Compose manifests without st
 make test-db           # the database suite against an ephemeral PostgreSQL 16 (needs .env)
 ```
 
-The default suite is hermetic: readiness probes are replaced with in-process fakes, and the
-security tests read the committed Compose files, Dockerfiles, `.env.example`, `.gitignore`
-and pre-commit configuration **as data**. They prove what the manifests declare. Whether a
-running stack honours those declarations is proven separately by `make up`, which the CI
-`stack` job also runs.
+The default suite is hermetic: no PostgreSQL, no Redis, no network. Readiness probes are
+replaced with in-process fakes, the routes run against in-memory stores through the same
+dependency wiring as production, and the security tests read the committed Compose files,
+Dockerfiles, `.env.example`, `.gitignore` and pre-commit configuration **as data**. They
+prove what the manifests declare; whether a running stack honours those declarations is
+proven separately by `make up`, which the CI `stack` job also runs.
 
 The database suite (`backend/tests/db/`, marker `db`) is opt-in and runs against a
 throwaway PostgreSQL 16 started from `docker-compose.test.yml` with `--profile db`: it
-applies the baseline, runs Alembic's own `compare_metadata` to prove the ORM and the
-migrated schema agree, asserts the runtime role's exact privilege matrix (T-5.3), and
-downgrades to base to prove nothing is left behind. CI runs it as the `migrations` job.
+applies every revision, runs Alembic's own `compare_metadata` to prove the ORM and the
+migrated schema agree, asserts the runtime role's exact privilege matrix, exercises the SQL
+stores, and downgrades to base to prove nothing is left behind. CI runs it as the
+`migrations` job.
 
 ### Container topology
 
 Five services: `db` (PostgreSQL 16), `redis` (Redis 7), `api` (FastAPI), `worker`
-(Dramatiq, one actor: `import_dataset`), `web` (Next.js placeholder). `db`, `redis` and
-`worker` publish no host port. `api` and `worker` mount `./samples` read-only at
-`/app/samples`, the only place a dataset can be imported from. `api` and `web` publish only on `127.0.0.1`, so nothing is
-reachable from another host. Every service sets `cap_drop: ["ALL"]` and
+(Dramatiq, two actors: `import_dataset`, `import_upload`), `web` (Next.js placeholder).
+`db`, `redis` and `worker` publish no host port. `api` and `worker` mount `./samples`
+read-only at `/app/samples`, the only place a dataset can be imported from, and share the
+`ingest_spool` volume where uploads wait. `api` and `web` publish only on `127.0.0.1`, so
+nothing is reachable from another host. Every service sets `cap_drop: ["ALL"]` and
 `no-new-privileges:true`.
 
 Every container runs as a non-root user. The project images set `USER` in their
@@ -184,12 +338,10 @@ component in its response.
 
 The database is initialised with two least-privilege roles by
 [`infra/postgres/init/01_roles.sh`](infra/postgres/init/01_roles.sh): `aegisnet_migrator`
-owns the schema, `aegisnet_app` is the runtime role and never receives DDL rights. The script
-validates every interpolated role name and secret against a strict allowlist and fails closed,
-and it creates no tables. The schema is created only by `make migrate`, which runs the
-Alembic revisions shipped inside the package under the migrator role; the revision itself
-grants the runtime role `SELECT, INSERT, UPDATE` on the ordinary tables and `SELECT, INSERT`
-on `audit_log` — never `UPDATE` or `DELETE` there, and no `DELETE` anywhere
+owns the schema, `aegisnet_app` is the runtime role and never receives DDL rights. The
+script validates every interpolated role name and secret against a strict allowlist and
+fails closed, and it creates no tables. The schema is created only by `make migrate`,
+which runs the Alembic revisions shipped inside the package under the migrator role
 ([ADR-012](docs/adr/ADR-012-migrations-in-package-and-role-grants.md)).
 
 ### Secrets
@@ -208,6 +360,77 @@ secret management is out of scope. See
 mounted or copied straight into Linux containers — the PostgreSQL init script in
 particular — and a CRLF checkout (the Git for Windows default) breaks them.
 
+### Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the workflow, the checks a change must pass,
+and how evidence is recorded. Security reports go through GitHub's private vulnerability
+reporting, as described in [`SECURITY.md`](SECURITY.md).
+
+---
+
+## Repository map
+
+```
+.
+├── backend/                 FastAPI application, Dramatiq worker, operator CLI, tests
+│   ├── src/aegisnet/
+│   │   ├── api/             routers, the permission dependency, DTOs, error envelope
+│   │   ├── services/        ingest, assets, event reads, auth, audit
+│   │   ├── adapters/        SQL stores, migrations, Redis, spool, dataset registry, queue
+│   │   ├── domain/          EVE normaliser, asset and auth rules, ports — pure, no I/O
+│   │   ├── workers/         worker entrypoint and actors
+│   │   └── cli.py           python -m aegisnet.cli
+│   └── tests/               unit · integration · security · db (opt-in, real PostgreSQL)
+├── frontend/                Next.js placeholder (health page and /api/health)
+├── infra/                   PostgreSQL role init script, .env bootstrap
+├── samples/                 committed synthetic corpus, asset seed file, dataset registry
+├── tools/                   the seeded synthetic EVE generator
+├── docs/                    STATUS, PRD, data model, API contract, delivery plan, ADRs
+├── docker-compose.yml       the five-service stack
+├── docker-compose.test.yml  hermetic test runner and the ephemeral test database
+└── Makefile                 every operator and developer task
+```
+
+---
+
+## Roadmap
+
+| Milestone | Scope | State |
+|---|---|---|
+| M1 | Foundation, ingest, normalisation, asset inventory, auth and audit | 🟡 Chunks 1–6 done; Chunk 7 (documents at the gate) next |
+| M2 | Five deterministic detectors (port scan, auth-failure burst, DNS anomaly, periodic beaconing, outbound volume anomaly) with labelled fixtures; the isolated Suricata lab | ⬜ |
+| M3 | Correlation into incidents, timeline, analyst workflow | ⬜ |
+| M4 | Analyst dashboard (Next.js) | ⬜ |
+| M5 | Investigation brief via Perplexity, with redaction canaries, and Markdown export | ⬜ |
+| M6 | Hardening, evaluation with measured accuracy, documentation, release | ⬜ |
+
+Detector accuracy is **unmeasured** and no claim is made until Milestone 6
+([`docs/evaluation.md`](docs/evaluation.md)). The full plan with acceptance gates is in
+[`docs/delivery-plan.md`](docs/delivery-plan.md).
+
+---
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [`docs/STATUS.md`](docs/STATUS.md) | What is built, what is not, and the evidence for every verification |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Components, data flow, technology rationale |
+| [`THREAT_MODEL.md`](THREAT_MODEL.md) | Threats, mitigations, the test that verifies each, residual risks |
+| [`SECURITY.md`](SECURITY.md) | Credential model, RBAC matrix, audit actions, rate limits, disclosure |
+| [`docs/api-milestone-1.md`](docs/api-milestone-1.md) | Milestone 1 API contract and acceptance criteria |
+| [`docs/data-model.md`](docs/data-model.md) | PostgreSQL schema design |
+| [`docs/PRD.md`](docs/PRD.md) | Product requirements |
+| [`docs/delivery-plan.md`](docs/delivery-plan.md) | Six-milestone plan |
+| [`docs/evaluation.md`](docs/evaluation.md) | Detection evaluation methodology (results intentionally empty) |
+| [`docs/adr/`](docs/adr) | Architecture decision records (ADR-009 … ADR-016) |
+| [`PLANNING.md`](PLANNING.md) | Index of the Milestone 0 planning package |
+| [`backend/README.md`](backend/README.md) | What the backend package contains today |
+| [`frontend/README.md`](frontend/README.md) | The web placeholder |
+| [`samples/README.md`](samples/README.md) | Datasets, the registry, how a file gets imported |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to work on the repository |
+| [`CHANGELOG.md`](CHANGELOG.md) | Notable changes |
+
 ---
 
 ## Licence
@@ -217,27 +440,3 @@ project is a portfolio and learning artefact, and a permissive licence keeps it 
 reusable. The licence covers this project's own code only — it does not extend to any public
 dataset an operator chooses to fetch, and those carry their own citation and use obligations
 recorded per ingest batch.
-
----
-
-## Documentation
-
-| Document | Contents |
-|---|---|
-| [`PLANNING.md`](PLANNING.md) | Index of the Milestone 0 planning package |
-| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Components, data flow, technology rationale |
-| [`THREAT_MODEL.md`](THREAT_MODEL.md) | Threats, mitigations, residual risks |
-| [`docs/STATUS.md`](docs/STATUS.md) | What is built, what is not, what has been verified |
-| [`docs/PRD.md`](docs/PRD.md) | Product requirements |
-| [`docs/data-model.md`](docs/data-model.md) | PostgreSQL schema design |
-| [`docs/api-milestone-1.md`](docs/api-milestone-1.md) | Milestone 1 API contract |
-| [`docs/delivery-plan.md`](docs/delivery-plan.md) | Six-milestone plan |
-| [`docs/evaluation.md`](docs/evaluation.md) | Detection evaluation methodology (results intentionally empty) |
-| [`docs/adr/`](docs/adr) | Architecture decision records |
-| [`backend/README.md`](backend/README.md) | What the backend package contains today |
-| [`frontend/README.md`](frontend/README.md) | The web placeholder |
-| [`samples/README.md`](samples/README.md) | Datasets, the registry, how a file gets imported |
-| [`CHANGELOG.md`](CHANGELOG.md) | Notable changes |
-
-`SECURITY.md` is added in the commit that introduces the first security controls it would
-describe (authentication and RBAC, Chunk 6).

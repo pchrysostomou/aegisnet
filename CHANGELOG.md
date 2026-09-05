@@ -208,6 +208,11 @@ Nothing is released yet. There is no tagged version.
   the runner — and `security` failed on the genuine dependency findings fixed below.
 
 ### Changed
+- README rewritten for the public repository: architecture diagrams (topology, layering,
+  the upload pipeline, request handling), the RBAC matrix, a repository map, the roadmap,
+  workflow and quality-gate badges. `CONTRIBUTING.md` and a pull-request template added;
+  the repository is public with topics, Dependabot alerts, secret scanning and push
+  protection enabled.
 - `Spool.write(name, chunks, max_bytes)` takes a caller-minted name (`Spool.new_name()`)
   and returns the byte count; `Spool.lines(name)` reads an entry asynchronously. The
   ingest route mints the name before it reads the body. `anyio` is a direct dependency.

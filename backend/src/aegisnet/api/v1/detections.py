@@ -14,7 +14,15 @@ from aegisnet.api.deps import (
     require,
     services,
 )
-from aegisnet.api.schemas import DetectorRunOut, RuleOut, SweepAccepted, SweepRequest
+from aegisnet.api.schemas import (
+    BaselineOut,
+    BaselineRecomputeAccepted,
+    BaselineRecomputeRequest,
+    DetectorRunOut,
+    RuleOut,
+    SweepAccepted,
+    SweepRequest,
+)
 from aegisnet.domain.auth import Permission, Principal
 from aegisnet.services.detection_service import MAX_RUNS_LISTED
 
@@ -45,6 +53,42 @@ async def list_runs(
     limit: Annotated[int, Query(ge=1, le=MAX_RUNS_LISTED)] = 50,
 ) -> list[DetectorRunOut]:
     return [DetectorRunOut.from_record(r) for r in await svc.detection.list_runs(limit=limit)]
+
+
+@router.get(
+    "/baselines",
+    response_model=list[BaselineOut],
+    summary="The rolling baselines D-005 compares against",
+    dependencies=[Depends(require(Permission.detections_read)), Depends(rate_limit("read"))],
+)
+async def list_baselines(svc: Annotated[AppServices, Depends(services)]) -> list[BaselineOut]:
+    return [BaselineOut.from_record(r) for r in await svc.baselines.list()]
+
+
+@router.post(
+    "/baselines/recompute",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=BaselineRecomputeAccepted,
+    summary="Queue a baseline recompute over the last N days",
+    dependencies=[Depends(rate_limit("default"))],
+)
+async def request_baselines(
+    body: BaselineRecomputeRequest,
+    request: Request,
+    svc: Annotated[AppServices, Depends(services)],
+    principal: Annotated[Principal, Depends(require(Permission.detections_run))],
+) -> BaselineRecomputeAccepted:
+    message_id = await svc.enqueue_baselines(body.window_days)
+    await svc.audit.record(
+        "detection.baselines_requested",
+        target_type="baselines",
+        target_id=message_id,
+        detail={"window_days": body.window_days},
+        principal=principal,
+        actor_ip=client_ip(request),
+        correlation_id=correlation_id(),
+    )
+    return BaselineRecomputeAccepted(window_days=body.window_days, message_id=message_id)
 
 
 @router.post(

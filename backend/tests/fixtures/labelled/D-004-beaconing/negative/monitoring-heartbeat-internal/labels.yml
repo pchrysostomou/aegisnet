@@ -1,0 +1,5 @@
+case_id: D-004-neg-monitoring-heartbeat-internal
+rule_id: D-004
+expected: no_detection
+window: { start: "2026-09-01T10:00:00Z", end: "2026-09-01T11:00:00Z" }
+notes: "A 30-second heartbeat to an internal monitoring collector. The hard negative: perfectly regular, but internal, and beaconing is outbound."

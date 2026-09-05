@@ -252,7 +252,7 @@ async def test_the_sweep_runs_end_to_end_on_postgres(sessions, service: Detectio
     )
     outcome = await service.sweep(WINDOW_START, WINDOW_START + timedelta(hours=1))
     assert outcome.events_examined == 40 and outcome.alerts_created == 1
-    assert [r.rule_id for r in outcome.runs] == ["D-001", "D-002", "D-003"]
+    assert [r.rule_id for r in outcome.runs] == ["D-001", "D-002", "D-003", "D-004", "D-005"]
     run = outcome.runs[0]
     assert run.status is DetectorRunStatus.success and run.alerts_created == 1
     assert all(r.status is DetectorRunStatus.success for r in outcome.runs)
@@ -267,4 +267,4 @@ async def test_the_sweep_runs_end_to_end_on_postgres(sessions, service: Detectio
     assert len(detail.events) == 20 and len(detail.assets) == 1
     runs = [r for r in await service.list_runs(limit=10) if r.rule_id == "D-001"]
     assert [r.alerts_created for r in runs] == [0, 1]
-    assert [r.version for r in await service.list_rules()] == [1, 1, 1]
+    assert [r.version for r in await service.list_rules()] == [1, 1, 1, 1, 1]

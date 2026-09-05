@@ -29,7 +29,12 @@ from aegisnet.adapters.db.auth_store import (
     SqlServiceTokenStore,
     SqlUserStore,
 )
-from aegisnet.adapters.db.detection_store import SqlAlertStore, SqlDetectorRunStore, SqlRuleStore
+from aegisnet.adapters.db.detection_store import (
+    SqlAlertStore,
+    SqlBaselineStore,
+    SqlDetectorRunStore,
+    SqlRuleStore,
+)
 from aegisnet.adapters.db.event_read_store import SqlEventReadStore
 from aegisnet.adapters.db.ingest_store import SqlIngestStore
 from aegisnet.adapters.db.session import make_session_factory
@@ -45,6 +50,7 @@ from aegisnet.logging import configure_logging, correlation_id_var, get_logger
 from aegisnet.services.asset_service import AssetService
 from aegisnet.services.audit_service import AuditReadService, AuditService
 from aegisnet.services.auth_service import AuthPolicy, AuthService
+from aegisnet.services.baseline_service import BaselineService
 from aegisnet.services.detection_service import DetectionService
 from aegisnet.services.event_read_service import EventReadService
 from aegisnet.services.ingest_service import IngestService, limits_from_settings
@@ -67,7 +73,9 @@ def build_services(settings: Settings, engine: AsyncEngine, cache: Redis) -> App
     queue = RedisIngestQueue(broker)
     detection_queue = RedisDetectionQueue(broker)
     events_store = SqlEventReadStore(sessions)
-    asset_service = AssetService(SqlAssetStore(sessions))
+    asset_store = SqlAssetStore(sessions)
+    asset_service = AssetService(asset_store)
+    baseline_store = SqlBaselineStore(sessions)
 
     async def enqueue_upload(batch_id: UUID, spool_name: str, source_label: str) -> str:
         return queue.enqueue_upload(batch_id, spool_name, source_label)
@@ -77,6 +85,9 @@ def build_services(settings: Settings, engine: AsyncEngine, cache: Redis) -> App
 
     async def enqueue_sweep(start: datetime, end: datetime) -> str:
         return detection_queue.enqueue_sweep(start, end)
+
+    async def enqueue_baselines(window_days: int) -> str:
+        return detection_queue.enqueue_baselines(window_days)
 
     return AppServices(
         settings=settings,
@@ -103,8 +114,11 @@ def build_services(settings: Settings, engine: AsyncEngine, cache: Redis) -> App
             SqlAlertStore(sessions),
             events_store,
             asset_service,
+            baselines=baseline_store,
         ),
         enqueue_sweep=enqueue_sweep,
+        baselines=BaselineService(asset_store, events_store, baseline_store),
+        enqueue_baselines=enqueue_baselines,
     )
 
 

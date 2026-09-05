@@ -1,0 +1,5 @@
+case_id: D-004-neg-update-check-jittered
+rule_id: D-004
+expected: no_detection
+window: { start: "2026-09-01T10:00:00Z", end: "2026-09-01T11:00:00Z" }
+notes: "An update check whose intervals alternate between three and seven minutes: periodic on average, far outside the jitter bound."

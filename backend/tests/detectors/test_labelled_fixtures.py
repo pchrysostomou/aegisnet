@@ -57,6 +57,8 @@ def test_every_shipped_rule_has_at_least_three_positive_and_three_negative_cases
         "D-001": {"positive": 3, "negative": 4},
         "D-002": {"positive": 3, "negative": 4},
         "D-003": {"positive": 3, "negative": 3},
+        "D-004": {"positive": 3, "negative": 4},
+        "D-005": {"positive": 3, "negative": 4},
     }
 
 

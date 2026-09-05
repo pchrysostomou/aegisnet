@@ -6,7 +6,10 @@ and bounded outside this package; results are derived, bounded summaries that a 
 turns into alert rows with a severity it can explain (``severity``).
 """
 
+from aegisnet.domain.detectors.addresses import INTERNAL_NETWORKS, is_internal
 from aegisnet.domain.detectors.auth_burst import AuthBurstDetector, AuthBurstParams
+from aegisnet.domain.detectors.baselines import Summary, summarize
+from aegisnet.domain.detectors.beaconing import BeaconingDetector, BeaconingParams
 from aegisnet.domain.detectors.dns_anomaly import DnsAnomalyDetector, DnsAnomalyParams
 from aegisnet.domain.detectors.model import (
     MAX_EVIDENCE_CHARS,
@@ -15,6 +18,7 @@ from aegisnet.domain.detectors.model import (
     MAX_SAMPLES,
     MAX_WINDOW,
     MAX_WINDOW_EVENTS,
+    Baseline,
     DetectionError,
     DetectionResult,
     Detector,
@@ -34,10 +38,12 @@ from aegisnet.domain.detectors.severity import (
     reproduce,
     score,
 )
+from aegisnet.domain.detectors.volume_anomaly import VolumeAnomalyDetector, VolumeAnomalyParams
 from aegisnet.domain.enums import EntityType, SampleRole
 
 __all__ = [
     "DEFAULT_CRITICALITY",
+    "INTERNAL_NETWORKS",
     "FORMULA",
     "MAX_EVIDENCE_CHARS",
     "MAX_EVIDENCE_ITEMS",
@@ -47,6 +53,9 @@ __all__ = [
     "MAX_WINDOW_EVENTS",
     "AuthBurstDetector",
     "AuthBurstParams",
+    "Baseline",
+    "BeaconingDetector",
+    "BeaconingParams",
     "DetectionError",
     "DetectionResult",
     "Detector",
@@ -61,11 +70,16 @@ __all__ = [
     "RuleSpec",
     "SampleRole",
     "SeverityScore",
+    "Summary",
     "UnknownRuleError",
+    "VolumeAnomalyDetector",
+    "VolumeAnomalyParams",
     "bounded_evidence",
     "default_detectors",
     "get_detector",
+    "is_internal",
     "reproduce",
     "score",
+    "summarize",
     "window_bucket",
 ]

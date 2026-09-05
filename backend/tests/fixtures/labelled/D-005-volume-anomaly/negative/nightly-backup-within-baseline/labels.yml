@@ -1,0 +1,7 @@
+case_id: D-005-neg-nightly-backup-within-baseline
+rule_id: D-005
+expected: no_detection
+window: { start: "2026-09-01T10:00:00Z", end: "2026-09-01T11:00:00Z" }
+baselines:
+  - { address: "10.10.0.31", metric: outbound_bytes_per_hour, window_days: 7, mean: 524288000, stddev: 104857600, p95: 734003200, sample_count: 168 }
+notes: "650 MiB in an hour from an asset whose nightly backups put its mean at 500 MiB and p95 at 700 MiB. The hard negative: large in absolute terms, normal for this asset."

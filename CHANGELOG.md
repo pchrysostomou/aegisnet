@@ -9,6 +9,24 @@ Nothing is released yet. There is no tagged version.
 ## [Unreleased]
 
 ### Added
+- **Chunk 11 (Milestone 2) — D-004 beaconing, D-005 outbound volume, the baseline job.**
+  `domain/detectors/beaconing.py`: per host and `destination:port`, inter-arrival intervals
+  with a jitter bound and a minimum interval; internal destinations, DNS/DHCP/NTP/mDNS and
+  operator-listed destinations excluded. `domain/detectors/volume_anomaly.py`: an hour's
+  outbound bytes against the asset's baseline (mean + 3σ, 2 × p95, a 50 MiB floor),
+  abstaining without a usable baseline. `domain/detectors/addresses.py` (the explicit
+  internal-address list) and `baselines.py` (mean, population stddev, nearest-rank p95).
+  `EventWindow.baselines` carries address-keyed statistics into the rules (ADR-019).
+- `services/baseline_service.py` and `SqlBaselineStore`: one `asset_baselines` row per asset
+  with outbound history over the last N days, from a grouped hourly aggregation on the
+  event read store; the sweep maps those rows to the addresses in the window. The
+  `recompute_baselines` actor, CLI `recompute-baselines` and `baselines`,
+  `make recompute-baselines`, `make baselines`, `GET /api/v1/detections/baselines`
+  (`detections.read`) and `POST /api/v1/detections/baselines/recompute` (`detections.run`,
+  audited as `detection.baselines_requested`).
+- Fourteen labelled cases for D-004 and D-005 (the fixture generator renders hour-long
+  windows and puts baselines in `labels.yml`); specifications, guards and limitations in
+  `docs/detection-rules.md`; 42 new hermetic tests and 3 database tests.
 - **Chunk 10 (Milestone 2) — D-002 auth-failure burst and D-003 DNS anomaly.**
   `domain/detectors/auth_burst.py`: Suricata alerts whose signature or category reads like an
   authentication failure, tallied per source; fires on the count only when the densest

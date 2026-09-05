@@ -30,6 +30,9 @@ pytestmark = pytest.mark.unit
         ["alerts", "--limit", "ten"],
         ["alert", "not-a-uuid"],
         ["detector-runs", "--limit", "x"],
+        ["recompute-baselines", "--window-days", "0"],
+        ["recompute-baselines", "--window-days", "91"],
+        ["recompute-baselines", "--mode", "never"],
     ],
 )
 def test_usage_errors_exit_with_status_two(argv: list[str]) -> None:
@@ -49,5 +52,12 @@ def test_the_interval_is_checked_before_any_connection(capsys: pytest.CaptureFix
 
 def test_help_documents_the_detection_commands() -> None:
     text = build_parser().format_help()
-    for command in ("run-detectors", "alerts", "alert", "detector-runs"):
+    for command in (
+        "run-detectors",
+        "alerts",
+        "alert",
+        "detector-runs",
+        "recompute-baselines",
+        "baselines",
+    ):
         assert command in text

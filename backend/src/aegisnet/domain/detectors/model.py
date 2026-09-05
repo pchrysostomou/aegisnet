@@ -6,9 +6,9 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from ipaddress import IPv4Address, IPv6Address
+from ipaddress import IPv4Address, IPv6Address, ip_address
 from typing import Any, Final, Protocol
 from uuid import UUID
 
@@ -20,6 +20,7 @@ __all__ = [
     "DetectionError",
     "Entity",
     "EventWindow",
+    "Baseline",
     "EventSample",
     "DetectionResult",
     "RuleSpec",
@@ -74,22 +75,51 @@ def _aware(moment: datetime, name: str) -> datetime:
 
 
 @dataclass(frozen=True, slots=True)
+class Baseline:
+    """Rolling statistics for one address's asset (``asset_baselines``), precomputed by the
+    baseline job and handed to the window so a rule that needs history stays pure."""
+
+    metric: str
+    window_days: int
+    mean: float
+    stddev: float
+    p95: float
+    sample_count: int
+
+    def __post_init__(self) -> None:
+        if self.window_days < 1 or self.sample_count < 0:
+            raise DetectionError("a baseline needs a positive window and a sample count")
+        for name in ("mean", "stddev", "p95"):
+            value = getattr(self, name)
+            if not (math.isfinite(value) and value >= 0):
+                raise DetectionError(f"baseline {name} must be a finite non-negative number")
+
+
+@dataclass(frozen=True, slots=True)
 class EventWindow:
     """A bounded, ordered slice of events with the interval it was loaded for.
 
     ``events`` are sorted by ``(event_time, id)`` and every one lies in ``[start, end)``;
     the loader, not the detector, decides what belongs to a window. ``event_time`` is the
     data's own clock: a forged timestamp can move an event between windows but can never
-    widen one (T-1.7).
+    widen one (T-1.7). ``baselines`` maps an address to its asset's precomputed statistics
+    for the rules that compare against history (D-005); it is empty unless the sweep
+    loaded any.
     """
 
     start: datetime
     end: datetime
     events: tuple[EventRow, ...]
+    baselines: Mapping[str, Baseline] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         _aware(self.start, "window start")
         _aware(self.end, "window end")
+        for address in self.baselines:
+            try:
+                ip_address(address)
+            except ValueError as error:
+                raise DetectionError("baselines are keyed by IP address") from error
         if self.end <= self.start:
             raise DetectionError("window end must be after its start")
         if self.end - self.start > MAX_WINDOW:

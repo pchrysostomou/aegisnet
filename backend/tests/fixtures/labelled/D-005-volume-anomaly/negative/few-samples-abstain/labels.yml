@@ -1,0 +1,7 @@
+case_id: D-005-neg-few-samples-abstain
+rule_id: D-005
+expected: no_detection
+window: { start: "2026-09-01T10:00:00Z", end: "2026-09-01T11:00:00Z" }
+baselines:
+  - { address: "10.10.0.31", metric: outbound_bytes_per_hour, window_days: 7, mean: 1048576, stddev: 524288, p95: 2097152, sample_count: 5 }
+notes: "300 MiB from an asset whose baseline rests on five sampled hours: below the minimum, so the rule abstains."

@@ -1,0 +1,9 @@
+case_id: D-005-pos-exfil-10x-baseline
+rule_id: D-005
+expected: detection
+expected_entity: { type: src_ip, value: "10.10.0.31" }
+expected_min_severity: 3
+window: { start: "2026-09-01T10:00:00Z", end: "2026-09-01T11:00:00Z" }
+baselines:
+  - { address: "10.10.0.31", metric: outbound_bytes_per_hour, window_days: 7, mean: 20971520, stddev: 5242880, p95: 31457280, sample_count: 168 }
+notes: "400 MiB outbound in an hour from an asset whose baseline is 20 MiB mean, 5 MiB stddev, 30 MiB p95."

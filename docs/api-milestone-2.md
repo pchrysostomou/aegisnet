@@ -1,6 +1,6 @@
 # AegisNet — Milestone 2 API additions
 
-Status: **Chunk 9 (alerts, rules, runs, sweeps) implemented; the rest of M2 adds no route.**
+Status: **Chunks 9 and 11 (alerts, rules, runs, sweeps, baselines) implemented.**
 Conventions, the error envelope, auth and rate limits are those of
 [`api-milestone-1.md`](api-milestone-1.md). Permissions: `alerts.read` (viewer and above),
 `detections.read` (analyst and above), `detections.run` (admin).
@@ -35,6 +35,13 @@ Seeded from the code on first read if no sweep has run yet.
 **`GET /api/v1/detections/runs?limit=`** — `detections.read` · recent runs, newest first, `limit`
 1–200: `rule_id`, `window_start`, `window_end`, `events_examined`, `alerts_created`, `status`
 (`success|error|skipped`), `error_detail`, `duration_ms`, `created_at`.
+
+**`GET /api/v1/detections/baselines`** — `detections.read` · every `asset_baselines` row: `asset_id`,
+`metric`, `window_days`, `mean`, `stddev`, `p95`, `sample_count`, `computed_at` (ADR-019).
+
+**`POST /api/v1/detections/baselines/recompute`** — `detections.run` · body
+`{ "window_days": 7 }` (1–90, optional) → `202 { "window_days", "queued": true, "message_id" }`.
+The worker summarises each asset's hourly outbound history. Audit: `detection.baselines_requested`.
 
 **`POST /api/v1/detections/sweeps`** — `detections.run` · body `{ "from": "…", "to": "…" }`
 (aware timestamps, `to` after `from`, at most 24 hours) → `202 { "window_start", "window_end",

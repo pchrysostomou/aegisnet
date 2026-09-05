@@ -19,6 +19,7 @@ from aegisnet.domain.enums import (
     AlertStatus,
     AssetEnvironment,
     AuditResult,
+    BaselineMetric,
     DetectorRunStatus,
     EntityType,
     EventType,
@@ -33,6 +34,7 @@ from aegisnet.domain.ports import (
     AlertRecord,
     AssetRecord,
     AuditRow,
+    BaselineRecord,
     BatchSummary,
     DetectorRunRecord,
     EventRow,
@@ -463,6 +465,40 @@ class DetectorRunOut(BaseModel):
         )
 
 
+class BaselineOut(BaseModel):
+    asset_id: UUID
+    metric: BaselineMetric
+    window_days: int
+    mean: float
+    stddev: float
+    p95: float
+    sample_count: int
+    computed_at: datetime
+
+    @classmethod
+    def from_record(cls, record: BaselineRecord) -> BaselineOut:
+        return cls(
+            asset_id=record.asset_id,
+            metric=record.metric,
+            window_days=record.window_days,
+            mean=record.mean,
+            stddev=record.stddev,
+            p95=record.p95,
+            sample_count=record.sample_count,
+            computed_at=record.computed_at,
+        )
+
+
+class BaselineRecomputeRequest(Inbound):
+    window_days: int = Field(default=7, ge=1, le=90)
+
+
+class BaselineRecomputeAccepted(BaseModel):
+    window_days: int
+    queued: Literal[True] = True
+    message_id: str
+
+
 class SweepRequest(Inbound):
     time_from: datetime = Field(alias="from")
     time_to: datetime = Field(alias="to")
@@ -518,6 +554,9 @@ __all__ = [
     "AlertDetailOut",
     "AlertOut",
     "AlertPage",
+    "BaselineOut",
+    "BaselineRecomputeAccepted",
+    "BaselineRecomputeRequest",
     "DetectorRunOut",
     "RuleOut",
     "SweepAccepted",

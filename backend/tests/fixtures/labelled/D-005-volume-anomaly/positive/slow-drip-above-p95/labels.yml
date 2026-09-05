@@ -1,0 +1,9 @@
+case_id: D-005-pos-slow-drip-above-p95
+rule_id: D-005
+expected: detection
+expected_entity: { type: src_ip, value: "10.10.0.31" }
+expected_min_severity: 3
+window: { start: "2026-09-01T10:00:00Z", end: "2026-09-01T11:00:00Z" }
+baselines:
+  - { address: "10.10.0.31", metric: outbound_bytes_per_hour, window_days: 7, mean: 52428800, stddev: 10485760, p95: 83886080, sample_count: 168 }
+notes: "250 MiB over a hundred small flows from an asset with a 50 MiB mean and 80 MiB p95: above twice the p95."

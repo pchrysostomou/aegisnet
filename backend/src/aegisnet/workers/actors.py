@@ -18,7 +18,12 @@ import dramatiq
 
 from aegisnet.adapters.db import engine as db_engine
 from aegisnet.adapters.db.asset_store import SqlAssetStore
-from aegisnet.adapters.db.detection_store import SqlAlertStore, SqlDetectorRunStore, SqlRuleStore
+from aegisnet.adapters.db.detection_store import (
+    SqlAlertStore,
+    SqlBaselineStore,
+    SqlDetectorRunStore,
+    SqlRuleStore,
+)
 from aegisnet.adapters.db.event_read_store import SqlEventReadStore
 from aegisnet.adapters.db.ingest_store import SqlIngestStore
 from aegisnet.adapters.db.session import make_session_factory
@@ -28,11 +33,13 @@ from aegisnet.adapters.queue.names import (
     IMPORT_DATASET_ACTOR,
     IMPORT_UPLOAD_ACTOR,
     INGEST_QUEUE,
+    RECOMPUTE_BASELINES_ACTOR,
     RUN_DETECTORS_ACTOR,
 )
 from aegisnet.config import get_settings
 from aegisnet.logging import get_logger
 from aegisnet.services.asset_service import AssetService
+from aegisnet.services.baseline_service import BaselineService
 from aegisnet.services.detection_service import DetectionService, describe
 from aegisnet.services.ingest_service import IngestService, limits_from_settings
 
@@ -126,6 +133,7 @@ async def run_sweep(window_start: datetime, window_end: datetime) -> None:
             SqlAlertStore(sessions),
             SqlEventReadStore(sessions),
             AssetService(SqlAssetStore(sessions)),
+            baselines=SqlBaselineStore(sessions),
         )
         outcome = await service.sweep(window_start, window_end)
         logger.info(
@@ -149,3 +157,38 @@ async def run_sweep(window_start: datetime, window_end: datetime) -> None:
 )
 def run_detectors(window_start: str, window_end: str) -> None:
     asyncio.run(run_sweep(datetime.fromisoformat(window_start), datetime.fromisoformat(window_end)))
+
+
+async def run_baselines(window_days: int) -> None:
+    """Recompute ``asset_baselines`` over the last ``window_days`` (ADR-019)."""
+    settings = get_settings()
+    engine = db_engine.create_engine(settings)
+    try:
+        sessions = make_session_factory(engine)
+        service = BaselineService(
+            SqlAssetStore(sessions),
+            SqlEventReadStore(sessions),
+            SqlBaselineStore(sessions),
+            window_days=window_days,
+        )
+        run = await service.recompute()
+        logger.info(
+            "recompute_baselines_done",
+            extra={
+                "assets": run.assets_considered,
+                "written": run.baselines_written,
+                "window_days": run.window_days,
+            },
+        )
+    finally:
+        await db_engine.dispose(engine)
+
+
+@dramatiq.actor(
+    actor_name=RECOMPUTE_BASELINES_ACTOR,
+    queue_name=DETECTION_QUEUE,
+    max_retries=0,
+    time_limit=IMPORT_TIME_LIMIT_MS,
+)
+def recompute_baselines(window_days: int) -> None:
+    asyncio.run(run_baselines(int(window_days)))

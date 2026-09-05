@@ -9,7 +9,7 @@ COMPOSE ?= docker compose
 UV ?= uv
 BACKEND := backend
 
-.PHONY: test-detectors gen-fixtures run-detectors alerts create-user users create-service-token revoke-service-token service-tokens \
+.PHONY: test-detectors gen-fixtures run-detectors alerts recompute-baselines baselines create-user users create-service-token revoke-service-token service-tokens \
         help bootstrap bootstrap-force verify-ignore require-env compose-config \
         build up down compose-ps compose-logs compose-down compose-test pin-digests clean \
         backend-install lint format format-check typecheck test test-cov check \
@@ -206,6 +206,15 @@ FROM ?= 2026-09-01T00:00:00Z
 TO ?= 2026-09-01T02:00:00Z
 run-detectors: require-env ## Run every detection rule over [FROM, TO) (MODE=sync|async)
 	$(COMPOSE) run --rm api python -m aegisnet.cli run-detectors --from $(FROM) --to $(TO) --mode $(MODE)
+
+# The baseline job behind D-005 (ADR-019): one asset_baselines row per asset with outbound
+# history in the last WINDOW_DAYS. Chunk 12 schedules it; until then run it by hand.
+WINDOW_DAYS ?= 7
+recompute-baselines: require-env ## Summarise each asset's outbound history into asset_baselines (WINDOW_DAYS=7, MODE=sync|async)
+	$(COMPOSE) run --rm api python -m aegisnet.cli recompute-baselines --window-days $(WINDOW_DAYS) --mode $(MODE)
+
+baselines: require-env ## List the stored baselines
+	$(COMPOSE) run --rm api python -m aegisnet.cli baselines
 
 LIMIT ?= 20
 alerts: require-env ## List alerts, newest first (LIMIT=20)

@@ -1,0 +1,7 @@
+case_id: D-004-pos-beacon-60s-low-jitter
+rule_id: D-004
+expected: detection
+expected_entity: { type: src_ip, value: "10.10.0.41" }
+expected_min_severity: 3
+window: { start: "2026-09-01T10:00:00Z", end: "2026-09-01T11:00:00Z" }
+notes: "58 outbound connections to one external endpoint every 60 seconds with 2 % jitter."

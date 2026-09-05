@@ -9,7 +9,11 @@ from typing import Any
 import dramatiq
 from dramatiq.brokers.redis import RedisBroker
 
-from aegisnet.adapters.queue.names import DETECTION_QUEUE, RUN_DETECTORS_ACTOR
+from aegisnet.adapters.queue.names import (
+    DETECTION_QUEUE,
+    RECOMPUTE_BASELINES_ACTOR,
+    RUN_DETECTORS_ACTOR,
+)
 
 
 class RedisDetectionQueue:
@@ -22,6 +26,18 @@ class RedisDetectionQueue:
             queue_name=DETECTION_QUEUE,
             actor_name=RUN_DETECTORS_ACTOR,
             args=(start.isoformat(), end.isoformat()),
+            kwargs={},
+            options={},
+        )
+        stored = self._broker.enqueue(message)  # type: ignore[no-untyped-call]
+        return str(stored.message_id)
+
+    def enqueue_baselines(self, window_days: int) -> str:
+        """Queue ``recompute_baselines(window_days)``; returns the message id."""
+        message: Any = dramatiq.Message(
+            queue_name=DETECTION_QUEUE,
+            actor_name=RECOMPUTE_BASELINES_ACTOR,
+            args=(int(window_days),),
             kwargs={},
             options={},
         )

@@ -21,6 +21,7 @@ from aegisnet.domain.enums import (
     AlertStatus,
     AssetEnvironment,
     AuditResult,
+    BaselineMetric,
     DetectorRunStatus,
     EntityType,
     EventType,
@@ -405,6 +406,46 @@ class AlertStore(Protocol):
     async def list(self, query: AlertFilter) -> Page[AlertRecord]: ...
 
     async def get(self, alert_id: UUID) -> AlertDetail | None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class BaselineRecord:
+    id: UUID
+    asset_id: UUID
+    metric: BaselineMetric
+    window_days: int
+    mean: float
+    stddev: float
+    p95: float
+    sample_count: int
+    computed_at: datetime
+
+
+class BaselineStore(Protocol):
+    async def upsert(
+        self,
+        *,
+        asset_id: UUID,
+        metric: BaselineMetric,
+        window_days: int,
+        mean: float,
+        stddev: float,
+        p95: float,
+        sample_count: int,
+        now: datetime,
+    ) -> BaselineRecord: ...
+
+    async def list(self, *, metric: BaselineMetric | None = None) -> tuple[BaselineRecord, ...]: ...
+
+
+class OutboundHistoryStore(Protocol):
+    async def hourly_outbound_bytes(
+        self, networks: Sequence[IPNetwork], start: datetime, end: datetime
+    ) -> tuple[tuple[datetime, int], ...]:
+        """``(hour, bytes_toserver)`` per hour for flows whose source lies in any of
+        ``networks`` and whose destination is not internal, oldest first; hours with no
+        such flow are omitted."""
+        ...
 
 
 class EventWindowStore(Protocol):

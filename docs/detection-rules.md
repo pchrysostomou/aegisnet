@@ -1,6 +1,6 @@
 # Detection rules
 
-Status: **D-001, D-002 and D-003 implemented (Milestone 2, Chunks 8 and 10); D-004 and D-005 planned.** Every rule is a pure,
+Status: **All five rules implemented (Milestone 2, Chunks 8, 10 and 11).** Every rule is a pure,
 versioned, parameterised function over a bounded event window (`backend/src/aegisnet/domain/detectors/`,
 ADR-017). This document is the specification each implementation and each labelled fixture is checked
 against; a parameter change is recorded here with the metric before and after (`docs/evaluation.md` §4).
@@ -205,14 +205,123 @@ domains or keeps labels short and low-entropy is not detected by the tunnel sign
 long-label signals may still fire); a resolver asset that forwards a real tunnel is attributed to
 the resolver, which is correct for the entity but hides the origin behind it.
 
-## D-004 Periodic beaconing — planned
+## D-004 Periodic beaconing — implemented, version 1
 
-Low-jitter, regular-interval outbound connections to a single destination. Hard negatives: NTP,
-software update checks, monitoring heartbeats. D-004 needs an allow-list of known-periodic
-destinations before it can ship.
+**Behaviour detected.** One host opens outbound connections to one destination at a regular
+interval with little jitter: the shape of a command-and-control check-in.
 
-## D-005 Outbound volume anomaly — planned
+| | |
+|---|---|
+| Rule id / version | `D-004` / 1 |
+| Base severity | 4 |
+| Window | 3600 s |
+| Entity | `src_ip` (the beaconing host) |
+| Events considered | `flow` records with a source, a destination and a destination port, to destinations that are not internal (see below) |
+| MITRE hint | T1071 Application Layer Protocol (informational only) |
 
-Outbound bytes far above the asset's rolling baseline (`asset_baselines`, recomputed on a schedule,
-never inside the detector). Hard negatives: a scheduled nightly backup that matches the baseline; a
-first-time asset with no baseline, on which the rule must abstain rather than alert.
+**Parameters** (`BeaconingParams`):
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `min_connections` | 10 | flows from one host to one `host:port` in the window (3 to 100 000) |
+| `min_interval_seconds` | 5 | the mean inter-arrival interval must be at least this; a burst is not a beacon |
+| `max_jitter` | 0.15 | standard deviation of the intervals over their mean, at most |
+| `allowed_ports` | 53, 67, 68, 123, 1900, 5353 | destination ports that are periodic by nature (DNS, DHCP, NTP, SSDP, mDNS) |
+| `allowed_app_protos` | dns, dhcp, ntp, mdns | the same, by Suricata's application protocol |
+| `allowed_destinations` | none | operator-listed addresses or CIDRs (a monitoring collector, a vendor's update endpoint) |
+| `include_internal` | false | count internal destinations too; off because beaconing is outbound |
+
+"Internal" is the rule's own list (`domain/detectors/addresses.py`): RFC 1918, loopback,
+link-local, carrier-grade NAT, unspecified, multicast and reserved space. The RFC 5737
+documentation ranges the synthetic corpus uses are deliberately external.
+
+**Algorithm.** Tally flows per source and per `destination:port`, skipping excluded
+destinations. For each destination with at least `min_connections` flows, compute the
+inter-arrival intervals of the flows in time order, their mean and population standard
+deviation; a destination is a beacon when the mean is at least `min_interval_seconds` and the
+jitter (stddev / mean) is at most `max_jitter`. One result per source: the destination with the
+lowest jitter leads, the others are listed.
+
+- `signal_strength = min(1, connections / min_connections / 3)`.
+- `confidence = max(0.5, 1 − 0.5 · jitter / max_jitter)`: a perfectly regular beacon is 1.0,
+  one at the jitter bound 0.5.
+- Evidence: `destination`, `connections`, `mean_interval_seconds`, `jitter`, `bytes_out`,
+  `app_proto`, up to three `beaconing_destinations`, the thresholds, `window_start`,
+  `window_end`. Samples: the first and last flow to the leading destination plus up to 18
+  evenly spaced ones; `event_count` covers every beaconing destination.
+
+**Guards and the hard negatives behind them.**
+
+| Guard | Hard negative that motivates it (fixture) |
+|---|---|
+| Internal destinations never count | `negative/monitoring-heartbeat-internal`: a 30-second heartbeat to an internal collector, perfectly regular. The hard negative: regularity alone would flag it |
+| Periodic protocols are excluded by port and application protocol | `negative/ntp-sync-every-minute` |
+| The jitter bound | `negative/update-check-jittered`: intervals alternating between three and seven minutes average five, but vary by 40 % |
+| The mean interval must be at least `min_interval_seconds` | a rapid burst of connections is D-001's or D-002's business, not a beacon (`tests/detectors/test_beaconing.py`) |
+| Irregular traffic to one address is not a beacon | `negative/browsing-irregular` |
+
+**Positive cases.** `beacon-60s-low-jitter` (58 connections, 2 % jitter), `beacon-5min-tls` (11
+connections five minutes apart), `beacon-among-noise` (a 45-second beacon buried in a hundred
+irregular web flows from the same host to forty hosts; the per-destination tally isolates it).
+All label `expected_min_severity: 3`.
+
+**Known limitations (version 1).** A beacon slower than one connection per six minutes never
+reaches ten connections in an hour; a beacon that rotates destinations (domain fronting, fast
+flux) splits across `destination:port` keys; jitter deliberately above 15 % evades the bound;
+the allow-lists are static and operator-maintained.
+
+## D-005 Outbound volume anomaly — implemented, version 1
+
+**Behaviour detected.** An asset sends far more in one hour than its own rolling history says
+is normal.
+
+| | |
+|---|---|
+| Rule id / version | `D-005` / 1 |
+| Base severity | 3 |
+| Window | 3600 s |
+| Entity | `src_ip` (the asset's address) |
+| Events considered | `flow` records with `bytes_toserver`, from an address that has a baseline on the window, to a destination that is not internal |
+| Baseline | `asset_baselines` rows with metric `outbound_bytes_per_hour`, written by the baseline job (ADR-019) and mapped to the addresses present in the window by the sweep |
+| MITRE hint | T1041 Exfiltration Over C2 Channel (informational only) |
+
+**Parameters** (`VolumeAnomalyParams`):
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `stddev_multiplier` | 3.0 | bound one: `mean + 3 · stddev` |
+| `p95_multiplier` | 2.0 | bound two: `2 · p95` |
+| `min_bytes` | 50 MiB | bound three: an absolute floor, so a quiet asset's tiny baseline cannot make a normal download an alert |
+| `min_samples` | 24 | sampled hours a baseline needs before the rule will use it |
+| `full_confidence_samples` | 168 | sampled hours at which confidence reaches 1.0 |
+
+**Algorithm.** The threshold is the largest of the three bounds. Per source address with a
+usable baseline, sum `bytes_toserver` over external-bound flows in the window; fire when the
+sum reaches the threshold.
+
+- `signal_strength = min(1, (bytes / threshold) / 3)`.
+- `confidence = 0.5 + 0.5 · min(1, sample_count / full_confidence_samples)`.
+- Evidence: `bytes_out`, `threshold_bytes`, `ratio`, the baseline's mean, stddev, p95, sample
+  count and window, `flows`, `distinct_destinations`, up to ten `sample_destinations`,
+  `window_start`, `window_end`. Samples: first, last, the largest flow as `peak`, and up to 17
+  evenly spaced ones.
+
+**Guards and the hard negatives behind them.**
+
+| Guard | Hard negative that motivates it (fixture) |
+|---|---|
+| No baseline, no judgement: the rule abstains for an address without a row | `negative/no-baseline-abstain`: 300 MiB from an address the job has never summarised. The hard negative named in the evaluation plan |
+| A baseline with fewer than `min_samples` hours is not used | `negative/few-samples-abstain` |
+| The threshold is relative to the asset's own history | `negative/nightly-backup-within-baseline`: 650 MiB from an asset whose backups put its p95 at 700 MiB |
+| Only `bytes_toserver` to external destinations count | `negative/inbound-download-not-outbound`: 500 MiB downloaded, 500 KiB sent |
+
+**Positive cases.** `exfil-10x-baseline` (400 MiB against a 30 MiB p95), `spike-on-quiet-asset`
+(120 MiB from a 1 MiB-an-hour asset; the 50 MiB floor is what it must clear),
+`slow-drip-above-p95` (250 MiB in a hundred small flows against an 80 MiB p95). All label
+`expected_min_severity: 3`.
+
+**Known limitations (version 1).** The baseline is per asset and per hour: an exfiltration
+spread evenly across a day at just under the hourly threshold is not seen; an asset with a
+noisy history gets a wide threshold; the first day of a new asset produces no baseline at all
+(by design); the job attributes traffic to assets by the inventory's networks, so an
+address outside every asset never gets a baseline.

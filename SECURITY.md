@@ -96,7 +96,7 @@ Actions written today: `auth.login_success`, `auth.login_failed`, `auth.refresh`
 `auth.refresh_reuse_detected`, `auth.logout`, `rbac.denied`, `ingest.batch_created`,
 `ingest.import_requested`, `ingest.refused`, `asset.created`, `asset.updated`,
 `asset.deactivated`, `user.created`, `service_token.created`, `service_token.revoked`,
-`detection.sweep_requested`.
+`detection.sweep_requested`, `detection.baselines_requested`.
 Admins read the trail at `GET /api/v1/audit` (newest first, filters, keyset cursors).
 
 ## Rate limits

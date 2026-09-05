@@ -22,12 +22,15 @@ from aegisnet.domain.assets import (
     AssetPatch,
     AssetSpec,
     IPAddress,
+    IPNetwork,
     NetworkRecord,
     resolve_ip,
 )
+from aegisnet.domain.detectors.addresses import is_internal
 from aegisnet.domain.enums import (
     AlertAssetRole,
     AlertStatus,
+    BaselineMetric,
     DetectorRunStatus,
     EventType,
     IngestStatus,
@@ -46,6 +49,7 @@ from aegisnet.domain.ports import (
     AuditEntry,
     AuditFilter,
     AuditRow,
+    BaselineRecord,
     BatchCounts,
     BatchFilter,
     BatchProvenance,
@@ -69,6 +73,7 @@ from aegisnet.domain.ports import (
 from aegisnet.services.asset_service import AssetService
 from aegisnet.services.audit_service import AuditReadService, AuditService
 from aegisnet.services.auth_service import AuthPolicy, AuthService
+from aegisnet.services.baseline_service import BaselineService
 from aegisnet.services.detection_service import DetectionService
 from aegisnet.services.event_read_service import EventReadService
 from aegisnet.services.ingest_service import IngestService, limits_from_settings
@@ -305,6 +310,21 @@ class FakeEventStore:
             key=lambda r: (r.event_time, r.id.int),
         )
         return tuple(rows[:max_events]), len(rows) > max_events
+
+    async def hourly_outbound_bytes(
+        self, networks: Sequence[IPNetwork], start: datetime, end: datetime
+    ) -> tuple[tuple[datetime, int], ...]:
+        totals: dict[datetime, int] = {}
+        for r in self.rows.values():
+            if r.event_type is not EventType.flow or r.src_ip is None or r.dest_ip is None:
+                continue
+            if not (start <= r.event_time < end) or not r.bytes_toserver:
+                continue
+            if is_internal(str(r.dest_ip)) or not any(r.src_ip in n for n in networks):
+                continue
+            hour = r.event_time.replace(minute=0, second=0, microsecond=0)
+            totals[hour] = totals.get(hour, 0) + r.bytes_toserver
+        return tuple(sorted(totals.items()))
 
     async def stats(self, query: EventQuery) -> EventStats:
         self.queries.append(query)
@@ -682,6 +702,43 @@ class FakeAlertStore:
         return AlertDetail(alert=record, events=events, assets=assets)
 
 
+class FakeBaselineStore:
+    def __init__(self) -> None:
+        self.rows: dict[tuple[UUID, BaselineMetric, int], BaselineRecord] = {}
+
+    async def upsert(
+        self,
+        *,
+        asset_id: UUID,
+        metric: BaselineMetric,
+        window_days: int,
+        mean: float,
+        stddev: float,
+        p95: float,
+        sample_count: int,
+        now: datetime,
+    ) -> BaselineRecord:
+        key = (asset_id, metric, window_days)
+        current = self.rows.get(key)
+        record = BaselineRecord(
+            id=current.id if current else uuid4(),
+            asset_id=asset_id,
+            metric=metric,
+            window_days=window_days,
+            mean=mean,
+            stddev=stddev,
+            p95=p95,
+            sample_count=sample_count,
+            computed_at=now,
+        )
+        self.rows[key] = record
+        return record
+
+    async def list(self, *, metric: BaselineMetric | None = None) -> tuple[BaselineRecord, ...]:
+        rows = [r for r in self.rows.values() if metric is None or r.metric is metric]
+        return tuple(sorted(rows, key=lambda r: (r.asset_id.int, r.metric.value, r.window_days)))
+
+
 class FakeWiring:
     """Everything the app needs, in memory, plus what tests need to inspect it."""
 
@@ -718,15 +775,21 @@ class FakeWiring:
         self.rule_store = FakeRuleStore()
         self.run_store = FakeDetectorRunStore()
         self.alert_store = FakeAlertStore()
+        self.baseline_store = FakeBaselineStore()
         self.detection = DetectionService(
             self.rule_store,
             self.run_store,
             self.alert_store,
             self.event_store,
             self.assets,
+            baselines=self.baseline_store,
             clock=self.clock,
         )
+        self.baselines = BaselineService(
+            self.asset_store, self.event_store, self.baseline_store, clock=self.clock
+        )
         self.sweeps: list[tuple[datetime, datetime]] = []
+        self.baseline_requests: list[int] = []
 
     def services(self) -> AppServices:
         async def enqueue_upload(batch_id: UUID, spool_name: str, source_label: str) -> str:
@@ -740,6 +803,10 @@ class FakeWiring:
         async def enqueue_sweep(start: datetime, end: datetime) -> str:
             self.sweeps.append((start, end))
             return f"sweep-{len(self.sweeps)}"
+
+        async def enqueue_baselines(window_days: int) -> str:
+            self.baseline_requests.append(window_days)
+            return f"baselines-{len(self.baseline_requests)}"
 
         return AppServices(
             settings=self.settings,
@@ -755,6 +822,8 @@ class FakeWiring:
             enqueue_import=enqueue_import,
             detection=self.detection,
             enqueue_sweep=enqueue_sweep,
+            baselines=self.baselines,
+            enqueue_baselines=enqueue_baselines,
         )
 
     def factory(self) -> object:

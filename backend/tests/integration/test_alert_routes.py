@@ -36,7 +36,7 @@ async def swept(wiring: FakeWiring) -> None:
         )
     )
     outcome = await wiring.detection.sweep(WINDOW_START, WINDOW_START + timedelta(minutes=20))
-    assert outcome.alerts_created == 1 and len(outcome.runs) == 3
+    assert outcome.alerts_created == 1 and len(outcome.runs) == 5
 
 
 @pytest.mark.usefixtures("swept")
@@ -97,14 +97,14 @@ def test_rules_and_runs(
 ) -> None:
     rules = client.get(f"{DETECTIONS}/rules", headers=viewer_headers)
     assert rules.status_code == 200, rules.text
-    assert [r["rule_id"] for r in rules.json()] == ["D-001", "D-002", "D-003"]
+    assert [r["rule_id"] for r in rules.json()] == ["D-001", "D-002", "D-003", "D-004", "D-005"]
     rule = rules.json()[0]
     assert rule["version"] == 1 and rule["enabled"] is True
     assert rule["params"]["distinct_ports"] == 20
     assert client.get(f"{DETECTIONS}/runs", headers=viewer_headers).status_code == 403
     runs = client.get(f"{DETECTIONS}/runs", params={"limit": 5}, headers=analyst_headers)
     assert runs.status_code == 200, runs.text
-    assert {r["rule_id"] for r in runs.json()} == {"D-001", "D-002", "D-003"}
+    assert {r["rule_id"] for r in runs.json()} == {"D-001", "D-002", "D-003", "D-004", "D-005"}
     [run] = [r for r in runs.json() if r["rule_id"] == "D-001"]
     assert run["status"] == "success" and run["alerts_created"] == 1
     assert (
@@ -116,7 +116,7 @@ def test_rules_and_runs(
 def test_rules_are_seeded_on_first_read(client: TestClient, viewer_headers: dict[str, str]) -> None:
     rules = client.get(f"{DETECTIONS}/rules", headers=viewer_headers)
     assert rules.status_code == 200
-    assert [r["rule_id"] for r in rules.json()] == ["D-001", "D-002", "D-003"]
+    assert [r["rule_id"] for r in rules.json()] == ["D-001", "D-002", "D-003", "D-004", "D-005"]
 
 
 def test_sweeps_are_queued_by_admins_only_and_audited(
@@ -145,3 +145,37 @@ def test_sweeps_are_queued_by_admins_only_and_audited(
             client.post(f"{DETECTIONS}/sweeps", json=bad, headers=admin_headers).status_code == 422
         ), bad
     assert len(wiring.sweeps) == 1
+
+
+def test_baselines_are_read_by_analysts_and_recomputed_by_admins(
+    client: TestClient,
+    wiring: FakeWiring,
+    viewer_headers: dict[str, str],
+    analyst_headers: dict[str, str],
+    admin_headers: dict[str, str],
+) -> None:
+    assert client.get(f"{DETECTIONS}/baselines", headers=viewer_headers).status_code == 403
+    empty = client.get(f"{DETECTIONS}/baselines", headers=analyst_headers)
+    assert empty.status_code == 200 and empty.json() == []
+    assert (
+        client.post(
+            f"{DETECTIONS}/baselines/recompute", json={}, headers=analyst_headers
+        ).status_code
+        == 403
+    )
+    accepted = client.post(
+        f"{DETECTIONS}/baselines/recompute", json={"window_days": 14}, headers=admin_headers
+    )
+    assert accepted.status_code == 202, accepted.text
+    assert accepted.json() == {"window_days": 14, "queued": True, "message_id": "baselines-1"}
+    assert wiring.baseline_requests == [14]
+    assert wiring.audit_store.entries[-1].action == "detection.baselines_requested"
+    default = client.post(f"{DETECTIONS}/baselines/recompute", json={}, headers=admin_headers)
+    assert default.status_code == 202 and default.json()["window_days"] == 7
+    for bad in ({"window_days": 0}, {"window_days": 91}, {"window_days": 7, "extra": 1}):
+        assert (
+            client.post(
+                f"{DETECTIONS}/baselines/recompute", json=bad, headers=admin_headers
+            ).status_code
+            == 422
+        )

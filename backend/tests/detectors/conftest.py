@@ -12,7 +12,7 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import yaml
 
-from aegisnet.domain.detectors import EventWindow
+from aegisnet.domain.detectors import Baseline, EventWindow
 from aegisnet.domain.enums import EventType
 from aegisnet.domain.eve.normalizer import normalize_lines
 from aegisnet.domain.models import NormalizedEvent
@@ -120,8 +120,22 @@ def load_case(directory: Path) -> LabelledCase:
     for number, outcome in normalize_lines(lines, now=NOW):
         assert isinstance(outcome, NormalizedEvent), f"{directory.name} line {number}: {outcome}"
         rows.append(row_from_normalized(outcome))
+    baselines = {
+        str(b["address"]): Baseline(
+            metric=str(b["metric"]),
+            window_days=int(b["window_days"]),
+            mean=float(b["mean"]),
+            stddev=float(b["stddev"]),
+            p95=float(b["p95"]),
+            sample_count=int(b["sample_count"]),
+        )
+        for b in labels.get("baselines", [])
+    }
     window = EventWindow(
-        _moment(labels["window"]["start"]), _moment(labels["window"]["end"]), tuple(rows)
+        _moment(labels["window"]["start"]),
+        _moment(labels["window"]["end"]),
+        tuple(rows),
+        baselines=baselines,
     )
     return LabelledCase(directory, labels, window)
 

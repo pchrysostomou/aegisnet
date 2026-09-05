@@ -17,10 +17,18 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from aegisnet.adapters.db.models import Alert, AlertAsset, AlertEvent, DetectionRule, DetectorRun
+from aegisnet.adapters.db.models import (
+    Alert,
+    AlertAsset,
+    AlertEvent,
+    AssetBaseline,
+    DetectionRule,
+    DetectorRun,
+)
 from aegisnet.domain.enums import (
     AlertAssetRole,
     AlertStatus,
+    BaselineMetric,
     DetectorRunStatus,
     EntityType,
     SampleRole,
@@ -30,6 +38,7 @@ from aegisnet.domain.ports import (
     AlertDetail,
     AlertFilter,
     AlertRecord,
+    BaselineRecord,
     DetectorRunRecord,
     NewAlert,
     Page,
@@ -342,3 +351,69 @@ class SqlAlertStore:
             events=tuple((event_id, SampleRole(role)) for event_id, role in events),
             assets=tuple((asset_id, AlertAssetRole(role)) for asset_id, role in assets),
         )
+
+
+def _baseline(row: AssetBaseline) -> BaselineRecord:
+    return BaselineRecord(
+        id=row.id,
+        asset_id=row.asset_id,
+        metric=BaselineMetric(row.metric),
+        window_days=row.window_days,
+        mean=float(row.mean),
+        stddev=float(row.stddev),
+        p95=float(row.p95),
+        sample_count=row.sample_count,
+        computed_at=row.computed_at,
+    )
+
+
+class SqlBaselineStore:
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._sessions = session_factory
+
+    async def upsert(
+        self,
+        *,
+        asset_id: UUID,
+        metric: BaselineMetric,
+        window_days: int,
+        mean: float,
+        stddev: float,
+        p95: float,
+        sample_count: int,
+        now: datetime,
+    ) -> BaselineRecord:
+        values = {
+            "asset_id": asset_id,
+            "metric": metric,
+            "window_days": window_days,
+            "mean": mean,
+            "stddev": stddev,
+            "p95": p95,
+            "sample_count": sample_count,
+            "computed_at": now,
+        }
+        statement = (
+            pg_insert(AssetBaseline)
+            .values(**values)
+            .on_conflict_do_update(
+                index_elements=["asset_id", "metric", "window_days"],
+                set_={
+                    k: values[k] for k in ("mean", "stddev", "p95", "sample_count", "computed_at")
+                },
+            )
+            .returning(AssetBaseline)
+        )
+        async with self._sessions() as session, session.begin():
+            row = (await session.execute(statement)).scalar_one()
+            return _baseline(row)
+
+    async def list(self, *, metric: BaselineMetric | None = None) -> tuple[BaselineRecord, ...]:
+        statement = select(AssetBaseline).order_by(
+            AssetBaseline.asset_id, AssetBaseline.metric, AssetBaseline.window_days
+        )
+        if metric is not None:
+            statement = statement.where(AssetBaseline.metric == metric)
+        async with self._sessions() as session:
+            rows = (await session.execute(statement)).scalars()
+            return tuple(_baseline(row) for row in rows)

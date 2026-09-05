@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import bisect
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from ipaddress import ip_address
@@ -22,6 +22,7 @@ from uuid import UUID
 from aegisnet.domain.detectors import (
     MAX_WINDOW,
     MAX_WINDOW_EVENTS,
+    Baseline,
     DetectionError,
     DetectionResult,
     Detector,
@@ -30,7 +31,7 @@ from aegisnet.domain.detectors import (
     score,
     window_bucket,
 )
-from aegisnet.domain.enums import AlertAssetRole, DetectorRunStatus, EntityType
+from aegisnet.domain.enums import AlertAssetRole, BaselineMetric, DetectorRunStatus, EntityType
 from aegisnet.domain.eve.sanitize import clean_text
 from aegisnet.domain.pagination import check_limit, decode_time_id
 from aegisnet.domain.ports import (
@@ -38,6 +39,7 @@ from aegisnet.domain.ports import (
     AlertFilter,
     AlertRecord,
     AlertStore,
+    BaselineStore,
     DetectorRunRecord,
     DetectorRunStore,
     EventRow,
@@ -128,10 +130,12 @@ class DetectionService:
         events: EventWindowStore,
         assets: AssetService,
         *,
+        baselines: BaselineStore | None = None,
         detectors: Sequence[Detector] | None = None,
         clock: Callable[[], datetime] = utc_now,
         max_events: int = MAX_WINDOW_EVENTS,
     ) -> None:
+        self._baselines = baselines
         self._rules = rules
         self._runs = runs
         self._alerts = alerts
@@ -174,6 +178,7 @@ class DetectionService:
         rules = await self.sync_rules()
         events, truncated = await self._events.load(start, end, max_events=self._max_events)
         times = [event.event_time for event in events]
+        baselines = await self._baselines_for(events) if not truncated else {}
         runs: list[DetectorRunRecord] = []
         for detector in self._detectors:
             spec = detector.spec
@@ -191,7 +196,7 @@ class DetectionService:
                 )
             else:
                 try:
-                    created = await self._run_rule(detector, events, times, start, end)
+                    created = await self._run_rule(detector, events, times, start, end, baselines)
                 except Exception as error:  # noqa: BLE001 - isolation is the point (ARCHITECTURE §7)
                     status = DetectorRunStatus.error
                     detail = clean_text(f"{type(error).__name__}: {error}", 256)
@@ -230,13 +235,17 @@ class DetectionService:
         times: Sequence[datetime],
         start: datetime,
         end: datetime,
+        baselines: Mapping[str, Baseline],
     ) -> int:
         spec = detector.spec
         created = 0
         now = self._clock()
         for bucket_start, bucket_end in _buckets(start, end, spec.window_seconds):
             window = EventWindow(
-                bucket_start, bucket_end, _slice(events, times, bucket_start, bucket_end)
+                bucket_start,
+                bucket_end,
+                _slice(events, times, bucket_start, bucket_end),
+                baselines=baselines,
             )
             if not window.events:
                 continue
@@ -244,6 +253,38 @@ class DetectionService:
             new_alerts = [await self._to_alert(result, spec.base_severity) for result in results]
             created += await self._alerts.create_many(new_alerts, now)
         return created
+
+    async def _baselines_for(self, events: Sequence[EventRow]) -> dict[str, Baseline]:
+        """Address → its asset's outbound baseline, for the addresses the window contains.
+        Precomputed rows only (ADR-019); an address whose asset has none gets no entry."""
+        if self._baselines is None:
+            return {}
+        rows = await self._baselines.list(metric=BaselineMetric.outbound_bytes_per_hour)
+        if not rows:
+            return {}
+        by_asset = {row.asset_id: row for row in rows}
+        found: dict[str, Baseline] = {}
+        seen: set[str] = set()
+        for event in events:
+            if event.src_ip is None:
+                continue
+            address = str(event.src_ip)
+            if address in seen:
+                continue
+            seen.add(address)
+            resolved = await self._assets.resolve(event.src_ip)
+            if resolved is None or resolved.asset.id not in by_asset:
+                continue
+            row = by_asset[resolved.asset.id]
+            found[address] = Baseline(
+                metric=row.metric.value,
+                window_days=row.window_days,
+                mean=row.mean,
+                stddev=row.stddev,
+                p95=row.p95,
+                sample_count=row.sample_count,
+            )
+        return found
 
     async def _to_alert(self, result: DetectionResult, base_severity: int) -> NewAlert:
         criticality: int | None = None

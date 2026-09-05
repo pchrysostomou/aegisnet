@@ -91,6 +91,9 @@ class Renderer:
         *,
         answered: bool,
         proto: str = "TCP",
+        app_proto: str | None = None,
+        bytes_out: int | None = None,
+        bytes_in: int | None = None,
     ) -> dict:
         self.next_flow_id += 1
         sport = self.rng.randint(32768, 60999)
@@ -105,6 +108,12 @@ class Renderer:
                 "state": "closed",
                 "reason": "timeout",
             }
+            if bytes_out is not None:
+                counters["bytes_toserver"] = bytes_out
+                counters["pkts_toserver"] = max(1, bytes_out // 1400)
+            if bytes_in is not None:
+                counters["bytes_toclient"] = bytes_in
+                counters["pkts_toclient"] = max(1, bytes_in // 1400)
             age = self.rng.randint(1, 45)
         else:
             counters = {
@@ -127,6 +136,7 @@ class Renderer:
             "dest_ip": dst,
             "dest_port": dport,
             "proto": proto,
+            **({"app_proto": app_proto} if app_proto else {}),
             "flow": {
                 **counters,
                 "start": suricata_timestamp(start),
@@ -272,6 +282,9 @@ class Case:
     build: Callable[[Renderer], list[dict]]
     expected_entity: tuple[str, str] | None = None
     expected_min_severity: int | None = None
+    window_seconds: int = 600
+    baselines: tuple[dict, ...] = ()
+    """Precomputed statistics the loader puts on the window (D-005): one entry per address."""
 
     @property
     def case_id(self) -> str:
@@ -526,6 +539,168 @@ def dnssec_txt_heavy(r: Renderer) -> list[dict]:
     return records
 
 
+# ---------------------------------------------------------------- D-004 cases
+
+HOUR = 3600
+
+
+def beacon(
+    r: Renderer,
+    src: str,
+    dst: str,
+    dport: int,
+    *,
+    interval: float,
+    jitter: float,
+    count: int,
+    app_proto: str | None = None,
+    proto: str = "TCP",
+) -> list[dict]:
+    records = []
+    when = WINDOW_START + timedelta(seconds=5)
+    for _ in range(count):
+        records.append(
+            r.flow(when, src, dst, dport, answered=True, proto=proto, app_proto=app_proto)
+        )
+        when += timedelta(seconds=interval * (1 + r.rng.uniform(-jitter, jitter)))
+    return records
+
+
+def beacon_60s(r: Renderer) -> list[dict]:
+    return beacon(r, "10.10.0.41", "198.51.100.7", 443, interval=60, jitter=0.02, count=58)
+
+
+def beacon_5min_tls(r: Renderer) -> list[dict]:
+    return beacon(
+        r, "10.10.0.42", "203.0.113.9", 443, interval=300, jitter=0.03, count=11, app_proto="tls"
+    )
+
+
+def beacon_among_noise(r: Renderer) -> list[dict]:
+    records = beacon(r, "10.10.0.43", "198.51.100.20", 8443, interval=45, jitter=0.05, count=75)
+    when = WINDOW_START + timedelta(seconds=2)
+    for index in range(100):
+        when += timedelta(seconds=r.rng.uniform(5, 60))
+        if when >= WINDOW_START + timedelta(seconds=HOUR - 1):
+            break
+        host = f"198.51.100.{100 + index % 40}"
+        records.append(r.flow(when, "10.10.0.43", host, 443, answered=True, app_proto="tls"))
+    return records
+
+
+def ntp_sync(r: Renderer) -> list[dict]:
+    return beacon(
+        r,
+        "10.10.0.44",
+        "203.0.113.123",
+        123,
+        interval=60,
+        jitter=0.01,
+        count=58,
+        app_proto="ntp",
+        proto="UDP",
+    )
+
+
+def update_check_jittered(r: Renderer) -> list[dict]:
+    records = []
+    when = WINDOW_START + timedelta(seconds=10)
+    for index in range(11):
+        records.append(
+            r.flow(when, "10.10.0.45", "203.0.113.50", 443, answered=True, app_proto="tls")
+        )
+        when += timedelta(seconds=180 if index % 2 == 0 else 420)
+    return records
+
+
+def monitoring_heartbeat_internal(r: Renderer) -> list[dict]:
+    return beacon(r, "10.10.0.46", "10.10.0.60", 9100, interval=30, jitter=0.01, count=115)
+
+
+def browsing_irregular(r: Renderer) -> list[dict]:
+    records = []
+    when = WINDOW_START + timedelta(seconds=3)
+    gaps = [5, 130, 12, 200, 7, 90, 45, 300, 9, 60, 15, 240, 20, 110, 6, 180, 30, 75, 8, 150]
+    for index in range(40):
+        records.append(
+            r.flow(when, "10.10.0.47", "198.51.100.77", 443, answered=True, app_proto="tls")
+        )
+        when += timedelta(seconds=gaps[index % len(gaps)])
+    return records
+
+
+# ---------------------------------------------------------------- D-005 cases
+
+MIB = 1024 * 1024
+ASSET = "10.10.0.31"
+
+
+def baseline(mean_mib: float, stddev_mib: float, p95_mib: float, samples: int = 168) -> dict:
+    return {
+        "address": ASSET,
+        "metric": "outbound_bytes_per_hour",
+        "window_days": 7,
+        "mean": int(mean_mib * MIB),
+        "stddev": int(stddev_mib * MIB),
+        "p95": int(p95_mib * MIB),
+        "sample_count": samples,
+    }
+
+
+def outbound(
+    r: Renderer, dst: str, total_mib: float, flows: int, *, inbound: bool = False
+) -> list[dict]:
+    per_flow = int(total_mib * MIB / flows)
+    records = []
+    for when in spread(WINDOW_START + timedelta(seconds=15), HOUR - 60, flows):
+        if inbound:
+            records.append(
+                r.flow(
+                    when,
+                    ASSET,
+                    dst,
+                    443,
+                    answered=True,
+                    app_proto="tls",
+                    bytes_out=20_000,
+                    bytes_in=per_flow,
+                )
+            )
+        else:
+            records.append(
+                r.flow(when, ASSET, dst, 443, answered=True, app_proto="tls", bytes_out=per_flow)
+            )
+    return records
+
+
+def exfil_10x(r: Renderer) -> list[dict]:
+    return outbound(r, "198.51.100.9", 400, 40)
+
+
+def spike_on_quiet_asset(r: Renderer) -> list[dict]:
+    return outbound(r, "203.0.113.44", 120, 12)
+
+
+def slow_drip(r: Renderer) -> list[dict]:
+    return outbound(r, "198.51.100.30", 250, 100)
+
+
+def nightly_backup(r: Renderer) -> list[dict]:
+    return outbound(r, "198.51.100.40", 650, 30)
+
+
+def no_baseline(r: Renderer) -> list[dict]:
+    return outbound(r, "198.51.100.9", 300, 30)
+
+
+def few_samples(r: Renderer) -> list[dict]:
+    return outbound(r, "198.51.100.9", 300, 30)
+
+
+def inbound_download(r: Renderer) -> list[dict]:
+    return outbound(r, "198.51.100.50", 500, 25, inbound=True)
+
+
 CASES: list[Case] = [
     Case(
         "D-001",
@@ -712,6 +887,163 @@ CASES: list[Case] = [
         dnssec_txt_heavy,
     ),
     Case(
+        "D-004",
+        "positive",
+        "beacon-60s-low-jitter",
+        "58 outbound connections to one external endpoint every 60 seconds with 2 % jitter.",
+        beacon_60s,
+        ("src_ip", "10.10.0.41"),
+        3,
+        window_seconds=HOUR,
+    ),
+    Case(
+        "D-004",
+        "positive",
+        "beacon-5min-tls",
+        "11 TLS connections to one external endpoint every five minutes with 3 % jitter.",
+        beacon_5min_tls,
+        ("src_ip", "10.10.0.42"),
+        3,
+        window_seconds=HOUR,
+    ),
+    Case(
+        "D-004",
+        "positive",
+        "beacon-among-noise",
+        (
+            "A 45-second beacon to one endpoint buried in a hundred irregular web flows from the "
+            "same host to forty other hosts; the per-destination tally isolates it."
+        ),
+        beacon_among_noise,
+        ("src_ip", "10.10.0.43"),
+        3,
+        window_seconds=HOUR,
+    ),
+    Case(
+        "D-004",
+        "negative",
+        "ntp-sync-every-minute",
+        (
+            "NTP to an external time server every minute: periodic and legitimate, excluded by "
+            "port and protocol."
+        ),
+        ntp_sync,
+        window_seconds=HOUR,
+    ),
+    Case(
+        "D-004",
+        "negative",
+        "update-check-jittered",
+        (
+            "An update check whose intervals alternate between three and seven minutes: periodic "
+            "on average, far outside the jitter bound."
+        ),
+        update_check_jittered,
+        window_seconds=HOUR,
+    ),
+    Case(
+        "D-004",
+        "negative",
+        "monitoring-heartbeat-internal",
+        (
+            "A 30-second heartbeat to an internal monitoring collector. The hard negative: "
+            "perfectly regular, but internal, and beaconing is outbound."
+        ),
+        monitoring_heartbeat_internal,
+        window_seconds=HOUR,
+    ),
+    Case(
+        "D-004",
+        "negative",
+        "browsing-irregular",
+        "Forty connections to one CDN address at irregular intervals.",
+        browsing_irregular,
+        window_seconds=HOUR,
+    ),
+    Case(
+        "D-005",
+        "positive",
+        "exfil-10x-baseline",
+        (
+            "400 MiB outbound in an hour from an asset whose baseline is 20 MiB mean, 5 MiB "
+            "stddev, 30 MiB p95."
+        ),
+        exfil_10x,
+        ("src_ip", ASSET),
+        3,
+        window_seconds=HOUR,
+        baselines=(baseline(20, 5, 30),),
+    ),
+    Case(
+        "D-005",
+        "positive",
+        "spike-on-quiet-asset",
+        "120 MiB outbound from an asset that usually sends about 1 MiB an hour.",
+        spike_on_quiet_asset,
+        ("src_ip", ASSET),
+        3,
+        window_seconds=HOUR,
+        baselines=(baseline(1, 0.5, 2),),
+    ),
+    Case(
+        "D-005",
+        "positive",
+        "slow-drip-above-p95",
+        (
+            "250 MiB over a hundred small flows from an asset with a 50 MiB mean and 80 MiB p95: "
+            "above twice the p95."
+        ),
+        slow_drip,
+        ("src_ip", ASSET),
+        3,
+        window_seconds=HOUR,
+        baselines=(baseline(50, 10, 80),),
+    ),
+    Case(
+        "D-005",
+        "negative",
+        "nightly-backup-within-baseline",
+        (
+            "650 MiB in an hour from an asset whose nightly backups put its mean at 500 MiB and "
+            "p95 at 700 MiB. The hard negative: large in absolute terms, normal for this asset."
+        ),
+        nightly_backup,
+        window_seconds=HOUR,
+        baselines=(baseline(500, 100, 700),),
+    ),
+    Case(
+        "D-005",
+        "negative",
+        "no-baseline-abstain",
+        "300 MiB from an address with no baseline row: the rule abstains rather than guessing.",
+        no_baseline,
+        window_seconds=HOUR,
+    ),
+    Case(
+        "D-005",
+        "negative",
+        "few-samples-abstain",
+        (
+            "300 MiB from an asset whose baseline rests on five sampled hours: below the minimum, "
+            "so the rule abstains."
+        ),
+        few_samples,
+        window_seconds=HOUR,
+        baselines=(baseline(1, 0.5, 2, samples=5),),
+    ),
+    Case(
+        "D-005",
+        "negative",
+        "inbound-download-not-outbound",
+        (
+            "500 MiB downloaded with 500 KiB sent from an asset with an 8 MiB p95: inbound bytes "
+            "are not the metric."
+        ),
+        inbound_download,
+        window_seconds=HOUR,
+        baselines=(baseline(5, 1, 8),),
+    ),
+    Case(
         "D-001",
         "negative",
         "dns-client-bursts",
@@ -732,10 +1064,19 @@ def labels_for(case: Case) -> str:
         lines.append(f'expected_entity: {{ type: {kind}, value: "{value}" }}')
     if case.expected_min_severity is not None:
         lines.append(f"expected_min_severity: {case.expected_min_severity}")
+    end = WINDOW_START + timedelta(seconds=case.window_seconds)
     lines.append(
         f'window: {{ start: "{WINDOW_START.strftime("%Y-%m-%dT%H:%M:%SZ")}", '
-        f'end: "{WINDOW_END.strftime("%Y-%m-%dT%H:%M:%SZ")}" }}'
+        f'end: "{end.strftime("%Y-%m-%dT%H:%M:%SZ")}" }}'
     )
+    if case.baselines:
+        lines.append("baselines:")
+        for b in case.baselines:
+            lines.append(
+                f'  - {{ address: "{b["address"]}", metric: {b["metric"]}, '
+                f'window_days: {b["window_days"]}, mean: {b["mean"]}, stddev: {b["stddev"]}, '
+                f'p95: {b["p95"]}, sample_count: {b["sample_count"]} }}'
+            )
     lines.append(f'notes: "{case.notes}"')
     return "\n".join(lines) + "\n"
 
@@ -760,7 +1101,13 @@ def write_all(out: Path) -> list[Path]:
     return written
 
 
-RULE_DIRS = {"D-001": "port-scan", "D-002": "auth-burst", "D-003": "dns-anomaly"}
+RULE_DIRS = {
+    "D-001": "port-scan",
+    "D-002": "auth-burst",
+    "D-003": "dns-anomaly",
+    "D-004": "beaconing",
+    "D-005": "volume-anomaly",
+}
 
 
 def main(argv: list[str] | None = None) -> int:

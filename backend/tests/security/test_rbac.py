@@ -66,6 +66,14 @@ CASES: list[Case] = [
     ("GET", f"/api/v1/alerts/{ZERO}", Permission.alerts_read, None, None),
     ("GET", "/api/v1/detections/rules", Permission.alerts_read, None, None),
     ("GET", "/api/v1/detections/runs", Permission.detections_read, None, None),
+    ("GET", "/api/v1/detections/baselines", Permission.detections_read, None, None),
+    (
+        "POST",
+        "/api/v1/detections/baselines/recompute",
+        Permission.detections_run,
+        {"window_days": 7},
+        None,
+    ),
     (
         "POST",
         "/api/v1/detections/sweeps",

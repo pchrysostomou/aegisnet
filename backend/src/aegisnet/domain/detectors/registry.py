@@ -5,9 +5,11 @@ against; this module is the in-process source of truth for the code that runs.""
 from __future__ import annotations
 
 from aegisnet.domain.detectors.auth_burst import AuthBurstDetector
+from aegisnet.domain.detectors.beaconing import BeaconingDetector
 from aegisnet.domain.detectors.dns_anomaly import DnsAnomalyDetector
 from aegisnet.domain.detectors.model import Detector
 from aegisnet.domain.detectors.port_scan import PortScanDetector
+from aegisnet.domain.detectors.volume_anomaly import VolumeAnomalyDetector
 
 
 class UnknownRuleError(LookupError):
@@ -15,7 +17,13 @@ class UnknownRuleError(LookupError):
 
 
 def default_detectors() -> tuple[Detector, ...]:
-    return (PortScanDetector(), AuthBurstDetector(), DnsAnomalyDetector())
+    return (
+        PortScanDetector(),
+        AuthBurstDetector(),
+        DnsAnomalyDetector(),
+        BeaconingDetector(),
+        VolumeAnomalyDetector(),
+    )
 
 
 def get_detector(rule_id: str) -> Detector:

@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from aegisnet.adapters.db.models import AssetNetwork, Event
 from aegisnet.domain.assets import IPAddress, IPNetwork
+from aegisnet.domain.detectors.addresses import INTERNAL_NETWORKS
 from aegisnet.domain.enums import EventType
 from aegisnet.domain.pagination import decode_time_id, encode_time_id
 from aegisnet.domain.ports import EventQuery, EventReadStore, EventRow, EventStats, Page
@@ -165,6 +166,33 @@ class SqlEventReadStore(EventReadStore):
             rows = (await session.execute(statement)).all()
         truncated = len(rows) > max_events
         return tuple(_row(row, None) for row in rows[:max_events]), truncated
+
+    async def hourly_outbound_bytes(
+        self, networks: Sequence[IPNetwork], start: datetime, end: datetime
+    ) -> tuple[tuple[datetime, int], ...]:
+        """The history D-005's baselines are built from (``OutboundHistoryStore``)."""
+        if not networks:
+            return ()
+        hour = func.date_trunc("hour", Event.event_time).label("hour")
+        internal = or_(*[Event.dest_ip.op("<<=")(cast(str(n), CIDR)) for n in INTERNAL_NETWORKS])
+        inside = or_(*[Event.src_ip.op("<<=")(cast(str(n), CIDR)) for n in networks])
+        statement = (
+            select(hour, func.coalesce(func.sum(Event.bytes_toserver), 0))
+            .where(
+                Event.event_type == EventType.flow,
+                Event.event_time >= start,
+                Event.event_time < end,
+                Event.bytes_toserver.is_not(None),
+                Event.dest_ip.is_not(None),
+                inside,
+                ~internal,
+            )
+            .group_by(hour)
+            .order_by(hour)
+        )
+        async with self._sessions() as session:
+            rows = (await session.execute(statement)).all()
+        return tuple((moment, int(total)) for moment, total in rows)
 
     async def get(self, event_id: UUID, *, include_payload: bool) -> EventRow | None:
         columns: Sequence[Any] = (*COLUMNS, Event.payload) if include_payload else COLUMNS

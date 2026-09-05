@@ -26,6 +26,8 @@ Commands:
     alerts                         list alerts, newest first
     alert ALERT_ID                 show one alert with its sampled events and linked assets
     detector-runs                  recent detector runs
+    recompute-baselines            summarise each asset's outbound history into asset_baselines
+    baselines                      list the stored baselines
 
 Every result is one JSON object on stdout; exit status 0 on success, 1 on a failure the
 operator can act on (failed batch, registry or inventory error), 2 on usage errors.
@@ -59,7 +61,12 @@ from aegisnet.adapters.db.auth_store import (
     SqlServiceTokenStore,
     SqlUserStore,
 )
-from aegisnet.adapters.db.detection_store import SqlAlertStore, SqlDetectorRunStore, SqlRuleStore
+from aegisnet.adapters.db.detection_store import (
+    SqlAlertStore,
+    SqlBaselineStore,
+    SqlDetectorRunStore,
+    SqlRuleStore,
+)
 from aegisnet.adapters.db.event_read_store import SqlEventReadStore
 from aegisnet.adapters.db.ingest_store import SqlIngestStore
 from aegisnet.adapters.db.session import make_session_factory
@@ -84,6 +91,7 @@ from aegisnet.logging import configure_logging
 from aegisnet.services.asset_service import AssetService
 from aegisnet.services.audit_service import AuditService
 from aegisnet.services.auth_service import AuthPolicy, AuthService
+from aegisnet.services.baseline_service import BaselineService
 from aegisnet.services.detection_service import (
     AlertNotFoundError,
     DetectionService,
@@ -123,16 +131,20 @@ class Services:
         self._engine = db_engine.create_engine(settings)
         sessions = make_session_factory(self._engine)
         self.ingest = IngestService(SqlIngestStore(sessions), limits_from_settings(settings))
-        self.assets = AssetService(SqlAssetStore(sessions))
+        asset_store = SqlAssetStore(sessions)
+        self.assets = AssetService(asset_store)
         events_store = SqlEventReadStore(sessions)
         self.events = EventReadService(events_store)
+        baseline_store = SqlBaselineStore(sessions)
         self.detection = DetectionService(
             SqlRuleStore(sessions),
             SqlDetectorRunStore(sessions),
             SqlAlertStore(sessions),
             events_store,
             self.assets,
+            baselines=baseline_store,
         )
+        self.baselines = BaselineService(asset_store, events_store, baseline_store)
         self.auth = AuthService(
             SqlUserStore(sessions),
             SqlRefreshTokenStore(sessions),
@@ -307,6 +319,14 @@ def build_parser() -> argparse.ArgumentParser:
     alert.add_argument("alert_id", type=UUID)
     runs = commands.add_parser("detector-runs", help="recent detector runs, newest first")
     runs.add_argument("--limit", type=int, default=20)
+    recompute = commands.add_parser(
+        "recompute-baselines", help="summarise each asset's outbound history into asset_baselines"
+    )
+    recompute.add_argument(
+        "--window-days", type=int, default=7, choices=range(1, 91), metavar="1..90"
+    )
+    recompute.add_argument("--mode", choices=["sync", "async"], default="sync")
+    commands.add_parser("baselines", help="list the stored baselines")
     return parser
 
 
@@ -644,6 +664,33 @@ def cmd_detector_runs(settings: Settings, limit: int) -> int:
     return EXIT_OK
 
 
+def cmd_recompute_baselines(settings: Settings, args: argparse.Namespace) -> int:
+    if args.mode == "async":
+        message_id = RedisDetectionQueue(install_broker(settings)).enqueue_baselines(
+            args.window_days
+        )
+        _emit({"queued": True, "message_id": message_id, "window_days": args.window_days})
+        return EXIT_OK
+
+    async def action(services: Services) -> object:
+        service = BaselineService(
+            services.baselines._assets,
+            services.baselines._history,
+            services.baselines._baselines,
+            window_days=args.window_days,
+        )
+        return await service.recompute()
+
+    _emit(_run(settings, action))
+    return EXIT_OK
+
+
+def cmd_baselines(settings: Settings) -> int:
+    rows = _run(settings, lambda s: s.baselines.list())
+    _emit({"baselines": list(rows)})
+    return EXIT_OK
+
+
 # ---------------------------------------------------------------- entrypoint
 
 
@@ -689,6 +736,10 @@ def dispatch(settings: Settings, samples_dir: Path, args: argparse.Namespace) ->
             return cmd_alert(settings, args.alert_id)
         case "detector-runs":
             return cmd_detector_runs(settings, args.limit)
+        case "recompute-baselines":
+            return cmd_recompute_baselines(settings, args)
+        case "baselines":
+            return cmd_baselines(settings)
     return EXIT_USAGE  # pragma: no cover - argparse enforces the command set
 
 

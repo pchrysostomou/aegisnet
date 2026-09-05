@@ -36,6 +36,7 @@ from aegisnet.logging import correlation_id_var, get_logger
 from aegisnet.services.asset_service import AssetService
 from aegisnet.services.audit_service import AuditReadService, AuditService
 from aegisnet.services.auth_service import AuthService
+from aegisnet.services.baseline_service import BaselineService
 from aegisnet.services.detection_service import DetectionService
 from aegisnet.services.event_read_service import EventReadService
 from aegisnet.services.ingest_service import IngestService
@@ -72,6 +73,9 @@ class AppServices:
     detection: DetectionService
     enqueue_sweep: Callable[[datetime, datetime], Awaitable[str]]
     """Queues ``run_detectors(window_start, window_end)``; returns a message id."""
+    baselines: BaselineService
+    enqueue_baselines: Callable[[int], Awaitable[str]]
+    """Queues ``recompute_baselines(window_days)``; returns a message id."""
 
 
 def services(request: Request) -> AppServices:

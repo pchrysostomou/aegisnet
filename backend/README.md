@@ -59,7 +59,8 @@ Application foundation only:
   `audit.py` — the Milestone 1 routes
 - `adapters/db/auth_store.py`, `adapters/db/audit_store.py` — the SQL user, refresh-token,
   service-token and audit stores; `adapters/cache/rate_limiter.py` — fixed-window limiter
-  and access-token denylist on Redis; `adapters/files/spool.py` — the capped upload spool
+  and access-token denylist on Redis; `adapters/files/spool.py`, `adapters/files/ndjson.py` — the capped upload spool and
+  async NDJSON line reading
 - `cli.py` — `python -m aegisnet.cli` with `datasets`, `import-dataset`, `batch`,
   `batches`, `rejects`, `seed-assets`, `assets`, `asset`, `resolve`, `events`,
   `event-stats`, `create-user`, `users`, `create-service-token`, `revoke-service-token`,

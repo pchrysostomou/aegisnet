@@ -74,10 +74,8 @@ async def run_upload(batch_id: UUID, spool_name: str) -> None:
         service = IngestService(
             SqlIngestStore(make_session_factory(engine)), limits_from_settings(settings)
         )
-        path = spool.open(spool_name)
         try:
-            with path.open("rb") as handle:
-                summary = await service.ingest(handle, batch_id=batch_id)
+            summary = await service.ingest(spool.lines(spool_name), batch_id=batch_id)
         finally:
             spool.remove(spool_name)
         logger.info(

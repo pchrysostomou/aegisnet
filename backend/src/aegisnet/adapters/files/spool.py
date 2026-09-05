@@ -1,9 +1,10 @@
 """Upload spool: where an ingest body waits between the request and the worker (T-1.4).
 
 Bytes are streamed to a file under ``SPOOL_DIR`` with a hard cap; a body that grows past
-the cap is discarded before anything parses it. Names are random and the directory is the
-only place a name is ever resolved, so a message carrying a spool name (TB-5: ids only)
-cannot point anywhere else.
+the cap is discarded before anything parses it. The caller mints the entry name with
+:meth:`Spool.new_name` *before* touching the body, so nothing derived from an upload ever
+becomes part of a path; the directory is the only place a name is resolved, so a message
+carrying a spool name (TB-5: ids only) cannot point anywhere else.
 """
 
 from __future__ import annotations
@@ -11,9 +12,12 @@ from __future__ import annotations
 import re
 import uuid
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
+
+import anyio
+
+from aegisnet.adapters.files.ndjson import read_lines
 
 SPOOL_NAME: Final = re.compile(r"^[0-9a-f]{32}\.ndjson$")
 
@@ -28,12 +32,6 @@ class SpoolTooLargeError(SpoolError):
 
 class UnknownSpoolError(SpoolError):
     pass
-
-
-@dataclass(frozen=True, slots=True)
-class Spooled:
-    name: str
-    size: int
 
 
 class Spool:
@@ -52,27 +50,37 @@ class Spool:
             raise SpoolError(f"spool directory is not writable: {error.strerror}") from error
         return self._dir
 
+    def new_name(self) -> str:
+        """A fresh random entry name; mint it before reading a single byte of the body."""
+        return f"{uuid.uuid4().hex}.ndjson"
+
     def _path(self, name: str) -> Path:
         if not SPOOL_NAME.match(name):
             raise UnknownSpoolError("unknown spool entry")
         return self._dir / name
 
-    async def write(self, chunks: AsyncIterator[bytes], *, max_bytes: int) -> Spooled:
+    async def write(self, name: str, chunks: AsyncIterator[bytes], *, max_bytes: int) -> int:
+        """Stream ``chunks`` into entry ``name`` under a hard cap; returns the byte count.
+        Past the cap the partial file is removed and ``SpoolTooLargeError`` raised."""
+        path = self._path(name)
         self._dir.mkdir(parents=True, exist_ok=True)
-        name = f"{uuid.uuid4().hex}.ndjson"
-        path = self._dir / name
         size = 0
         try:
-            with path.open("wb") as handle:
+            async with await anyio.open_file(path, "wb") as handle:
                 async for chunk in chunks:
                     size += len(chunk)
                     if size > max_bytes:
                         raise SpoolTooLargeError(f"body exceeds {max_bytes} bytes")
-                    handle.write(chunk)
+                    await handle.write(chunk)
         except BaseException:
             path.unlink(missing_ok=True)
             raise
-        return Spooled(name=name, size=size)
+        return size
+
+    async def lines(self, name: str) -> AsyncIterator[bytes]:
+        """The entry's lines, read through ``anyio`` so the loop is never blocked."""
+        async for line in read_lines(self.open(name)):
+            yield line
 
     def open(self, name: str) -> Path:
         path = self._path(name)

@@ -51,7 +51,10 @@ unavailable.
    answer `429` while reads and the default group proceed and log an error. A burst
    straddling two windows can briefly reach twice the limit; that is accepted for M1.
 6. **Uploads go through a spool, messages carry the spool name.** The request body is
-   streamed to `SPOOL_DIR` under a hard byte cap before anything parses it; `mode=sync`
+   streamed to `SPOOL_DIR` under a hard byte cap before anything parses it, into an entry
+   whose name the route mints *before* reading a byte, so no path is ever derived from
+   upload content; reads and writes go through `anyio` so the loop that serves
+   `mode=sync` is not blocked on disk I/O; `mode=sync`
    runs the ingest service inline up to `INGEST_SYNC_MAX_LINES`, `mode=async` opens the
    batch row and enqueues `import_upload(batch_id, spool_name, source_label)`. The worker
    resolves the name inside the spool directory only (a name is 32 hex characters plus

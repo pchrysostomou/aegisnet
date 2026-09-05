@@ -102,6 +102,8 @@ async def ingest_eve(
         raise PayloadTooLargeError(f"body exceeds {settings.ingest_max_body_bytes} bytes")
 
     content_type = request.headers.get("content-type", "")
+    name = svc.spool.new_name()  # minted before the body is read: never derived from it
+    cap_bytes = settings.ingest_max_body_bytes
     try:
         if content_type.startswith("multipart/form-data"):
             if not declared.isdigit():
@@ -111,14 +113,10 @@ async def ingest_eve(
             if not isinstance(upload, UploadFile):
                 raise ValidationFailedError("file", "a multipart part named 'file' is required")
             method = IngestMethod.api_file
-            spooled = await svc.spool.write(
-                _file_chunks(upload), max_bytes=settings.ingest_max_body_bytes
-            )
+            size = await svc.spool.write(name, _file_chunks(upload), max_bytes=cap_bytes)
         else:
             method = IngestMethod.api_ndjson
-            spooled = await svc.spool.write(
-                request.stream(), max_bytes=settings.ingest_max_body_bytes
-            )
+            size = await svc.spool.write(name, request.stream(), max_bytes=cap_bytes)
     except SpoolTooLargeError:
         await _audit_refusal(svc, principal, request, "body_too_large")
         raise
@@ -130,11 +128,11 @@ async def ingest_eve(
             principal.subject,
             limit=settings.rate_limit_ingest_bytes_per_hour,
             window_seconds=3600,
-            cost=max(spooled.size, 1),
+            cost=max(size, 1),
             fail_open=False,
         )
     except Exception:
-        svc.spool.remove(spooled.name)
+        svc.spool.remove(name)
         raise
 
     actor_user_id, actor_token_id = _actor_ids(principal)
@@ -149,15 +147,14 @@ async def ingest_eve(
 
     if mode == "sync":
         cap = settings.ingest_sync_max_lines
-        if svc.spool.count_lines(spooled.name, stop_above=cap) > cap:
-            svc.spool.remove(spooled.name)
+        if svc.spool.count_lines(name, stop_above=cap) > cap:
+            svc.spool.remove(name)
             await _audit_refusal(svc, principal, request, "sync_lines_exceeded", cap=cap)
             raise PayloadTooLargeError(f"sync mode accepts at most {cap} lines; use mode=async")
         try:
-            with svc.spool.open(spooled.name).open("rb") as handle:
-                summary = await svc.ingest.ingest(handle, provenance)
+            summary = await svc.ingest.ingest(svc.spool.lines(name), provenance)
         finally:
-            svc.spool.remove(spooled.name)
+            svc.spool.remove(name)
         await svc.audit.record(
             "ingest.batch_created",
             target_type="ingest_batch",
@@ -166,7 +163,7 @@ async def ingest_eve(
                 "mode": "sync",
                 "method": method.value,
                 "source_label": source_label,
-                "bytes": spooled.size,
+                "bytes": size,
                 "received": summary.counts.received,
                 "stored": summary.counts.stored,
                 "duplicate": summary.counts.duplicate,
@@ -181,9 +178,9 @@ async def ingest_eve(
 
     batch_id = await svc.ingest.open_batch(provenance)
     try:
-        await svc.enqueue_upload(batch_id, spooled.name, source_label)
+        await svc.enqueue_upload(batch_id, name, source_label)
     except Exception:
-        svc.spool.remove(spooled.name)
+        svc.spool.remove(name)
         raise
     await svc.audit.record(
         "ingest.batch_created",
@@ -193,7 +190,7 @@ async def ingest_eve(
             "mode": "async",
             "method": method.value,
             "source_label": source_label,
-            "bytes": spooled.size,
+            "bytes": size,
         },
         principal=principal,
         actor_ip=ip,
@@ -201,7 +198,7 @@ async def ingest_eve(
     )
     accepted = IngestAccepted(
         batch_id=batch_id,
-        bytes_received=spooled.size,
+        bytes_received=size,
         accepted_at=datetime.now(tz=UTC),
         poll_url=f"/api/v1/ingest/batches/{batch_id}",
     )

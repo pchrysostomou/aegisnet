@@ -14,13 +14,14 @@ batch and is also the reference for the timestamp sanity window (T-1.7).
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Final
 from uuid import UUID
 
+from aegisnet.adapters.files.ndjson import read_lines
 from aegisnet.adapters.files.registry import (
     RegistryError,
     ResolvedDataset,
@@ -49,6 +50,9 @@ logger = get_logger(__name__)
 
 DEFAULT_CHUNK_SIZE: Final = 500
 DEFAULT_LIMIT_ROWS: Final = 50
+
+
+Line = bytes | str
 
 
 class IngestLimitExceededError(Exception):
@@ -112,7 +116,7 @@ class IngestService:
 
     async def ingest(
         self,
-        lines: Iterable[bytes | str],
+        lines: Iterable[bytes | str] | AsyncIterable[bytes | str],
         provenance: BatchProvenance | None = None,
         *,
         batch_id: UUID | None = None,
@@ -130,7 +134,7 @@ class IngestService:
         rejects: list[RejectedLine] = []
         limit_hit = False
         try:
-            for line_number, raw in enumerate(lines, start=1):
+            async for line_number, raw in _numbered(lines):
                 text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
                 if not text.strip():
                     continue
@@ -230,8 +234,22 @@ class IngestService:
         provenance = provenance_for(
             resolved, source_label, actor_user_id=actor_user_id, actor_token_id=actor_token_id
         )
-        with resolved.path.open("rb") as handle:
-            return await self.ingest(handle, provenance, batch_id=batch_id)
+        return await self.ingest(read_lines(resolved.path), provenance, batch_id=batch_id)
+
+
+async def _numbered(
+    lines: Iterable[Line] | AsyncIterable[Line],
+) -> AsyncIterator[tuple[int, Line]]:
+    """Number lines from either kind of source; file handles and lists stay supported."""
+    number = 0
+    if isinstance(lines, AsyncIterable):
+        async for item in lines:
+            number += 1
+            yield number, item
+    else:
+        for item in lines:
+            number += 1
+            yield number, item
 
 
 def provenance_for(

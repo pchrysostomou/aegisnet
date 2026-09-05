@@ -11,6 +11,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
+    { name = "anyio" },
     { name = "argon2-cffi" },
     { name = "asyncpg" },
     { name = "dramatiq", extra = ["redis"] },
@@ -41,6 +42,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.19,<2.0" },
+    { name = "anyio", specifier = ">=4.0,<5.0" },
     { name = "argon2-cffi", specifier = ">=23.1,<24.0" },
     { name = "asyncpg", specifier = ">=0.29,<0.30" },
     { name = "dramatiq", extras = ["redis"], specifier = ">=1.17,<2.0" },

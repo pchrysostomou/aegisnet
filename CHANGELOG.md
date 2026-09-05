@@ -208,6 +208,11 @@ Nothing is released yet. There is no tagged version.
   the runner — and `security` failed on the genuine dependency findings fixed below.
 
 ### Changed
+- `Spool.write(name, chunks, max_bytes)` takes a caller-minted name (`Spool.new_name()`)
+  and returns the byte count; `Spool.lines(name)` reads an entry asynchronously. The
+  ingest route mints the name before it reads the body. `anyio` is a direct dependency.
+- `.sonarcloud.properties` declares the source roots and `backend/tests` as tests for
+  SonarCloud automatic analysis, so ratings reflect main code (E-39).
 - `/api/v1/meta/version` requires a credential (`meta.read`); the CI stack probe and the
   README quickstart obtain a service token first (Chunk 6).
 - `IngestService.ingest` accepts a pre-opened `batch_id` so the worker can finish a batch
@@ -265,6 +270,10 @@ Nothing is released yet. There is no tagged version.
   `node:22-alpine`, matching the CI node version.
 
 ### Fixed
+- Sonar `python:S7493` (a synchronous `Path.open()` inside an `async def`) in the dataset
+  importer and the upload actor, the two Major bugs behind the *Reliability Rating on New
+  Code C*: NDJSON is now read through `anyio` and `IngestService.ingest` accepts a sync or
+  async line source (E-39).
 - The `ingest_spool` named volume was mounted root-owned while the api and worker run as
   uid 10001, so the first HTTP upload failed with `500`. The image now creates `/app/spool`
   owned by the runtime user (a named volume inherits it on first use) and both processes

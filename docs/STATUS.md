@@ -11,12 +11,12 @@
 
 | | |
 |---|---|
-| Phase | **Milestone 1 complete — Chunks 1–7 done, verified locally (E-42) and in CI (E-43); Milestone 2 (detection engine) next** |
-| Application code written | Settings, JSON logging, error envelope, `/healthz`, `/readyz`, `/api/v1/meta/version`, DB/Redis connectivity adapters, Dramatiq broker with zero actors; Alembic baseline `0001_m1_baseline` for the nine M1 tables, ORM models, schema enums in `domain/`, `schema_revision()` (ADR-012); EVE domain — limits, sanitiser, schema, canonical hash, normaliser — dataset registry adapter, synthetic generator and committed corpus (ADR-013); ingest service, SQL ingest store, `import_dataset` actor in the `workers` layer, operator CLI (ADR-014); asset inventory with overlap rules and CIDR resolution, event read queries with keyset pagination, revision 0002, `make seed` (ADR-015); Argon2id users, HS256 access tokens, rotating refresh tokens with reuse detection, service tokens, the deny-by-default permission dependency on every route, Redis rate limits and denylist, the bounded audit writer, the upload spool and `import_upload` actor, the HTTP routes for auth, ingest, batches, assets, events and audit, the user/token CLI, `SECURITY.md` (ADR-016) |
+| Phase | **Milestone 2 in progress — Chunk 8 (detector contract, severity formula, D-001 port scan with labelled fixtures) verified locally (E-44); CI evidence in E-45** |
+| Application code written | Settings, JSON logging, error envelope, `/healthz`, `/readyz`, `/api/v1/meta/version`, DB/Redis connectivity adapters, Dramatiq broker with zero actors; Alembic baseline `0001_m1_baseline` for the nine M1 tables, ORM models, schema enums in `domain/`, `schema_revision()` (ADR-012); EVE domain — limits, sanitiser, schema, canonical hash, normaliser — dataset registry adapter, synthetic generator and committed corpus (ADR-013); ingest service, SQL ingest store, `import_dataset` actor in the `workers` layer, operator CLI (ADR-014); asset inventory with overlap rules and CIDR resolution, event read queries with keyset pagination, revision 0002, `make seed` (ADR-015); Argon2id users, HS256 access tokens, rotating refresh tokens with reuse detection, service tokens, the deny-by-default permission dependency on every route, Redis rate limits and denylist, the bounded audit writer, the upload spool and `import_upload` actor, the HTTP routes for auth, ingest, batches, assets, events and audit, the user/token CLI, `SECURITY.md` (ADR-016); the detector contract (`domain/detectors/`), the severity formula, the registry and D-001 port scan with seven labelled fixtures (ADR-017) |
 | Repository | **Public** on GitHub since 2026-09-05 with topics, Dependabot alerts, secret scanning and push protection enabled; MIT; `CONTRIBUTING.md`, `SECURITY.md`, pull-request template |
 | Frontend | Health placeholder: one page, `GET /api/health` |
-| Tests written | 565 hermetic (unit, integration, security) plus 44 database tests (marker `db`, opt-in, real PostgreSQL) |
-| Tests run | **Yes, locally** — hermetic suite E-34; database suite E-35 (native); Compose and stack paths E-36, E-37 |
+| Tests written | 604 hermetic (unit, integration, security, detectors) plus 44 database tests (marker `db`, opt-in, real PostgreSQL) |
+| Tests run | **Yes, locally** — hermetic suite E-44; database suite E-44 (native), E-36 (Compose); stack path E-37 |
 | Docker stack | **Built and started locally; all five services healthy** — see evidence E-3 |
 | Database | Roles `aegisnet_migrator` / `aegisnet_app` created at init; **nine tables created by `make migrate`** under the migrator role, runtime-role privileges proven exact by the database suite (E-18); `/api/v1/meta/version` reports the packaged head |
 | Perplexity integration | **Not implemented; no API call has been made** |
@@ -71,14 +71,15 @@
 | E-41 | 2026-09-05: with the repository public on GitHub the SonarCloud project stayed private, so the last finding was located by bisection: nine `[skip ci]` commits (bb8538b … 7dda2b0) changed `sonar.exclusions` in `.sonarcloud.properties` and the check on each was read from the GitHub API | Excluding the auth and ingest routers: still C. Excluding all of `backend/src`: still C. Analysing `backend/src` only: **passed**, so the properties file is honoured and the finding was outside the backend. Excluding the frontend and the tests: still C. Excluding `infra` and `tools` as well: passed. Keeping `tools`, excluding `infra`: passed. Keeping the PostgreSQL init script, excluding `infra/scripts`: passed. The file was `infra/scripts/bootstrap_env.py`; its only security-relevant calls were `os.open(…, 0o600)` and a follow-up `Path.chmod(stat.S_IRUSR \| stat.S_IWUSR)`, and SonarCloud's public rule catalogue lists exactly one Major Python vulnerability rule that matches such code, `S2612` (world-accessible file permissions). The chmod was redundant on POSIX (the umask can only tighten the 0600 the file is created with) and was removed; with the full scope restored the gate **passed** (7dda2b0). Both GitHub workflows were skipped on the probe commits and run again on the final push |
 | E-42 | 2026-09-05, Chunk 7: `ruff check`, `ruff format --check`, `mypy` (65 files), `lint-imports`, `ENV=test uv run pytest --cov=aegisnet --cov-fail-under=85`, native database suite | clean; both contracts kept; `566 passed, 44 skipped`, coverage 94 %; `44 passed`. New behaviour: a `dataset_id` that fails its grammar on the import route is audited as `ingest.refused` naming the field and the caller, never the value; an unauthenticated attempt is `401` and leaves no entry. Documents reconciled at the gate: `ARCHITECTURE.md` (status, implementation-status section, M1 topology, Redis failure mode), `THREAT_MODEL.md` (gate review, T-1.6), `docs/evaluation.md`, the delivery plan's seven M1 acceptance boxes with evidence, the last API acceptance box, the DoD checklist and documents table here |
 | E-43 | Push 73dba41 (Chunk 7): GitHub Actions `ci` run **33966427477**, `security` run **33966427581**, SonarCloud check | ✅ all five `ci` jobs green with no annotation — `backend` 41s, `migrations` 67s, `stack` 95s (compose up, migrate, CLI user and token, `401` without a credential, HTTP ingest of the corpus, worker completion, audit read); `security` green (`pip-audit`, `pnpm audit`, `gitleaks`); SonarCloud **Quality Gate passed** |
+| E-44 | 2026-09-05, Chunk 8: `ruff check` (backend, `tools/`), `ruff format --check`, `mypy` (70 files, strict on `domain/`), `lint-imports`, `ENV=test uv run pytest --cov=aegisnet --cov-fail-under=85`, native database suite, `python3 tools/gen_labelled_fixtures.py` into a temporary directory | clean; both contracts kept (the new package is inside `domain/` and imports nothing from the infrastructure); `604 passed, 44 skipped`, coverage 94.8 %, `domain/detectors/` 97 – 100 % per file; `44 passed`. The 38 new tests cover the window bounds (naive timestamps, events outside the window, spans over 24 h, the 200 000-event cap, sorting), evidence bounds (forbidden keys, long or control-character strings, nesting, list and key caps, NaN), result validation and the dedup key, bucket flooring, the severity formula at its clamps with `reproduce` catching a tampered result, D-001's inclusive thresholds, the backup-client guard (500 flows to one target: nothing), `min_flows`, non-flow events ignored, signal and confidence values, sample roles, purity and order independence, the registry, and all seven labelled cases (three positives fire on the labelled entity at severity ≥ 3, four negatives stay silent); the regenerated fixtures are byte-identical to the committed ones |
 
 ## Milestone tracker
 
 | Milestone | Status | Evidence | Notes |
 |---|---|---|---|
 | M0 Planning | ✅ Complete | This doc set | PRD, architecture, threat model, data model, M1 API, delivery plan, evaluation plan |
-| M1 Foundation / ingest / normalize / assets | ✅ Complete — Chunks 1–7 | E-1 – E-8, E-18 – E-43 | M2: detection engine |
-| M2 Five detectors + labelled fixtures | ⬜ Not started | — | Blocked on M1 |
+| M1 Foundation / ingest / normalize / assets | ✅ Complete — Chunks 1–7 | E-1 – E-8, E-18 – E-43 | — |
+| M2 Five detectors + labelled fixtures | 🟡 In progress — Chunk 8 done | E-44, E-45 | Next: Chunk 9, the detection schema, alert store, sweep service and alerts API |
 | M3 Correlation / incidents / workflow | ⬜ Not started | — | Blocked on M2 |
 | M4 Analyst dashboard | ⬜ Not started | — | Blocked on M3 |
 | M5 Perplexity brief + Markdown export | ⬜ Not started | — | Blocked on M4 (safe renderer first) |
@@ -95,6 +96,17 @@
 | 5 | Assets API, events read API | ✅ Services, stores and CLI verified locally (E-29 – E-32) and in CI (E-33); HTTP routes with Chunk 6 |
 | 6 | Auth, RBAC, audit, rate limits, `SECURITY.md` | ✅ Verified locally (E-34 – E-37) and in CI (E-38) |
 | 7 | Docs update at the M1 gate with CI evidence | ✅ Verified locally (E-42) and in CI (E-43) |
+
+## Milestone 2 chunk tracker
+
+| Chunk | Contents | Status |
+|---|---|---|
+| 8 | Detector contract (bounded windows, bounded evidence, dedup keys, samples), severity formula, registry, D-001 port scan, labelled fixtures and their generator, `docs/detection-rules.md` | ✅ Verified locally (E-44); CI E-45 |
+| 9 | Detection schema (revision 0003: `detection_rules`, `detector_runs`, `alerts`, `alert_events`, `alert_assets`, `asset_baselines`), alert store with dedup, window loader, sweep service with per-rule failure isolation, `run_detectors` actor, `/api/v1/alerts` read API, `make run-detectors` | ⬜ |
+| 10 | D-002 auth-failure burst and D-003 DNS anomaly with fixtures | ⬜ |
+| 11 | D-004 beaconing (known-periodic allow-list) and D-005 outbound volume with the baseline recompute job | ⬜ |
+| 12 | periodiq schedule (ADR-010 revisited), post-ingest sweep, `make eval` and the first metrics table | ⬜ |
+| 13 | The isolated Suricata lab (ADR-009 revisited) and the documents at the M2 gate | ⬜ |
 
 ## Definition-of-Done checklist (v1.0.0)
 
@@ -123,7 +135,7 @@
 | `docs/delivery-plan.md` | ✅ v0.1; the M1 acceptance criteria are ticked with evidence rows (Chunk 7) |
 | `docs/evaluation.md` | ✅ Plan; **results empty by design**, restated at the M1 gate: no detector exists, accuracy unmeasured |
 | `samples/README.md` | ✅ Chunk 3: datasets, registry fields, how a file is imported |
-| `docs/detection-rules.md` | ⬜ M2 |
+| `docs/detection-rules.md` | ✅ Chunk 8: the shared contract and D-001's specification, guards and hard negatives; D-002 – D-005 planned |
 | `docs/perplexity-integration.md` | ⬜ M5 |
 | `docs/demo-script.md` | ⬜ M6 |
 | `docs/RELEASE_CHECKLIST.md` | ⬜ M6 |
@@ -168,7 +180,7 @@
 
 ## Next actions
 
-1. Milestone 2 (`docs/delivery-plan.md`): the five deterministic detectors as pure functions over bounded windows with labelled positive **and** negative fixtures, `docs/detection-rules.md`, the `periodiq` scheduler (ADR-010 revisited), and the decision on the isolated Suricata lab (ADR-009 revisited). First chunk: the detector interface, the `DetectionResult` model and D-001 port scan with its fixtures.
+1. Chunk 9: revision `0003` with the six detection tables from `docs/data-model.md`, the SQL alert store (unique `dedup_key`, sampled `alert_events`, `alert_assets` through CIDR resolution), the window loader over the event read store, a sweep service that runs every registered rule with per-rule failure isolation recorded in `detector_runs`, the `run_detectors` actor, `make run-detectors FROM= TO=`, the `/api/v1/alerts` read API with `alerts.read` for viewers and above, and the README rows for all of it.
 2. SonarCloud: the gate passes (E-41). To show the badge and open the API, make the SonarCloud project public (Project Settings → Visibility); nothing else depends on it.
 3. Owed at M6 from the Definition of Done: a human reviewer's README walk-through, screenshots, the demo script, `docs/RELEASE_CHECKLIST.md`.
 4. Keep this file, `README.md` and `THREAT_MODEL.md` updated per chunk, not afterwards.

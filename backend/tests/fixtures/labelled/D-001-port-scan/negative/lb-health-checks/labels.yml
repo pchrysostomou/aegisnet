@@ -1,0 +1,5 @@
+case_id: D-001-neg-lb-health-checks
+rule_id: D-001
+expected: no_detection
+window: { start: "2026-09-01T10:00:00Z", end: "2026-09-01T10:10:00Z" }
+notes: "A load balancer probing 4 backends on 3 ports every two minutes: 60 answered flows, 12 distinct targets, well under both thresholds."

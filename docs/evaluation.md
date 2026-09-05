@@ -31,7 +31,7 @@ Non-negotiable. Any evaluation run that violates one of these is invalid.
 
 | Tier | Source | Purpose | Committed? |
 |---|---|---|---|
-| **T1 — Synthetic unit fixtures** | Hand-written EVE JSON in `tests/fixtures/labelled/<rule>/` with `labels.yml` | Per-detector correctness: precision/recall against exact ground truth | Yes |
+| **T1 — Synthetic unit fixtures** | EVE JSON in `backend/tests/fixtures/labelled/<rule>/` with `labels.yml`, rendered from hand-specified case definitions by `tools/gen_labelled_fixtures.py` (seeded; a test pins the committed files to the generator) | Per-detector correctness: precision/recall against exact ground truth | Yes |
 | **T2 — Synthetic scenario corpus** | `tools/gen_synthetic_eve.py --scenario ...` — multi-hour, multi-asset, with injected benign noise | End-to-end pipeline, correlation quality, false-positive rate under noise | Yes (generator + manifest; corpus regenerated deterministically) |
 | **T3 — Isolated lab capture** | `infra/lab/` containers generating benign traffic plus operator-authorised scripted behaviour, observed by Suricata | Realism check: does the pipeline survive real EVE output | No (operator-local; a small sanitized excerpt may be committed) |
 

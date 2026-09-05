@@ -9,7 +9,7 @@ COMPOSE ?= docker compose
 UV ?= uv
 BACKEND := backend
 
-.PHONY: create-user users create-service-token revoke-service-token service-tokens \
+.PHONY: test-detectors gen-fixtures create-user users create-service-token revoke-service-token service-tokens \
         help bootstrap bootstrap-force verify-ignore require-env compose-config \
         build up down compose-ps compose-logs compose-down compose-test pin-digests clean \
         backend-install lint format format-check typecheck test test-cov check \
@@ -191,6 +191,18 @@ revoke-service-token: require-env ## Revoke a service token (ID=<uuid>)
 
 service-tokens: require-env ## List service tokens (never hashes)
 	$(COMPOSE) run --rm -T api python -m aegisnet.cli service-tokens
+
+## ---------------------------------------------------------------- detection
+
+# The detector suite alone: bounds, severity, every rule and every labelled fixture
+# (docs/detection-rules.md, ADR-017). Part of the hermetic suite too.
+test-detectors: ## Run the detector suite (rules, severity, labelled fixtures)
+	cd $(BACKEND) && ENV=test $(UV) run pytest tests/detectors
+
+# Regenerates the labelled T1 fixtures from tools/gen_labelled_fixtures.py. A test fails
+# until the regenerated files are committed, so a case change is always reviewable.
+gen-fixtures: ## Regenerate backend/tests/fixtures/labelled from the case definitions
+	python3 tools/gen_labelled_fixtures.py --out backend/tests/fixtures/labelled
 
 # Regenerates the committed synthetic corpus byte-for-byte (seeded). After changing the
 # generator, run this, then update sha256 in samples/registry.yml; the integration suite

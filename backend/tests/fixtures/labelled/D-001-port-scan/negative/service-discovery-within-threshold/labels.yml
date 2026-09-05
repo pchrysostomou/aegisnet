@@ -1,0 +1,5 @@
+case_id: D-001-neg-service-discovery-within-threshold
+rule_id: D-001
+expected: no_detection
+window: { start: "2026-09-01T10:00:00Z", end: "2026-09-01T10:10:00Z" }
+notes: "Service discovery over 8 hosts x 2 ports, twice: 32 answered flows, 16 targets, 8 hosts and 2 ports, below both thresholds."

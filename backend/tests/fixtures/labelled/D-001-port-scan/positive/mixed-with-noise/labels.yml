@@ -1,0 +1,7 @@
+case_id: D-001-pos-mixed-with-noise
+rule_id: D-001
+expected: detection
+expected_entity: { type: src_ip, value: "10.10.0.77" }
+expected_min_severity: 3
+window: { start: "2026-09-01T10:00:00Z", end: "2026-09-01T10:10:00Z" }
+notes: "25 hosts x 2 ports over eight minutes from one source, buried in 60 answered web and DNS flows from three other workstations; only the scanner may alert."

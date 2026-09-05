@@ -1,0 +1,5 @@
+case_id: D-001-neg-dns-client-bursts
+rule_id: D-001
+expected: no_detection
+window: { start: "2026-09-01T10:00:00Z", end: "2026-09-01T10:10:00Z" }
+notes: "A client sending 300 DNS queries to the resolver in ten minutes: one target, answered."

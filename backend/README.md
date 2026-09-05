@@ -42,6 +42,9 @@ Application foundation only:
 - `domain/ports.py` — the `IngestStore`, `AssetStore` and `EventReadStore` Protocols and
   their value objects (ADR-014, ADR-015); `domain/pagination.py` — bounded keyset cursors
 - `domain/assets.py` — asset specs, overlap detection and the reference CIDR resolver
+- `domain/detectors/` — the detector contract (bounded windows and results, sampled
+  evidence, dedup keys), the recorded severity formula, the registry and D-001 port scan
+  (ADR-017, `docs/detection-rules.md`); pure like the rest of `domain/`
 - `services/ingest_service.py` — the ingest use-case: streaming, chunked, idempotent;
   batch and reject listing
 - `services/asset_service.py`, `services/event_read_service.py` — the inventory and the
@@ -78,6 +81,7 @@ opt-in and needs the ephemeral PostgreSQL from `docker-compose.test.yml --profil
 | Directory | Marker | What it covers |
 |---|---|---|
 | `tests/unit/` | `unit` | settings, log hygiene, broker factory, `bootstrap_env.py`; EVE sanitiser, limits, schema, hash and normaliser over `tests/fixtures/eve/`; the synthetic generator; the ingest, asset and event read services against in-memory stores; asset rules, cursors, the CLI and the seed loader; the auth domain and service (lockout, rotation, reuse, forged tokens), the audit writer's bounds, the Redis limiter and denylist on `fakeredis`, the spool, the auth CLI commands |
+| `tests/detectors/` | `unit` | the detector contract's bounds, the severity formula and its reproduction, D-001 thresholds, guards, samples and purity, the registry, and every labelled fixture under `tests/fixtures/labelled/` (pinned to `tools/gen_labelled_fixtures.py`) |
 | `tests/integration/` | `integration` | the assembled app in-process over `tests/fakes.py` (in-memory stores, a settable clock, a breakable limiter): health, readiness with faked probes, version, correlation IDs; the auth, ingest, asset, event and audit routes including cookies, refresh replay, rate limits and the audit trail each route leaves; the committed corpus, its manifest and the registry checksum |
 | `tests/security/` | `security` | THREAT_MODEL mitigations: the error envelope (T-2.7), and the committed Compose files, Dockerfiles, `.env.example`, `.gitignore` and pre-commit config read as data (T-5.1, T-5.2, T-5.4); payload limits (T-1.4, T-1.5); dataset path traversal (T-1.6); pagination bounds (T-2.6); the RBAC route enumeration and role × route matrix, credential downgrade refusal and audited denials (T-2.1, T-2.2, T-2.4) |
 | `tests/db/` | `db` (+ `integration` / `security`) | the baseline revision against a real PostgreSQL 16: the nine tables and enum types, ORM/schema agreement via `compare_metadata`, constraint behaviour, the runtime role's privilege matrix and the audit-log guarantee (T-2.5, T-5.3), downgrade to base; the SQL ingest store (idempotent corpus import, provenance, rejects, promoted columns), the `import_dataset` actor through a `StubBroker`, the asset store (resolution precedence, atomic bulk, seeding) and the event read store (filters, a full keyset walk, stats, batch and reject listing); the SQL user, refresh-token, service-token and audit stores, and the auth service end to end on PostgreSQL |

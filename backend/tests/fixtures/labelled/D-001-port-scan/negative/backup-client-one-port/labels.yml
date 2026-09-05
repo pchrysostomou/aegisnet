@@ -1,0 +1,5 @@
+case_id: D-001-neg-backup-client-one-port
+rule_id: D-001
+expected: no_detection
+window: { start: "2026-09-01T10:00:00Z", end: "2026-09-01T10:10:00Z" }
+notes: "A backup client opening 200 connections to one host on port 22. The hard negative: counting connections instead of distinct (host, port) targets would flag it."

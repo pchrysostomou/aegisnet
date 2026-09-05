@@ -9,6 +9,18 @@ Nothing is released yet. There is no tagged version.
 ## [Unreleased]
 
 ### Added
+- **Chunk 8 (Milestone 2) — the detector contract and D-001 port scan.**
+  `domain/detectors/`: `EventWindow` (aware, sorted, at most 24 h and 200 000 events, every
+  event inside the window), `DetectionResult` with evidence bounded at construction (no raw
+  line can travel in it), `Entity`, sampled event ids, the `dedup_key`
+  `rule_id:entity=value:window_bucket`, `RuleSpec`, the `Detector` Protocol; `severity.py`
+  with the recorded formula and `reproduce`; the in-process registry; `PortScanDetector`
+  counting distinct `(host, port)` targets per source with inclusive thresholds, unanswered
+  flows raising confidence (ADR-017, `docs/detection-rules.md`).
+- `tools/gen_labelled_fixtures.py` and seven labelled D-001 cases (three positive, four
+  negative incl. the backup-client hard negative) under `backend/tests/fixtures/labelled/`,
+  pinned byte for byte by a test; `make test-detectors`, `make gen-fixtures`; 38 detector
+  tests (bounds, severity, D-001 behaviour and purity, registry, every labelled case).
 - **Chunk 7 — the documents at the Milestone 1 gate.** A `dataset_id` that fails its grammar
   on `POST /api/v1/ingest/import` is now audited as `ingest.refused` with the caller and the
   field name (never the value), which closes the last API acceptance criterion. The

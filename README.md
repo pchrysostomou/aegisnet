@@ -16,8 +16,10 @@ and can be exercised end to end with the committed synthetic corpus.
 > service tokens, rate limits and an append-only audit trail are in place; the HTTP API
 > ingests telemetry, manages the asset inventory and serves bounded event reads; and every
 > Milestone 1 acceptance criterion in [`docs/delivery-plan.md`](docs/delivery-plan.md) points
-> at its evidence. **There is no detection, no correlation, no AI brief and no analyst UI
-> yet** — those are Milestones 2 to 5. [`docs/STATUS.md`](docs/STATUS.md) is the authoritative record of what exists and
+> at its evidence. **Milestone 2 has started:** the detector contract and the first rule,
+> D-001 port scan, exist as pure code with labelled fixtures, but nothing runs them over
+> stored events yet. **There is no correlation, no AI brief and no analyst UI** — those are
+> Milestones 3 to 5. [`docs/STATUS.md`](docs/STATUS.md) is the authoritative record of what exists and
 > what has been verified, with the evidence for every claim below.
 
 ---
@@ -73,7 +75,8 @@ aspirational:
 | Audit trail (append-only, bounded detail, admin read API) covering logins, denials, refused uploads and rejected import ids, and Redis rate limits that fail closed for login and ingest | ✅ [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md) |
 | Operator CLI (`python -m aegisnet.cli`) for datasets, batches, assets, events, users and service tokens; `make` targets for every operator task | ✅ |
 | Tests: 566 hermetic tests (unit, integration, security) with a 94 % coverage gate, 44 database tests against a real PostgreSQL, a CI stack job that logs in and ingests over HTTP | ✅ [`docs/STATUS.md`](docs/STATUS.md) |
-| Detectors, correlation and incidents, analyst dashboard, AI investigation briefs | ⬜ Milestones 2–5 ([roadmap](#roadmap)) |
+| Detection contract and D-001 port scan: pure, versioned detectors over bounded windows, derived and bounded evidence, a recorded severity formula, seven labelled fixtures pinned to their generator (`make test-detectors`) | 🟡 Milestone 2, Chunk 8 ([ADR-017](docs/adr/ADR-017-detector-interface-and-labelled-fixtures.md), [`docs/detection-rules.md`](docs/detection-rules.md)); the sweep, alert storage, the alerts API and D-002 to D-005 follow |
+| Correlation and incidents, analyst dashboard, AI investigation briefs | ⬜ Milestones 3–5 ([roadmap](#roadmap)) |
 
 ---
 
@@ -299,6 +302,8 @@ make test-cov          # the suite with a coverage report
 make compose-test      # the same suite inside the hermetic test-runner container
 make compose-config    # parse and interpolate both Compose manifests without starting anything
 make test-db           # the database suite against an ephemeral PostgreSQL 16 (needs .env)
+make test-detectors    # the detector suite alone: bounds, severity, every rule, every labelled fixture
+make gen-fixtures      # regenerate the labelled fixtures after a case definition changes
 ```
 
 The default suite is hermetic: no PostgreSQL, no Redis, no network. Readiness probes are
@@ -378,13 +383,15 @@ reporting, as described in [`SECURITY.md`](SECURITY.md).
 │   │   ├── services/        ingest, assets, event reads, auth, audit
 │   │   ├── adapters/        SQL stores, migrations, Redis, spool, dataset registry, queue
 │   │   ├── domain/          EVE normaliser, asset and auth rules, ports — pure, no I/O
+│   │   │   └── detectors/   window and result bounds, severity formula, D-001 port scan
 │   │   ├── workers/         worker entrypoint and actors
 │   │   └── cli.py           python -m aegisnet.cli
-│   └── tests/               unit · integration · security · db (opt-in, real PostgreSQL)
+│   └── tests/               unit · integration · security · detectors · db (opt-in, real PostgreSQL)
+│       └── fixtures/labelled/  labelled detector cases, rendered by tools/gen_labelled_fixtures.py
 ├── frontend/                Next.js placeholder (health page and /api/health)
 ├── infra/                   PostgreSQL role init script, .env bootstrap
 ├── samples/                 committed synthetic corpus, asset seed file, dataset registry
-├── tools/                   the seeded synthetic EVE generator
+├── tools/                   the seeded synthetic EVE generator and the labelled-fixture generator
 ├── docs/                    STATUS, PRD, data model, API contract, delivery plan, ADRs
 ├── docker-compose.yml       the five-service stack
 ├── docker-compose.test.yml  hermetic test runner and the ephemeral test database
@@ -398,7 +405,7 @@ reporting, as described in [`SECURITY.md`](SECURITY.md).
 | Milestone | Scope | State |
 |---|---|---|
 | M1 | Foundation, ingest, normalisation, asset inventory, auth and audit | ✅ Complete; acceptance criteria and evidence in [`docs/delivery-plan.md`](docs/delivery-plan.md) and [`docs/STATUS.md`](docs/STATUS.md) |
-| M2 | Five deterministic detectors (port scan, auth-failure burst, DNS anomaly, periodic beaconing, outbound volume anomaly) with labelled fixtures; the isolated Suricata lab | ⬜ |
+| M2 | Five deterministic detectors (port scan, auth-failure burst, DNS anomaly, periodic beaconing, outbound volume anomaly) with labelled fixtures; the isolated Suricata lab | 🟡 Chunk 8 done: detector contract, severity formula, D-001 with fixtures |
 | M3 | Correlation into incidents, timeline, analyst workflow | ⬜ |
 | M4 | Analyst dashboard (Next.js) | ⬜ |
 | M5 | Investigation brief via Perplexity, with redaction canaries, and Markdown export | ⬜ |
@@ -423,7 +430,8 @@ Detector accuracy is **unmeasured** and no claim is made until Milestone 6
 | [`docs/PRD.md`](docs/PRD.md) | Product requirements |
 | [`docs/delivery-plan.md`](docs/delivery-plan.md) | Six-milestone plan |
 | [`docs/evaluation.md`](docs/evaluation.md) | Detection evaluation methodology (results intentionally empty) |
-| [`docs/adr/`](docs/adr) | Architecture decision records (ADR-009 … ADR-016) |
+| [`docs/detection-rules.md`](docs/detection-rules.md) | The rule contract and each detector's specification, guards and hard negatives |
+| [`docs/adr/`](docs/adr) | Architecture decision records (ADR-009 … ADR-017) |
 | [`PLANNING.md`](PLANNING.md) | Index of the Milestone 0 planning package |
 | [`backend/README.md`](backend/README.md) | What the backend package contains today |
 | [`frontend/README.md`](frontend/README.md) | The web placeholder |

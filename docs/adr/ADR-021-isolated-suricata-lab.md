@@ -29,9 +29,17 @@ application stack:
 | `suricata` | `jasonish/suricata:8.0`, pinned by digest, sharing `target`'s network namespace so it sees that container's interface. IDS only. |
 | `generator` | Six shaped conversations with `target`, and no other destination in the file. |
 
-The network is `internal: true`, which is what makes Docker attach no default route;
-`make lab-preflight` asks a running container to confirm it, rather than trusting the
-declaration. The addresses are `203.0.113.0/24` — TEST-NET-3 — for two reasons: it is the
+The network is `internal: true`, which removes the default route and drops anything that
+would be forwarded off the bridge. That alone is not isolation, and finding out why is the
+most useful thing the review of this chunk produced: Docker still gives the host side of the
+bridge the subnet's first address, and a container reaches it over its own on-link route
+with no default route involved. On this machine, a lab container could open a connection to
+a service listening on `203.0.113.1` while `make lab-preflight` happily reported "no default
+route". The network therefore also sets `com.docker.network.bridge.inhibit_ipv4`, which
+leaves the bridge with no address at all, and the pre-flight check now proves the result
+from inside a container — it derives the first address of its own subnet and fails if
+anything answers there. Run against a network without the option, that check fails, which
+is how it was shown to be capable of failing. The addresses are `203.0.113.0/24` — TEST-NET-3 — for two reasons: it is the
 documentation space `docs/evaluation.md` §1 already reserves, and the detectors' internal
 list deliberately counts documentation ranges as *external*, so the outbound rules can see
 lab traffic instead of skipping it as internal-to-internal.
@@ -98,8 +106,8 @@ The point of the exercise. All three are recorded as passing tests over the comm
 capture in `backend/tests/unit/eve/test_lab_capture_fidelity.py`, so they cannot drift, and
 in `docs/evaluation.md` §9 with their numbers.
 
-**It works.** 462 of 462 real Suricata 8.0.6 records normalised and stored with zero
-rejects; a re-import reported 462 duplicates, so idempotency holds on real data; D-001 found
+**It works.** 463 of 463 real Suricata 8.0.6 records normalised and stored with zero
+rejects; a re-import reported 463 duplicates, so idempotency holds on real data; D-001 found
 the sweep and D-002 found the authentication burst, on traffic nobody generated to a
 threshold.
 

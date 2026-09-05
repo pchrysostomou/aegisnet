@@ -199,6 +199,11 @@ PUBLISHED_KEYS = frozenset(
         "tc_progress",
         "ts_max_regions",
         "tc_max_regions",
+        # Stream gap markers: Suricata says it missed bytes in one direction. Metadata about
+        # the capture, carrying no content — classified here the first time a capture
+        # produced one and the allowlist stopped the run, which is what it is for.
+        "ts_gap",
+        "tc_gap",
         # http
         "http",
         "http_port",

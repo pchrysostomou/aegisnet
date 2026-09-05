@@ -18,7 +18,7 @@ L-0 … L-5 pre-flight checklist in §7.
 
 | Property | How it is guaranteed |
 |---|---|
-| Nothing reaches the host LAN or the internet | The network is `internal: true`, so Docker attaches no default route. `make lab-preflight` asks the running container itself and fails if a default route exists. |
+| Nothing reaches the internet, the host, another Docker network, or another container's published port | Two things, and the second is the one that is easy to miss. `internal: true` removes the default route and drops anything that would be forwarded off the bridge. On its own that is **not** enough: Docker normally puts the subnet's first address on the host side of the bridge, and a container reaches that with no default route at all — on this machine, before the fix, a lab container could open a connection to a service listening on `203.0.113.1`. The network therefore also sets `com.docker.network.bridge.inhibit_ipv4`, so the bridge has no address to talk to. `make lab-preflight` proves the result instead of trusting it: it runs inside a lab container, derives the first address of its own subnet, and fails the run if anything answers there or outside. |
 | Nothing reaches a system the operator does not own | The generator has exactly one destination, the `target` container, resolved by compose service name. A test walks every file here and fails on any address outside documentation and private space. |
 | Suricata never blocks anything | IDS only: no inline transport, no `copy-mode`, no IPS flags, and every rule starts with `alert`. Tests assert each of those. |
 | No scanning or exploitation tooling exists here | A test fails if any file mentions one, by name, from a list. |

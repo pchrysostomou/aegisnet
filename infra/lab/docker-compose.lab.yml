@@ -4,8 +4,9 @@
 # so `docker compose -f infra/lab/docker-compose.lab.yml up` starts nothing at all without
 # `--profile lab`, and the application stack never starts these containers.
 #
-# What it is: three containers on one `internal: true` network with no gateway, so nothing
-# here can reach the host LAN or the internet, and nothing outside the lab can reach in.
+# What it is: three containers on one `internal: true` network whose bridge has no address
+# of its own, so nothing here can reach the internet, the host, another Docker network or
+# another container's published port, and nothing outside the lab can reach in.
 # `generator` talks to `target` and to nothing else. `suricata` shares `target`'s network
 # namespace and watches that one interface in IDS mode, writing eve.json into ./out.
 #
@@ -23,11 +24,27 @@ volumes:
 
 networks:
   lab:
-    # The name docs/evaluation.md §7 L-0 tells the operator to inspect. `internal: true` is
-    # what removes the default route: Docker attaches no gateway to this bridge.
+    # The name docs/evaluation.md §7 L-0 tells the operator to inspect.
+    #
+    # `internal: true` removes the container's default route and drops anything that would
+    # be forwarded off this bridge: the internet, other Docker networks, and other
+    # containers' published ports are all unreachable from here.
+    #
+    # It is not, on its own, enough. Docker still assigns the subnet's first address to the
+    # host side of the bridge, and a container keeps an on-link route to its own subnet — so
+    # `203.0.113.1` stays reachable, and anything the Docker host itself listens on answers,
+    # no default route required. On this machine, before the option below, a lab container
+    # could open a connection to rpcbind on `203.0.113.1:111`.
+    #
+    # `inhibit_ipv4` is what closes it: Docker creates the bridge with no address of its
+    # own, so there is nothing on the lab subnet to talk to except the lab. It needs Engine
+    # 26 or newer. `make lab-preflight` proves the result rather than trusting it: it tries
+    # to connect from inside the lab and fails the run if anything answers.
     name: aegisnet_lab
     driver: bridge
     internal: true
+    driver_opts:
+      com.docker.network.bridge.inhibit_ipv4: "true"
     ipam:
       config:
         # TEST-NET-3 (RFC 5737), the range docs/evaluation.md §1 rule 4 reserves for this
@@ -58,6 +75,8 @@ services:
     command: ["python", "/lab/target.py"]
     volumes:
       - ./target/service.py:/lab/target.py:ro
+      # `make lab-preflight` runs this inside the container to prove L-0 from the inside.
+      - ./preflight.py:/lab/preflight.py:ro
     networks:
       lab:
         # Fixed so the seed file, the rules and the runbook can all name one address.
@@ -138,11 +157,7 @@ services:
       suricata: {condition: service_healthy}
     # Waits until Suricata's own log says the engine is capturing, so no shaped traffic
     # predates the sensor and the capture is complete by construction.
-    command:
-      - "python"
-      - "/lab/generate.py"
-      - "--wait-for"
-      - "/capture/suricata.log"
+    command: ["python", "/lab/generate.py"]
     volumes:
       - ./generators/traffic.py:/lab/generate.py:ro
       - lab_capture:/capture:ro

@@ -40,6 +40,12 @@ BEACON_PORT = 9443
 # is the SYN/RST pattern a horizontal sweep leaves behind.
 CLOSED_PORTS = tuple(range(30000, 30040))
 
+# The sensor's own log, inside the container, at the path the compose file mounts. Fixed
+# rather than passed in: a file name on a command line is a file name somebody can point
+# somewhere else, and this script needs exactly one.
+SENSOR_LOG = Path("/capture/suricata.log")
+ENGINE_STARTED = "Engine started"
+
 
 @dataclass(frozen=True, slots=True)
 class Counts:
@@ -175,15 +181,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--bulk-mib", type=int, default=4)
     parser.add_argument("--dns-rounds", type=int, default=30)
     parser.add_argument(
-        "--wait-for", default=None, help="file that must contain --wait-marker before starting"
+        "--no-wait",
+        action="store_true",
+        help="start immediately instead of waiting for the sensor to report it is capturing",
     )
-    parser.add_argument("--wait-marker", default="Engine started")
     parser.add_argument("--wait-seconds", type=float, default=60.0)
     args = parser.parse_args(argv)
 
-    if args.wait_for and not _wait_for(args.wait_for, args.wait_marker, args.wait_seconds):
+    if not args.no_wait and not _wait_for_sensor(args.wait_seconds):
         print(  # noqa: T201 - CLI output
-            f"generator: {args.wait_marker!r} never appeared in {args.wait_for}", file=sys.stderr
+            f"generator: {ENGINE_STARTED!r} never appeared in {SENSOR_LOG}", file=sys.stderr
         )
         return 1
 
@@ -213,17 +220,16 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _wait_for(path: str, marker: str, seconds: float) -> bool:
+def _wait_for_sensor(seconds: float) -> bool:
     """Hold until Suricata says it is capturing, so no shaped traffic predates the sniffer."""
     deadline = time.monotonic() + seconds
-    target = Path(path)
     while time.monotonic() < deadline:
         try:
-            text = target.read_text(encoding="utf-8", errors="replace")
+            text = SENSOR_LOG.read_text(encoding="utf-8", errors="replace")
         except OSError:
             # The sensor has not created the file yet; that is the normal first few seconds.
             text = ""
-        if marker in text:
+        if ENGINE_STARTED in text:
             time.sleep(1.0)  # let the capture thread settle past the log line
             return True
         time.sleep(0.5)

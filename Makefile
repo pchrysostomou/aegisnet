@@ -179,12 +179,17 @@ LAB_EXCERPT := samples/lab/lab-capture-01.ndjson
 LAB_LIMIT ?= 500
 SCENARIOS ?= benign,auth,sweep,beacon,bulk,dns
 
-lab-preflight: ## L-0/L-1: prove the lab network is internal, has no default route, and holds only lab containers
+# L-0 is proved from inside a running container, not read off the manifest. Two checks,
+# because the first one alone is not enough: `internal: true` removes the default route,
+# but Docker normally still puts the subnet's first address on the host side of the bridge,
+# and a container can reach that with no default route at all. The lab disables it
+# (`inhibit_ipv4`); this target confirms the result by trying to connect.
+lab-preflight: ## L-0/L-1: prove the lab network is internal, unreachable from a container, and holds only lab containers
 	@$(LAB) up -d --build target >/dev/null
 	@echo "L-0 network:"
-	@docker network inspect aegisnet_lab --format '  Internal={{.Internal}} Subnet={{range .IPAM.Config}}{{.Subnet}}{{end}}'
-	@echo "L-0 default route inside the lab (expect none):"
-	@$(LAB) exec -T target python -c "import sys; rows=[l.split() for l in open('/proc/net/route').read().splitlines()[1:]]; d=[r for r in rows if r[1]=='00000000']; print('  default routes:', d or 'none'); sys.exit(1 if d else 0)"
+	@docker network inspect aegisnet_lab --format '  Internal={{.Internal}} Subnet={{range .IPAM.Config}}{{.Subnet}}{{end}} Gateway={{range .IPAM.Config}}{{.Gateway}}{{end}}'
+	@echo "L-0 routes and reachability, asked of a running lab container:"
+	@$(LAB) exec -T target python /lab/preflight.py
 	@echo "L-1 containers attached to aegisnet_lab:"
 	@docker network inspect aegisnet_lab --format '{{range .Containers}}  {{.Name}} {{.IPv4Address}}{{"\n"}}{{end}}'
 
@@ -192,8 +197,7 @@ lab-up: ## Start the lab target and the Suricata sensor (no traffic yet)
 	$(LAB) up -d --build --force-recreate target suricata
 
 lab-traffic: ## Generate the shaped lab traffic (SCENARIOS=benign,auth,sweep,beacon,bulk,dns)
-	$(LAB) run --rm generator python /lab/generate.py \
-	  --wait-for /capture/suricata.log --scenarios $(SCENARIOS)
+	$(LAB) run --rm generator python /lab/generate.py --scenarios $(SCENARIOS)
 
 lab-capture: ## One full run: clean, pre-flight, sensor up, traffic, flush, export — writes infra/lab/out/eve.json
 	$(MAKE) lab-clean

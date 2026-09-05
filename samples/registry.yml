@@ -24,12 +24,12 @@ datasets:
   - id: lab-capture-01
     path: lab/lab-capture-01.ndjson
     manifest: lab/lab-capture-01.manifest.json
-    sha256: a1cbb5a195ff55b414760de33b34cfe09fde7101d41b1e1fce749722f49716a6
+    sha256: fc213715de2dd0d93dd51d9f4d8d90c3abed365a66c3466c4a35b6c193abd7ea
     format: suricata_eve_ndjson
     licence: MIT (captured in this repository's own isolated lab, infra/lab/)
     citation: null
     description: >-
-      Real Suricata 8.0.6 output from the isolated lab (ADR-021): 462 events
+      Real Suricata 8.0.6 output from the isolated lab (ADR-021): 463 events
       captured on an internal-only Docker network between two containers this project
       creates, then sanitised by tools/sanitize_eve.py. Alert, http, flow and dns records;
       sensor records, payloads, packets and bodies removed. TEST-NET-3 addresses only.

@@ -14,8 +14,12 @@ Last updated: 2026-09-06
 
 Non-negotiable. Any evaluation run that violates one of these is invalid.
 
-1. **No traffic leaves the host.** The lab compose file uses a Docker network with `internal: true` and no
-   default route. Verified before each lab run by §7 checklist step L-0 (`make lab-preflight`).
+1. **No traffic leaves the host, and nothing in the lab can reach the host either.** The lab compose file uses a
+   Docker network with `internal: true`, which removes the default route, **and**
+   `com.docker.network.bridge.inhibit_ipv4`, which leaves the bridge without an address — without the second, a
+   container can reach whatever the Docker host listens on at the subnet's first address, no default route
+   required. Verified before each lab run by §7 checklist step L-0 (`make lab-preflight`), which asks a running
+   container rather than reading the manifest.
 2. **No third-party systems are touched.** No scanning, probing, or connecting to any address outside the lab
    subnet or loopback. "Scan-like" behaviour exists only as *synthetic EVE records* or as lab-internal traffic
    between containers the operator owns.
@@ -147,10 +151,14 @@ its evidence rows E-1, E-2, … and the two schemes were colliding on the same i
 Ticked below as of the run recorded in §9 (2026-09-06). Every step except L-3 has an automated
 check; L-3 is an attestation, which no test can make on an operator's behalf.
 
-- [x] **L-0** The lab network is internal with no route out.
-      `make lab-preflight` prints `Internal=true` for `aegisnet_lab` and asks a running container
-      for its default routes, failing if it has any. It reported `default routes: none`.
-      Declared side: `test_lab_policy.py::test_the_lab_network_is_internal_and_uses_documentation_space`.
+- [x] **L-0** The lab network is internal, and nothing outside the lab answers on it.
+      `make lab-preflight` prints `Internal=true` and `Gateway=invalid IP` for `aegisnet_lab`, then runs
+      `infra/lab/preflight.py` **inside a lab container**: no default route, and nothing answers at the first
+      address of its own subnet or at a public address. It reported `default routes: none` and
+      `answered … : nothing`. The same script on a network without
+      `com.docker.network.bridge.inhibit_ipv4` fails, listing every port that replied, which is how the check
+      was shown to be able to fail. Declared side:
+      `test_lab_policy.py::test_the_lab_network_is_internal_and_uses_documentation_space`.
 - [x] **L-1** Only containers created by `infra/lab/` are on that network.
       `make lab-preflight` lists them: `aegisnet-lab-target-1` and, sharing its namespace, the sensor.
       `test_every_lab_service_is_opt_in_behind_the_lab_profile` holds the manifest to three services.
@@ -235,9 +243,9 @@ The lab is described in [`infra/lab/README.md`](../infra/lab/README.md) and deci
 |---|---|
 | Sensor | Suricata 8.0.6, pinned by digest, IDS mode, three local alert-only rules |
 | Traffic | six scripted shapes between two containers on an internal-only network |
-| Capture | 470 EVE records; 462 published after sanitising, 8 sensor records dropped |
-| Published as | `samples/lab/lab-capture-01.ndjson`, sha256 `a1cbb5a195ff…`, registered as dataset `lab-capture-01` |
-| Composition | 176 flow, 180 dns, 60 alert, 46 http |
+| Capture | 471 EVE records; 463 published after sanitising, 8 sensor records dropped |
+| Published as | `samples/lab/lab-capture-01.ndjson`, sha256 `fc213715de2d…`, registered as dataset `lab-capture-01` |
+| Composition | 176 flow, 180 dns, 60 alert, 46 http, 1 anomaly |
 
 This is a **qualitative** tier. Nothing below is an accuracy claim: the traffic was written
 by a script, the network had three containers, and the target exists to be talked to. What
@@ -246,10 +254,10 @@ output does — and for two rules, it does not.
 
 ### What worked
 
-- **Ingest is faithful.** 462 of 462 records normalised and stored, zero rejects. The only
+- **Ingest is faithful.** 463 of 463 records normalised and stored, zero rejects. The only
   records the normaliser refuses are `stats`, which describe the sensor rather than the
   network, and the sanitiser drops those before they are ever offered.
-- **Idempotency holds on real data.** Re-importing the same capture reported 462 duplicates
+- **Idempotency holds on real data.** Re-importing the same capture reported 463 duplicates
   and 0 stored.
 - **D-001 found the sweep** (`203.0.113.20`, 43 distinct ports, severity 3) and **D-002 found
   the authentication burst** (12 failures inside a 120-second span, confidence 1.0). Neither

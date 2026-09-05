@@ -84,9 +84,13 @@ def test_every_record_of_a_real_capture_survives_the_ingest_path() -> None:
     assert len(outcomes) == len([line for line in lines if line.strip()])
 
 
-def test_the_capture_carries_the_four_event_types_the_lab_generates() -> None:
+def test_the_capture_carries_the_event_types_the_lab_generates() -> None:
+    """The four the six scenarios aim at, plus whatever else a real sensor decided to say —
+    this capture also carries one `anomaly`, which no scenario asked for and which is the
+    kind of record the synthetic corpus can only guess at."""
     kinds = {row.event_type for row in _rows(CAPTURE)}
-    assert kinds == {EventType.alert, EventType.dns, EventType.flow, EventType.http}
+    assert {EventType.alert, EventType.dns, EventType.flow, EventType.http} <= kinds
+    assert kinds <= set(EventType), "every type the capture carries is one the domain knows"
 
 
 def test_the_scan_and_the_auth_burst_are_found_in_the_real_capture() -> None:

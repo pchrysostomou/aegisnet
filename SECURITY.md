@@ -137,8 +137,12 @@ of this repository that touches a network interface, and it is opt-in: every ser
 the `lab` profile, so nothing starts without `--profile lab`, and the application stack never
 starts it.
 
-- Its network is `internal: true`, so Docker attaches no default route. `make lab-preflight`
-  asks a running container to confirm it, rather than trusting the declaration.
+- Its network is `internal: true`, which removes the default route, **and** sets
+  `com.docker.network.bridge.inhibit_ipv4`, which leaves the bridge without an address of its
+  own. The second matters: without it, a container reaches whatever the Docker host listens
+  on at the subnet's first address over its own on-link route, no default route required.
+  `make lab-preflight` proves the result from inside a running container instead of trusting
+  the declaration, and fails the run if anything answers.
 - The sensor runs in **IDS mode only** and cannot act on traffic: no inline transport, no
   `copy-mode`, no IPS flag, and every rule begins with `alert`. Tests assert all of it.
 - It is the one place where a capability is added back after `cap_drop: ALL`: `NET_RAW`, on

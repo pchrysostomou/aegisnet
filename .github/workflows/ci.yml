@@ -251,9 +251,13 @@ jobs:
           done
           echo "$runs"
           echo "$runs" | grep -q '"rule_id":"D-005"'
-          docker compose logs --no-color worker | grep -q 'post_ingest_sweep_queued'
-          docker compose logs --no-color scheduler | grep -q 'scheduled_sweep@detection'
-          docker compose logs --no-color scheduler | grep -q 'nightly_baselines@detection'
+          # Into files first: with pipefail, `docker compose logs | grep -q` fails with 255
+          # when grep closes the pipe early and the writer sees EPIPE.
+          docker compose logs --no-color worker > worker.log
+          docker compose logs --no-color scheduler > scheduler.log
+          grep -q 'post_ingest_sweep_queued' worker.log
+          grep -q 'scheduled_sweep@detection' scheduler.log
+          grep -q 'nightly_baselines@detection' scheduler.log
 
       - name: Queue a detection sweep over HTTP and watch the worker record every rule
         run: |

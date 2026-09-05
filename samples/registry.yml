@@ -21,3 +21,17 @@ datasets:
       Benign baseline lab traffic, 2000 events over two hours from seed 20260905:
       flow, dns, http, tls, fileinfo, anomaly, and a few synthetic informational alerts.
       RFC 1918 hosts, RFC 5737 external addresses, example.test and example.com names only.
+  - id: lab-capture-01
+    path: lab/lab-capture-01.ndjson
+    manifest: lab/lab-capture-01.manifest.json
+    sha256: b8a62549758b854a7aea5af3d2a5a4cfc7f045d911ee4900dd6b43b1e0708658
+    format: suricata_eve_ndjson
+    licence: MIT (captured in this repository's own isolated lab, infra/lab/)
+    citation: null
+    description: >-
+      Real Suricata 8.0.6 output from the isolated lab (ADR-021): 450 events
+      captured on an internal-only Docker network between two containers this project
+      creates, then sanitised by tools/sanitize_eve.py. Alert, http, flow and dns records;
+      sensor records, payloads, packets and bodies removed. TEST-NET-3 addresses only.
+      The operator attests that every system in the run is their own (docs/evaluation.md
+      §7, L-3).

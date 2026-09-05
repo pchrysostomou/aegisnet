@@ -121,16 +121,20 @@ aegisnet/
 │   └── external/                 # gitignored; operator-fetched public datasets
 │
 ├── infra/
-│   ├── lab/
-│   │   ├── docker-compose.lab.yml   # OPT-IN isolated Suricata lab, internal-only network
-│   │   ├── suricata/               # suricata.yaml, custom rules
-│   │   └── generators/             # benign + scripted-behaviour traffic scripts (lab-only)
+│   ├── lab/                       # OPT-IN isolated Suricata lab (ADR-021); nothing here runs by default
+│   │   ├── docker-compose.lab.yml   # three services behind the `lab` profile, internal-only network
+│   │   ├── README.md               # the runbook: what is safe about it, how to run it
+│   │   ├── suricata/               # suricata.yaml (IDS only), lab.rules (alert only), support configs
+│   │   ├── target/                 # the lab's only listener: HTTP and a minimal DNS responder
+│   │   ├── generators/             # the six traffic shapes (lab-only, one destination)
+│   │   └── out/                    # gitignored; where an exported capture lands
 │   ├── postgres/init/             # roles, least-privilege grants, audit-table grants
-│   └── scripts/                   # wait-for-it, seed.sh, demo.sh
+│   └── scripts/                   # bootstrap_env.py (the .env generator)
 │
 ├── tools/
 │   ├── gen_synthetic_eve.py       # deterministic, seeded EVE generator
-│   └── eval_report.py             # builds docs/evaluation.md metrics tables
+│   ├── gen_labelled_fixtures.py   # renders the labelled detector cases
+│   └── sanitize_eve.py            # makes a lab capture publishable, or refuses
 │
 └── .github/workflows/
     ├── ci.yml                     # ruff, mypy, pytest (unit+integration+security), coverage gate

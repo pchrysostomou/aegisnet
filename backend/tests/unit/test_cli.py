@@ -19,7 +19,8 @@ def test_datasets_lists_the_committed_registry(capsys: pytest.CaptureFixture[str
     assert main(["--samples-dir", str(SAMPLES), "datasets"]) == 0
     payload = json.loads(capsys.readouterr().out.strip())
     ids = [entry["id"] for entry in payload["datasets"]]
-    assert ids == ["synthetic-benign-baseline-01"]
+    # The generated corpus, and the one sanitised capture the isolated lab produced (ADR-021).
+    assert ids == ["synthetic-benign-baseline-01", "lab-capture-01"]
     assert payload["datasets"][0]["licence"].startswith("MIT")
 
 

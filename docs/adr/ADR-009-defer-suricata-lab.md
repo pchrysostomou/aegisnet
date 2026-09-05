@@ -1,6 +1,9 @@
 # ADR-009 — Defer the isolated Suricata lab to Milestone 2
 
-- Status: accepted
+- Status: accepted; the deferral ended with [ADR-021](ADR-021-isolated-suricata-lab.md)
+  (Milestone 2, Chunk 13), which built the lab this record describes and reported what it
+  found — including the two divergences from real Suricata output that the "Consequences"
+  section below said would be Milestone 2 findings
 - Date: 2026-08-28
 - Milestone: 1 (decision D-9)
 

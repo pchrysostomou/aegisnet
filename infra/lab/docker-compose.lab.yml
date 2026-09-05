@@ -1,0 +1,152 @@
+# The isolated Suricata lab (Milestone 2, Chunk 13; ADR-021, ADR-009 revisited).
+#
+# Opt-in and separate from the application stack: every service carries the `lab` profile,
+# so `docker compose -f infra/lab/docker-compose.lab.yml up` starts nothing at all without
+# `--profile lab`, and the application stack never starts these containers.
+#
+# What it is: three containers on one `internal: true` network with no gateway, so nothing
+# here can reach the host LAN or the internet, and nothing outside the lab can reach in.
+# `generator` talks to `target` and to nothing else. `suricata` shares `target`'s network
+# namespace and watches that one interface in IDS mode, writing eve.json into ./out.
+#
+# What it is not: a packet generator pointed at anything the operator does not own, an
+# inline/IPS deployment, or a service that downloads rules. See docs/evaluation.md §1 and
+# the L-0 … L-5 checklist in §7; backend/tests/security/test_lab_policy.py asserts the
+# parts of that checklist a file can be held to.
+
+name: aegisnet-lab
+
+volumes:
+  # Holds one run's EVE output. `make lab-clean` removes it, so a run never mixes with the
+  # one before it, and nothing about a capture survives a teardown.
+  lab_capture:
+
+networks:
+  lab:
+    # The name docs/evaluation.md §7 L-0 tells the operator to inspect. `internal: true` is
+    # what removes the default route: Docker attaches no gateway to this bridge.
+    name: aegisnet_lab
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        # TEST-NET-3 (RFC 5737), the range docs/evaluation.md §1 rule 4 reserves for this
+        # project's documentation and synthetic data. It is never routed on the public
+        # internet, and — the reason it is here rather than an RFC 1918 range — the
+        # detectors' explicit internal list deliberately counts documentation space as
+        # *external* (domain/detectors/addresses.py), so the outbound rules D-004 and
+        # D-005 can actually see the lab's own traffic instead of skipping it.
+        - subnet: 203.0.113.0/24
+
+services:
+  # ---------------------------------------------------------------- the only listener
+  target:
+    # The project's own runtime image: no third-party service image, no download, and the
+    # same non-root user the application containers run as.
+    build:
+      context: ../../backend
+      target: runtime
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
+    profiles: ["lab"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    # Lets the unprivileged user bind port 53 inside this container's own network
+    # namespace. It grants no capability and is invisible outside the container.
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: "0"
+    command: ["python", "/lab/target.py"]
+    volumes:
+      - ./target/service.py:/lab/target.py:ro
+    networks:
+      lab:
+        # Fixed so the seed file, the rules and the runbook can all name one address.
+        ipv4_address: 203.0.113.10
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request as u; u.urlopen('http://127.0.0.1:8080/healthz', timeout=2)\""]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  # ---------------------------------------------------------------- the sensor
+  suricata:
+    # Pinned by tag and digest: the lab must be reproducible, and an image that changed
+    # under the operator would invalidate every number the run produced.
+    image: jasonish/suricata:8.0@sha256:7ad56111569e3e477a871f318bae90eafa36451c44fb338ed8532cb0059a8970
+    profiles: ["lab"]
+    # Shares the target's network namespace, which is how one process can watch the
+    # conversation between two containers without touching a host interface. This is a
+    # *container* namespace, never the host's: `network_mode: host` is refused by
+    # backend/tests/security/test_compose_policy.py for every manifest in the repository.
+    network_mode: "service:target"
+    depends_on:
+      target: {condition: service_healthy}
+    # Capture needs a raw packet socket, which no capability-less process can open, so
+    # exactly one capability is added back after dropping everything. It stops at NET_RAW
+    # because `promisc: no` in suricata.yaml means no interface flag is ever set, and a
+    # test pins the list so a second capability cannot be added without a decision.
+    cap_drop: ["ALL"]
+    cap_add: ["NET_RAW"]
+    security_opt: ["no-new-privileges:true"]
+    command:
+      - "-c"
+      - "/etc/suricata/suricata.yaml"
+      - "-i"
+      - "eth0"
+      - "--set"
+      - "stats.interval=10"
+    volumes:
+      - ./suricata/suricata.yaml:/etc/suricata/suricata.yaml:ro
+      - ./suricata/lab.rules:/etc/suricata/rules/lab.rules:ro
+      - ./suricata/classification.config:/etc/suricata/lab/classification.config:ro
+      - ./suricata/reference.config:/etc/suricata/lab/reference.config:ro
+      - ./suricata/threshold.config:/etc/suricata/lab/threshold.config:ro
+      # A named volume, not a bind mount. The sensor creates eve.json here and `make
+      # lab-export` copies it out afterwards. A host bind mount is the obvious choice and
+      # was the first one tried: on Docker Desktop, deleting the previous run's files on
+      # the host leaves the mount stale often enough that the sensor intermittently cannot
+      # create eve.json at all, and the run silently produces nothing. A volume has no such
+      # coherence problem, and it also means a raw capture reaches the operator's disk only
+      # when they ask for it (docs/evaluation.md §7, L-5).
+      #
+      # The mount point is /capture, not the image's /var/log/suricata, and that is load
+      # bearing: Docker creates a mount point the image does not have as root-owned, which
+      # a root process can write to. The image's own log directory belongs to the image's
+      # `suricata` user, and root here has no CAP_DAC_OVERRIDE to write past that.
+      - lab_capture:/capture
+    healthcheck:
+      # Liveness only, and the bracketed first letter keeps the pattern from matching the
+      # probe's own shell — the same rule the application worker's probe follows.
+      test: ["CMD-SHELL", "pgrep -f '[s]uricata -c' > /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  # ---------------------------------------------------------------- the traffic
+  generator:
+    build:
+      context: ../../backend
+      target: runtime
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
+    profiles: ["lab"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      suricata: {condition: service_healthy}
+    # Waits until Suricata's own log says the engine is capturing, so no shaped traffic
+    # predates the sensor and the capture is complete by construction.
+    command:
+      - "python"
+      - "/lab/generate.py"
+      - "--wait-for"
+      - "/capture/suricata.log"
+    volumes:
+      - ./generators/traffic.py:/lab/generate.py:ro
+      - lab_capture:/capture:ro
+    networks:
+      lab:
+        ipv4_address: 203.0.113.20
+    restart: "no"

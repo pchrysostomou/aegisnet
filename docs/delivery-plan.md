@@ -22,7 +22,8 @@ permission dependencies · audit logging · Redis rate limiting · synthetic EVE
 
 **Architecture decisions locked.** Dramatiq + periodiq for background work · strict `domain/` purity enforced by
 import-linter · promoted columns + JSONB payload · dual timestamps · **`infra/lab/` is NOT part of M1** (decision
-D-9): no packet capture, no traffic generation, no scanning tooling, no live-traffic component. M1 is file-and-API
+D-9): no packet capture, no traffic generation, no scanning tooling, no live-traffic component. (The lab arrived
+in M2 Chunk 13, ADR-021; scanning tooling never does — `docs/PRD.md` makes it a permanent non-goal.) M1 is file-and-API
 driven, proven entirely by the committed deterministic synthetic corpus.
 
 **Security risks addressed.** T-1.1 – T-1.9, T-2.1, T-2.7, T-5.2, T-5.4.
@@ -48,7 +49,8 @@ evidence, severity, and asset links — each with labelled positive **and** nega
 
 **Also in M2 (moved from M1 by decision D-9).** `infra/lab/docker-compose.lab.yml` — the opt-in isolated Suricata
 lab on an `internal: true` network, its sensor config, and lab-only benign traffic generators, plus the
-`docs/evaluation.md` §7 pre-flight checklist steps E-0 – E-5.
+`docs/evaluation.md` §7 pre-flight checklist steps L-0 – L-5 (renumbered from E-0 – E-5 in Chunk 13, because
+`docs/STATUS.md` numbers its evidence rows E-1, E-2, … and the two schemes collided).
 
 **Deliverables.** `domain/detectors/` (D-001 port scan, D-002 auth-failure burst, D-003 DNS anomaly/tunnelling,
 D-004 beaconing, D-005 outbound volume) + registry · `EventWindow` loader · `severity.py` with a recorded formula ·
@@ -62,15 +64,30 @@ sweeps · per-detector fixture sets with `labels.yml` · `docs/detection-rules.m
 **Security risks.** T-1.7 (clock skew affecting windows), detector-exception isolation, DoS via pathological
 windows (bounded window size + event caps).
 
-**Acceptance criteria.**
-- [ ] Each of the five detectors has ≥3 positive and ≥3 negative labelled fixtures; all pass.
-- [ ] Every alert stores `severity_rationale` reproducing its own score.
-- [ ] Re-running a sweep over the same window creates zero duplicate alerts.
-- [ ] A raised exception in one detector is recorded in `detector_runs` and does not stop the others (test).
-- [ ] Evidence payloads contain no raw log lines — asserted by a shape test.
-- [ ] Coverage on `domain/detectors/` ≥ 85%.
+**Acceptance criteria.** Ticked at the M2 gate (2026-09-06, Chunk 13); evidence rows are in `docs/STATUS.md`.
+- [x] Each of the five detectors has ≥3 positive and ≥3 negative labelled fixtures; all pass.
+      — 34 cases (3 positive and 3 – 4 negative per rule), pinned to their generator;
+      `tests/detectors/test_labelled_fixtures.py`, E-49, E-51.
+- [x] Every alert stores `severity_rationale` reproducing its own score.
+      — `alerts.severity_rationale` is `JSONB NOT NULL` in revision `0003`; the formula and its inputs are
+      written with every alert and shown in `make alerts` output. E-47, E-52.
+- [x] Re-running a sweep over the same window creates zero duplicate alerts.
+      — UNIQUE `alerts.dedup_key` plus `ON CONFLICT DO NOTHING`; asserted hermetically and against
+      PostgreSQL (`tests/db/test_detection_store.py`), and observed in the lab run, where a second sweep
+      of the same hour created none. E-47, E-54.
+- [x] A raised exception in one detector is recorded in `detector_runs` and does not stop the others (test).
+      — `tests/detectors/test_detection_service.py::test_one_rule_raising_never_stops_the_others`. E-47.
+- [x] Evidence payloads contain no raw log lines — asserted by a shape test.
+      — `bounded_evidence()` refuses payload-shaped keys and bounds every value;
+      `tests/detectors/test_model.py::test_evidence_keeps_scalars_and_short_lists_only`. E-45.
+- [x] Coverage on `domain/detectors/` ≥ 85%.
+      — 98% at the gate, inside a repository-wide gate of 85%. E-54.
+- [x] **The lab exists, runs, and is safe by declaration and by pre-flight.**
+      — `infra/lab/docker-compose.lab.yml` (ADR-021), the L-0 – L-5 checklist ticked in
+      `docs/evaluation.md` §7, `backend/tests/security/test_lab_policy.py`, E-54.
 
-**Commands.** `make test-detectors` · `make run-detectors FROM=... TO=...` · `make eval` (first metrics table).
+**Commands.** `make test-detectors` · `make run-detectors FROM=... TO=...` · `make eval` (first metrics table) ·
+`make lab-capture` · `make lab-sanitize` · `make eval-lab` (the T3 qualitative run) · `make test-security`.
 
 ---
 

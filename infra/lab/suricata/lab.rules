@@ -1,0 +1,22 @@
+# AegisNet lab rules (Milestone 2, Chunk 13; ADR-021).
+#
+# Alert-only by construction. Every rule below starts with the `alert` action; `drop`,
+# `reject` and `rejectsrc` are IPS actions and a test asserts that no rule in this file
+# uses one, so the lab cannot be turned into an inline blocker by editing rules alone.
+#
+# The sid range 9100000-9199999 is reserved for this lab, which keeps lab-generated
+# alerts distinguishable from the synthetic corpus (9000001-9000002) and from any real
+# ruleset an operator might add later. No rule here is downloaded; the lab network has no
+# route out and `suricata-update` never runs.
+
+# A benign marker the lab's own HTTP client sets on every well-behaved request, so the
+# operator can see an `alert` record with a known cause next to the flow that caused it.
+alert http any any -> any any (msg:"AEGISNET-LAB benign marker header"; flow:established,to_server; http.header_names; content:"X-Aegisnet-Lab"; nocase; classtype:not-suspicious; sid:9100001; rev:1;)
+
+# The credential-failure shape D-002 reads: the lab target answers 401 to the generator's
+# deliberately wrong Basic credential, and this rule turns each one into an alert.
+alert http any any -> any any (msg:"AEGISNET-LAB authentication failure"; flow:established,to_client; http.stat_code; content:"401"; classtype:attempted-recon; sid:9100002; rev:1;)
+
+# The horizontal sweep D-001 reads: many SYNs from one source in a short window. The
+# threshold keeps one alert per source per minute; the flow records carry the detail.
+alert tcp any any -> any any (msg:"AEGISNET-LAB connection sweep"; flags:S,12; threshold:type threshold, track by_src, count 20, seconds 60; classtype:attempted-recon; sid:9100003; rev:1;)

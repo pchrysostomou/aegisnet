@@ -46,10 +46,10 @@ jobs:
         run: uv sync --frozen
 
       - name: Ruff (lint)
-        run: uv run ruff check --config pyproject.toml --output-format=github src tests ../tools
+        run: uv run ruff check --config pyproject.toml --output-format=github src tests ../tools ../infra/lab
 
       - name: Ruff (format)
-        run: uv run ruff format --check --config pyproject.toml src tests ../tools
+        run: uv run ruff format --check --config pyproject.toml src tests ../tools ../infra/lab
 
       - name: Import contracts (domain purity, layering)
         run: uv run lint-imports
@@ -117,6 +117,8 @@ jobs:
         run: |
           docker compose config --quiet
           docker compose -f docker-compose.test.yml config --quiet
+          # The opt-in lab (ADR-021). Parsed, never started: CI has no reason to capture packets.
+          docker compose -f infra/lab/docker-compose.lab.yml --profile lab config --quiet
 
       - name: Prove the ignore rules hold
         run: make verify-ignore

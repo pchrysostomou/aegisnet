@@ -20,7 +20,12 @@ pytestmark = pytest.mark.security
 COMPOSE = REPO_ROOT / "docker-compose.yml"
 TEST_COMPOSE = REPO_ROOT / "docker-compose.test.yml"
 OVERRIDE_EXAMPLE = REPO_ROOT / "docker-compose.override.yml.example"
-ALL_MANIFESTS = [COMPOSE, TEST_COMPOSE, OVERRIDE_EXAMPLE]
+# The opt-in lab manifest (ADR-021) is held to the rules that are true of every manifest in
+# the repository: loopback-only ports, no host namespace, no Docker socket, no secret
+# literal. What is specific to the lab — the internal network, the one capability the
+# sensor adds back, IDS-only — lives in test_lab_policy.py.
+LAB_COMPOSE = REPO_ROOT / "infra" / "lab" / "docker-compose.lab.yml"
+ALL_MANIFESTS = [COMPOSE, TEST_COMPOSE, OVERRIDE_EXAMPLE, LAB_COMPOSE]
 
 LOOPBACK_PORT = re.compile(r"^127\.0\.0\.1:\d{2,5}:\d{2,5}$")
 SECRET_KEY_NAME = re.compile(r"(PASSWORD|SECRET|TOKEN|API[_-]?KEY)", re.IGNORECASE)

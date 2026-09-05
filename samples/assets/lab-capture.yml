@@ -1,0 +1,27 @@
+# Asset inventory for the isolated Suricata lab (infra/lab/, ADR-021).
+#
+# `make seed SEED=lab-capture` upserts these by hostname before `make eval-lab`, so the
+# detection sweep over a real lab capture can attribute events to an asset and reach the
+# rules that need one (D-005 reads the asset's baseline; every rule reads its criticality).
+#
+# The two hosts are the containers the lab compose file creates and nothing else. Their
+# addresses are in TEST-NET-3 (RFC 5737), which the detectors' explicit internal list
+# deliberately treats as external — that is what lets the outbound rules see lab traffic
+# instead of skipping it as internal-to-internal.
+assets:
+  - hostname: generator.lab.example.test
+    environment: lab
+    owner: platform-team
+    criticality: 2
+    tags: [lab, traffic-generator]
+    description: The lab's traffic generator; the source of every shaped conversation
+    networks:
+      - {cidr: 203.0.113.20/32, is_primary: true}
+  - hostname: target.lab.example.test
+    environment: lab
+    owner: platform-team
+    criticality: 3
+    tags: [lab, http, dns]
+    description: The lab's only listener; HTTP on 8080 and a minimal DNS responder
+    networks:
+      - {cidr: 203.0.113.10/32, is_primary: true}

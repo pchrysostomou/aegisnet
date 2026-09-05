@@ -1,0 +1,27 @@
+{
+  "sanitizer": "tools/sanitize_eve.py",
+  "sanitizer_version": 1,
+  "source_name": "eve.json",
+  "events": 450,
+  "counts_by_type": {
+    "alert": 48,
+    "dns": 180,
+    "flow": 176,
+    "http": 46
+  },
+  "dropped": {
+    "sensor_record": 8
+  },
+  "time_range": {
+    "start": "2026-09-05T17:58:36.014279+0000",
+    "end": "2026-09-05T17:59:54.493851+0000"
+  },
+  "sweep_window": {
+    "from": "2026-09-05T17:00:00Z",
+    "to": "2026-09-05T18:00:00Z"
+  },
+  "sha256": "b8a62549758b854a7aea5af3d2a5a4cfc7f045d911ee4900dd6b43b1e0708658",
+  "size_bytes": 276428,
+  "addressing": "RFC 5737 documentation range only; every address verified by the sanitiser",
+  "content": "Real Suricata output captured in the isolated lab (infra/lab/, ADR-021). Sensor records, payloads, packets and bodies removed; nothing here was captured from a real network."
+}

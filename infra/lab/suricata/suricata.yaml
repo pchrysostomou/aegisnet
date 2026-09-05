@@ -1,0 +1,129 @@
+%YAML 1.1
+---
+# AegisNet lab — Suricata in IDS mode only (ADR-021, docs/evaluation.md §7 E-4).
+#
+# This file is deliberately small. It is not a tuned production configuration; it is the
+# least configuration that reads one container interface, applies the lab's own rules and
+# writes EVE JSON that the AegisNet ingest path can consume.
+#
+# IDS only. There is no `nfq`, `ipfw`, `netmap` or `af-packet` inline (`copy-mode`)
+# section, no `default-packet-size` tuning for inline use, and `action-order` is left at
+# Suricata's default, which never promotes an alert to a drop. A security test asserts
+# that none of the inline keys appear here.
+
+vars:
+  address-groups:
+    # The lab subnet, and nothing else. Every address the lab ever sees is inside it.
+    HOME_NET: "[203.0.113.0/24]"
+    EXTERNAL_NET: "!$HOME_NET"
+  port-groups:
+    HTTP_PORTS: "8080"
+
+# The named volume the compose file mounts; see the comment there for why it is not the
+# image's own log directory.
+default-log-dir: /capture
+
+# What the lab produces. `eve.json` is the only artefact that leaves the container, and
+# `docs/evaluation.md` §7 L-5 requires it to be sanitised before any excerpt is committed.
+outputs:
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: eve.json
+      # No `xff`, no `metadata` beyond the defaults, and payload printing stays off: the
+      # sanitiser strips payload fields anyway, but they are never written in the first
+      # place, so a raw lab capture is already free of packet bytes.
+      types:
+        - alert:
+            # Packet bytes stay off: an alert record never carries payload, printable
+            # payload, the packet itself or an HTTP body, so a raw lab capture holds no
+            # captured content even before the sanitiser runs.
+            payload: no
+            payload-printable: no
+            packet: no
+            http-body: no
+            http-body-printable: no
+            # Metadata on: this is what attaches the `flow` counters and the app-layer
+            # (`http`, `dns`) block to an alert. With it off, a real alert record is
+            # thinner than the synthetic corpus's alerts, which was the first divergence
+            # this lab found (docs/evaluation.md §9).
+            metadata: yes
+        - http:
+            extended: yes
+        - dns
+        - tls:
+            extended: no
+        - flow
+        - anomaly:
+            enabled: yes
+            types:
+              decode: yes
+              stream: yes
+              applayer: yes
+        - stats:
+            totals: yes
+            threads: no
+            deltas: no
+  - stats:
+      enabled: yes
+      filename: stats.log
+      interval: 30
+
+# Suricata 8 warns when the global stats block is absent and falls back to the legacy
+# behaviour; declaring it keeps the run warning-free and the interval explicit.
+stats:
+  enabled: yes
+  interval: 30
+
+logging:
+  default-log-level: info
+  outputs:
+    - console:
+        enabled: yes
+    - file:
+        enabled: yes
+        level: info
+        filename: suricata.log
+
+# One live interface: the container's own eth0, which is the lab target's interface
+# because this process shares the target's network namespace. `promisc` is off — every
+# packet to or from the target already arrives on this interface, and leaving it off keeps
+# CAP_NET_ADMIN out of the required set.
+af-packet:
+  - interface: eth0
+    cluster-id: 99
+    cluster-type: cluster_flow
+    defrag: yes
+    promisc: no
+    # One capture thread: the lab is three containers, not a link worth parallelising.
+    threads: 1
+    # Docker's veth pairs do not checksum on the wire, so validation would drop every
+    # packet as invalid. This is the standard setting for container capture.
+    checksum-checks: no
+    use-mmap: yes
+    tpacket-v3: yes
+
+app-layer:
+  protocols:
+    http:
+      enabled: yes
+    dns:
+      enabled: yes
+    tls:
+      enabled: yes
+
+default-rule-path: /etc/suricata/rules
+rule-files:
+  - lab.rules
+
+# All three point at files this repository owns and mounts read-only, so the lab depends on
+# nothing inside the image beyond the Suricata binary itself.
+classification-file: /etc/suricata/lab/classification.config
+reference-config-file: /etc/suricata/lab/reference.config
+threshold-file: /etc/suricata/lab/threshold.config
+
+# No rule downloads, ever: the lab network is internal and there is nothing to fetch from.
+security:
+  limit-noproc: true
+  lua:
+    allow-rules: false

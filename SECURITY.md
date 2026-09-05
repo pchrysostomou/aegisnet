@@ -130,6 +130,35 @@ headers are not trusted in Milestone 1 because nothing terminates TLS in front o
   a screen are unchanged from Chunks 3 and 4.
 - Dataset imports accept a registered dataset id only, never a path.
 
+## The isolated lab
+
+The lab (`infra/lab/`, [ADR-021](docs/adr/ADR-021-isolated-suricata-lab.md)) is the only part
+of this repository that touches a network interface, and it is opt-in: every service carries
+the `lab` profile, so nothing starts without `--profile lab`, and the application stack never
+starts it.
+
+- Its network is `internal: true`, so Docker attaches no default route. `make lab-preflight`
+  asks a running container to confirm it, rather than trusting the declaration.
+- The sensor runs in **IDS mode only** and cannot act on traffic: no inline transport, no
+  `copy-mode`, no IPS flag, and every rule begins with `alert`. Tests assert all of it.
+- It is the one place where a capability is added back after `cap_drop: ALL`: `NET_RAW`, on
+  the sensor alone, because no capability-less process can open a packet socket. The list is
+  pinned by a test, so widening it is a visible decision.
+- The generator has exactly one destination, the lab's own target, addressed by compose
+  service name. A test walks every committed lab file and fails on any address outside
+  documentation and private space, any name outside `example.test`/`example.com`, and any
+  mention of scanning or exploitation tooling.
+- A capture is written into a Docker volume, not onto the host, and reaches the operator's
+  disk only through `make lab-export`. Publishing an excerpt requires `tools/sanitize_eve.py`,
+  which strips content-bearing fields and then refuses to write at all if what remains holds
+  an unclassified key, an address or hostname outside documentation space (anywhere,
+  including inside a list or a URL), or a URL parameter whose name announces a credential.
+  `--check` re-runs that refusal against a file as it sits on disk, so it is an assertion
+  about the committed bytes.
+
+`docs/evaluation.md` §7 is the pre-flight checklist an operator works through before a run,
+and §9 records what the first run found.
+
 ## What is not there yet
 
 - TLS and a reverse proxy; the API and web ports bind to `127.0.0.1` only. `COOKIE_SECURE`

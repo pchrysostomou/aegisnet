@@ -9,7 +9,8 @@ COMPOSE ?= docker compose
 UV ?= uv
 BACKEND := backend
 
-.PHONY: test-detectors gen-fixtures eval run-detectors alerts recompute-baselines baselines create-user users create-service-token revoke-service-token service-tokens \
+.PHONY: lab-preflight lab-up lab-traffic lab-capture lab-export lab-sanitize lab-down lab-clean eval-lab test-security \
+        test-detectors gen-fixtures eval run-detectors alerts recompute-baselines baselines create-user users create-service-token revoke-service-token service-tokens \
         help bootstrap bootstrap-force verify-ignore require-env compose-config \
         build up down compose-ps compose-logs compose-down compose-test pin-digests clean \
         backend-install lint format format-check typecheck test test-cov check \
@@ -37,14 +38,14 @@ backend-install: ## Install the backend's locked dependency set
 # ruff covers the backend, the generator in tools/ and the bootstrap script; lint-imports
 # enforces the layering contracts in pyproject.toml (ARCHITECTURE §1: domain/ is pure).
 lint: ## Lint the backend, tools/ and infra/scripts, and check the import contracts
-	cd $(BACKEND) && $(UV) run ruff check --config pyproject.toml src tests ../tools
+	cd $(BACKEND) && $(UV) run ruff check --config pyproject.toml src tests ../tools ../infra/lab
 	cd $(BACKEND) && $(UV) run lint-imports
 
 format: ## Reformat the backend and tools/ in place
-	cd $(BACKEND) && $(UV) run ruff format --config pyproject.toml src tests ../tools
+	cd $(BACKEND) && $(UV) run ruff format --config pyproject.toml src tests ../tools ../infra/lab
 
 format-check: ## Fail if the backend or tools/ is not formatted
-	cd $(BACKEND) && $(UV) run ruff format --check --config pyproject.toml src tests ../tools
+	cd $(BACKEND) && $(UV) run ruff format --check --config pyproject.toml src tests ../tools ../infra/lab
 
 typecheck: ## Typecheck the backend
 	cd $(BACKEND) && $(UV) run mypy
@@ -65,6 +66,7 @@ check: verify-ignore lint format-check typecheck test ## Run every check that wo
 verify-ignore: ## Prove that secrets, captures, and local artefacts cannot be committed
 	@fail=0; \
 	for path in .env .env.local secret.pem capture.pcap capture.pcapng eve.json \
+	            infra/lab/out/eve.json infra/lab/out/suricata.log infra/lab/out/stats.log \
 	            app.log logs/suricata.log pgdata/base coverage.xml .coverage \
 	            node_modules/x .next/build backend/.pytest_cache/x samples/external/set.zip \
 	            docker-compose.override.yml; do \
@@ -91,9 +93,10 @@ require-env: ## Fail unless .env exists (Compose interpolation needs it)
 	@test -f .env || { \
 		echo "error: .env is missing. Run 'make bootstrap' first." >&2; exit 1; }
 
-compose-config: require-env ## Validate and render the Compose manifests without starting anything
+compose-config: require-env ## Validate and render every Compose manifest without starting anything
 	$(COMPOSE) config --quiet
 	$(COMPOSE) -f docker-compose.test.yml config --quiet
+	$(COMPOSE) -f $(LAB_COMPOSE) --profile lab config --quiet
 	@echo "compose-config OK"
 
 build: require-env ## Build the api, worker and web images
@@ -162,6 +165,76 @@ batch: require-env ## Show an ingest batch by id (ID=<uuid>)
 SEED ?= lab-assets
 seed: require-env ## Seed the asset inventory (SEED=lab-assets)
 	$(COMPOSE) run --rm api python -m aegisnet.cli seed-assets $(SEED)
+
+## ---------------------------------------------------------------- the isolated lab (ADR-021)
+
+# Opt-in and separate from the application stack. Nothing here runs unless a target below
+# is invoked, and every service carries the `lab` profile so even `docker compose -f
+# infra/lab/docker-compose.lab.yml up` starts nothing without it. The pre-flight checklist
+# these targets automate is docs/evaluation.md §7 (L-0 .. L-5).
+LAB_COMPOSE := infra/lab/docker-compose.lab.yml
+LAB := $(COMPOSE) -f $(LAB_COMPOSE) --profile lab
+LAB_CAPTURE := infra/lab/out/eve.json
+LAB_EXCERPT := samples/lab/lab-capture-01.ndjson
+LAB_LIMIT ?= 500
+SCENARIOS ?= benign,auth,sweep,beacon,bulk,dns
+
+lab-preflight: ## L-0/L-1: prove the lab network is internal, has no default route, and holds only lab containers
+	@$(LAB) up -d --build target >/dev/null
+	@echo "L-0 network:"
+	@docker network inspect aegisnet_lab --format '  Internal={{.Internal}} Subnet={{range .IPAM.Config}}{{.Subnet}}{{end}}'
+	@echo "L-0 default route inside the lab (expect none):"
+	@$(LAB) exec -T target python -c "import sys; rows=[l.split() for l in open('/proc/net/route').read().splitlines()[1:]]; d=[r for r in rows if r[1]=='00000000']; print('  default routes:', d or 'none'); sys.exit(1 if d else 0)"
+	@echo "L-1 containers attached to aegisnet_lab:"
+	@docker network inspect aegisnet_lab --format '{{range .Containers}}  {{.Name}} {{.IPv4Address}}{{"\n"}}{{end}}'
+
+lab-up: ## Start the lab target and the Suricata sensor (no traffic yet)
+	$(LAB) up -d --build --force-recreate target suricata
+
+lab-traffic: ## Generate the shaped lab traffic (SCENARIOS=benign,auth,sweep,beacon,bulk,dns)
+	$(LAB) run --rm generator python /lab/generate.py \
+	  --wait-for /capture/suricata.log --scenarios $(SCENARIOS)
+
+lab-capture: ## One full run: clean, pre-flight, sensor up, traffic, flush, export — writes infra/lab/out/eve.json
+	$(MAKE) lab-clean
+	$(MAKE) lab-preflight
+	$(MAKE) lab-up
+	$(MAKE) lab-traffic
+	@sleep 3
+	$(LAB) stop suricata
+	$(MAKE) lab-export
+
+lab-export: ## Copy this run's EVE output out of the sensor's volume onto the operator's disk
+	@mkdir -p infra/lab/out
+	$(LAB) cp suricata:/capture/eve.json $(LAB_CAPTURE)
+	@$(LAB) cp suricata:/capture/suricata.log infra/lab/out/suricata.log 2>/dev/null || true
+	@wc -l < $(LAB_CAPTURE) | xargs -I{} echo "captured {} EVE records in $(LAB_CAPTURE)"
+
+lab-sanitize: ## L-5: sanitise the capture into samples/lab/ (LAB_LIMIT=500, enough for one default run)
+	python3 tools/sanitize_eve.py --in $(LAB_CAPTURE) --out $(LAB_EXCERPT) --limit $(LAB_LIMIT)
+	python3 tools/sanitize_eve.py --check $(LAB_EXCERPT)
+
+lab-down: ## Stop the lab and remove its network (the capture volume survives)
+	$(LAB) down --remove-orphans
+
+lab-clean: ## Remove the lab, its capture volume and any exported capture; samples/lab/ is kept
+	$(LAB) down --volumes --remove-orphans
+	rm -f infra/lab/out/eve.json infra/lab/out/suricata.log infra/lab/out/stats.log
+
+eval-lab: require-env ## T3 qualitative run: ingest the sanitised lab capture and sweep it (needs `make up`)
+	$(COMPOSE) run --rm api python -m aegisnet.cli seed-assets lab-capture
+	$(COMPOSE) run --rm api python -m aegisnet.cli import-dataset lab-capture-01 --source-label lab-suricata
+	@# The window comes from the capture's own manifest, so the sweep covers exactly the
+	@# hour the lab ran. Kept in a shell variable rather than a file: nothing here needs to
+	@# write to a fixed path outside the repository.
+	@window=$$(python3 -c "import json; w=json.load(open('samples/lab/lab-capture-01.manifest.json'))['sweep_window']; print(w['from'], w['to'])"); \
+	  set -- $$window; \
+	  echo "sweeping $$1 .. $$2"; \
+	  $(COMPOSE) run --rm api python -m aegisnet.cli run-detectors --from $$1 --to $$2
+	$(COMPOSE) run --rm api python -m aegisnet.cli alerts --limit 20
+
+test-security: ## Run the security-marked tests (compose policy, payload limits, RBAC, the lab)
+	cd $(BACKEND) && ENV=test $(UV) run pytest -m security
 
 ## ---------------------------------------------------------------- users and tokens
 

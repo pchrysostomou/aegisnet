@@ -29,7 +29,10 @@ credentials.json
 service-account*.json
 
 # ---------------------------------------------------------------- captured / live telemetry
-# Never commit raw captures or real sensor output — see SECURITY.md.
+# Never commit raw captures or real sensor output — see SECURITY.md. The isolated lab writes
+# into infra/lab/out/, which these rules already cover; the only capture that may be
+# committed is a sanitised excerpt under samples/lab/, which tools/sanitize_eve.py produces
+# and refuses to produce when anything outside documentation space survives (ADR-021).
 *.pcap
 *.pcapng
 *.cap
@@ -78,6 +81,9 @@ build/
 # ---------------------------------------------------------------- Node / Next.js
 node_modules/
 .next/
+# Next.js and the lab's capture directory. infra/lab/out/.gitignore is tracked with
+# `git add -f` so a clone has the directory, and so the intent is visible where a capture
+# actually lands.
 out/
 .pnpm-store/
 next-env.d.ts

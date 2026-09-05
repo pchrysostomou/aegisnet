@@ -74,7 +74,9 @@ The first table is all ones and all zeros. That is expected and must not be over
 T1 cases were rendered from the same specifications the rules implement, by the same
 author, so they measure conformance to the specification on synthetic data, not detection
 quality. T2 is 2 000 quiet synthetic events over ninety-five minutes. The lab corpus (T3,
-ADR-009) has not been run. `docs/evaluation.md` says so above the table.
+ADR-009) had not been run when this was written; it has since (ADR-021), and
+`docs/evaluation.md` §9 reports what it found — including two defects that make the T1
+scores for D-003 and D-004 read better than they deserve.
 
 ## Consequences
 

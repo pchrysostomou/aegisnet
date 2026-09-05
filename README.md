@@ -11,7 +11,7 @@ correlating findings into incidents, and producing evidence-based investigation 
 human analysts. Everything runs on one machine with `docker compose`, binds to loopback,
 and can be exercised end to end with the committed synthetic corpus.
 
-> **Status: Milestone 1 complete (Chunks 1–7); Milestone 2 at Chunk 12 of 13.** The stack
+> **Status: Milestones 1 and 2 complete (Chunks 1–13).** The stack
 > builds and reaches healthy from a clean clone; the schema is created with least-privilege
 > grants; users, roles, service tokens, rate limits and an append-only audit trail are in
 > place; the HTTP API ingests telemetry, manages the asset inventory and serves bounded event
@@ -19,9 +19,12 @@ and can be exercised end to end with the committed synthetic corpus.
 > every ten minutes and recomputes baselines nightly, every completed ingest batch queues its
 > own sweep, alerts are stored under a dedup key and served by the API, and `make eval` writes
 > the first per-detector metrics table from the labelled cases and the benign corpus. Those
-> numbers come from synthetic data authored here and say nothing yet about real traffic; the
-> isolated Suricata lab (Chunk 13) is what remains of Milestone 2. **There is no correlation,
-> no AI brief and no analyst UI** — those are Milestones 3 to 5. [`docs/STATUS.md`](docs/STATUS.md) is the authoritative record of what exists and
+> numbers come from synthetic data authored here. The isolated Suricata lab now exists too: an
+> opt-in, internal-only network where a pinned Suricata watches traffic between two containers
+> this project creates, and it found two real defects on its first run — D-003 and D-004 cannot
+> read a real sensor's output, for reasons written down in
+> [`docs/evaluation.md`](docs/evaluation.md) §9 and fixed next. **There is no correlation, no AI
+> brief and no analyst UI** — those are Milestones 3 to 5. [`docs/STATUS.md`](docs/STATUS.md) is the authoritative record of what exists and
 > what has been verified, with the evidence for every claim below.
 
 ---
@@ -55,11 +58,18 @@ aspirational:
   Redis publish no host ports at all.
 - **Analyse only what you are authorised to analyse.** Use the project's own synthetic
   corpus, your own lab traffic, or telemetry from systems you administer.
-- **Milestone 1 never touches a network interface.** There is no packet capture and no
-  traffic generation; the isolated Suricata lab is deferred to Milestone 2
-  ([ADR-009](docs/adr/ADR-009-defer-suricata-lab.md)).
+- **The application stack never touches a network interface.** It reads files and serves an
+  API. The one component that captures packets is the opt-in lab
+  ([ADR-021](docs/adr/ADR-021-isolated-suricata-lab.md)): three containers on a network with
+  `internal: true`, so Docker attaches no default route, watching traffic between containers
+  the project itself creates. It starts only when you ask for it by name, it publishes no
+  port, its sensor runs in IDS mode with one capability and cannot block anything, and
+  `make lab-preflight` asks the running container to confirm it has no way out before you
+  generate a packet.
 - **Captures and live sensor output are never committed.** `.gitignore` treats `*.pcap`,
-  `*.pcapng` and `eve*.json` as sensitive data rather than fixtures.
+  `*.pcapng` and `eve*.json` as sensitive data rather than fixtures. A lab capture reaches
+  the repository only after `tools/sanitize_eve.py` has stripped every content-bearing field
+  and **refused** to write at all if one address or name outside documentation space survived.
 
 ---
 
@@ -76,12 +86,13 @@ aspirational:
 | Authentication and authorisation: Argon2id users with lockout, 15-minute HS256 access tokens, rotating refresh cookies with reuse detection, hashed service tokens for sensors, deny-by-default permission on every route | ✅ [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md), [`SECURITY.md`](SECURITY.md) |
 | Audit trail (append-only, bounded detail, admin read API) covering logins, denials, refused uploads and rejected import ids, and Redis rate limits that fail closed for login and ingest | ✅ [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md) |
 | Operator CLI (`python -m aegisnet.cli`) for datasets, batches, assets, events, users and service tokens; `make` targets for every operator task | ✅ |
-| Tests: 759 hermetic tests (unit, integration, security, detectors) at 94 % coverage, 51 database tests against a real PostgreSQL, a CI stack job that logs in, ingests over HTTP, watches the post-ingest sweep and reads the alerts | ✅ [`docs/STATUS.md`](docs/STATUS.md) |
+| Tests: 865 hermetic tests (unit, integration, security, detectors) at 94 % coverage, 51 database tests against a real PostgreSQL, a CI stack job that logs in, ingests over HTTP, watches the post-ingest sweep and reads the alerts | ✅ [`docs/STATUS.md`](docs/STATUS.md) |
 | All five detection rules as pure, versioned functions over bounded windows with derived, bounded evidence and a recorded severity formula: D-001 port scan, D-002 auth-failure burst, D-003 DNS anomaly / tunnelling, D-004 periodic beaconing, D-005 outbound volume anomaly against per-asset baselines; 34 labelled positive and hard-negative cases pinned to their generator (`make test-detectors`) | ✅ Milestone 2, Chunks 8, 10 and 11 ([ADR-017](docs/adr/ADR-017-detector-interface-and-labelled-fixtures.md), [ADR-019](docs/adr/ADR-019-baselines-precomputed-and-address-keyed.md), [`docs/detection-rules.md`](docs/detection-rules.md)) |
 | The baseline job: each asset's hourly outbound history summarised into `asset_baselines` (mean, stddev, p95, sampled hours) by `make recompute-baselines`, the `recompute_baselines` actor or an admin's `POST /detections/baselines/recompute`; D-005 abstains without a baseline | ✅ Milestone 2, Chunk 11 ([ADR-019](docs/adr/ADR-019-baselines-precomputed-and-address-keyed.md)) |
 | The sweep: six detection tables, the registry synced from code, one load per interval sliced on each rule's grid, severity from the asset's criticality with a stored rationale, dedup by a UNIQUE key, per-rule failure isolation in `detector_runs`, the `run_detectors` actor, `make run-detectors`, and the read API for alerts, rules and runs plus the admin sweep trigger | ✅ Milestone 2, Chunk 9 ([ADR-018](docs/adr/ADR-018-detection-sweep-alert-storage-and-failure-isolation.md), [`docs/api-milestone-2.md`](docs/api-milestone-2.md)) |
 | The schedule: a `periodiq` scheduler service sends `scheduled_sweep` every ten minutes (a one-hour lookback on a fixed grid, overlap absorbed by dedup) and `nightly_baselines` at 02:00; a completed ingest batch queues a sweep over its own event-time span, from the worker or inline after a sync upload (`POST_INGEST_SWEEP`) | ✅ Milestone 2, Chunk 12 ([ADR-020](docs/adr/ADR-020-schedule-post-ingest-sweep-and-evaluation-harness.md)) |
 | `make eval`: every labelled case through its rule (T1) and every rule over the benign corpus (T2), written into [`docs/evaluation.md`](docs/evaluation.md) §8 and pinned by a test; strict verdicts, D-005 marked as abstaining without baselines | ✅ Milestone 2, Chunk 12 ([ADR-020](docs/adr/ADR-020-schedule-post-ingest-sweep-and-evaluation-harness.md)); synthetic data only, no claim about real traffic |
+| The isolated Suricata lab: an opt-in, internal-only, IDS-only sensor watching traffic between two containers the project creates, a sanitiser that refuses to publish anything it cannot make safe, and one committed real capture that the ingest path stores end to end | ✅ Milestone 2, Chunk 13 ([ADR-021](docs/adr/ADR-021-isolated-suricata-lab.md), [`infra/lab/README.md`](infra/lab/README.md)); it found two defects on its first run — see [`docs/evaluation.md`](docs/evaluation.md) §9 |
 | Correlation and incidents, analyst dashboard, AI investigation briefs | ⬜ Milestones 3–5 ([roadmap](#roadmap)) |
 
 ---
@@ -323,11 +334,22 @@ make backend-install   # uv sync --frozen
 make check             # verify-ignore + ruff (backend, tools) + import contracts + format + mypy + pytest
 make test-cov          # the suite with a coverage report
 make compose-test      # the same suite inside the hermetic test-runner container
-make compose-config    # parse and interpolate both Compose manifests without starting anything
+make compose-config    # parse and interpolate every Compose manifest without starting anything
 make test-db           # the database suite against an ephemeral PostgreSQL 16 (needs .env)
 make test-detectors    # the detector suite alone: bounds, severity, every rule, every labelled fixture
 make gen-fixtures      # regenerate the labelled fixtures after a case definition changes
 make eval              # T1 + T2 metrics into docs/evaluation.md §8 (a test pins the block; run it after touching a rule)
+make test-security     # the security-marked suite: compose policy, payload limits, RBAC, the lab
+```
+
+The lab is opt-in and separate; nothing below starts unless you ask for it by name.
+
+```bash
+make lab-preflight     # L-0/L-1: prove the network is internal and has no default route
+make lab-capture       # one full run: sensor up, six traffic shapes, flush, export
+make lab-sanitize      # L-5: strip and verify, into samples/lab/
+make eval-lab          # T3: ingest the sanitised capture, sweep it, print what fired
+make lab-clean         # remove the lab, its capture volume and the exported capture
 ```
 
 The default suite is hermetic: no PostgreSQL, no Redis, no network. Readiness probes are
@@ -362,6 +384,13 @@ with `gosu`/`setpriv`, which needs `CAP_SETUID` and therefore fails under `cap_d
 they are started directly as `postgres` and `redis` via `user:` so no privilege switch is
 ever attempted. `read_only` root filesystems and image digest pinning are tracked as later
 work (Milestone 6 and decision F-5) and are **not** applied.
+
+A seventh container exists but is not part of this stack: the lab's sensor
+([ADR-021](docs/adr/ADR-021-isolated-suricata-lab.md)) lives in
+`infra/lab/docker-compose.lab.yml`, on its own `internal: true` network, behind the `lab`
+profile. It is the only place in the repository where a capability is added back after
+`cap_drop: ALL` — `NET_RAW`, on the sensor alone, because no capability-less process can
+open a packet socket — and a test pins that exception to that one service.
 
 The worker's and the scheduler's healthchecks are process liveness only and make no readiness claim. Readiness
 (`/readyz`) covers PostgreSQL and Redis reachability and nothing else; it names no
@@ -416,8 +445,9 @@ reporting, as described in [`SECURITY.md`](SECURITY.md).
 │       └── fixtures/labelled/  labelled detector cases, rendered by tools/gen_labelled_fixtures.py
 ├── frontend/                Next.js placeholder (health page and /api/health)
 ├── infra/                   PostgreSQL role init script, .env bootstrap
-├── samples/                 committed synthetic corpus, asset seed file, dataset registry
-├── tools/                   the seeded synthetic EVE generator and the labelled-fixture generator
+│   └── lab/                 the opt-in isolated Suricata lab: compose file, sensor config, target, generator
+├── samples/                 committed synthetic corpus, one sanitised real lab capture, asset seeds, dataset registry
+├── tools/                   the seeded synthetic EVE generator, the labelled-fixture generator, the capture sanitiser
 ├── docs/                    STATUS, PRD, data model, API contract, delivery plan, ADRs
 ├── docker-compose.yml       the six-service stack
 ├── docker-compose.test.yml  hermetic test runner and the ephemeral test database
@@ -431,7 +461,7 @@ reporting, as described in [`SECURITY.md`](SECURITY.md).
 | Milestone | Scope | State |
 |---|---|---|
 | M1 | Foundation, ingest, normalisation, asset inventory, auth and audit | ✅ Complete; acceptance criteria and evidence in [`docs/delivery-plan.md`](docs/delivery-plan.md) and [`docs/STATUS.md`](docs/STATUS.md) |
-| M2 | Five deterministic detectors (port scan, auth-failure burst, DNS anomaly, periodic beaconing, outbound volume anomaly) with labelled fixtures; the isolated Suricata lab | 🟡 Chunks 8–12 done: detector contract, the sweep with alert storage and the alerts API, all five rules with fixtures, the baseline job, the periodiq schedule with the post-ingest sweep, `make eval` with the first metrics table; the lab (Chunk 13) remains |
+| M2 | Five deterministic detectors (port scan, auth-failure burst, DNS anomaly, periodic beaconing, outbound volume anomaly) with labelled fixtures; the isolated Suricata lab | ✅ Complete (Chunks 8–13); every acceptance criterion in [`docs/delivery-plan.md`](docs/delivery-plan.md) is ticked with evidence. The lab's two findings are open defects with a chunk of their own, not unmet criteria |
 | M3 | Correlation into incidents, timeline, analyst workflow | ⬜ |
 | M4 | Analyst dashboard (Next.js) | ⬜ |
 | M5 | Investigation brief via Perplexity, with redaction canaries, and Markdown export | ⬜ |
@@ -456,9 +486,10 @@ Detector accuracy is **unmeasured** and no claim is made until Milestone 6
 | [`docs/data-model.md`](docs/data-model.md) | PostgreSQL schema design |
 | [`docs/PRD.md`](docs/PRD.md) | Product requirements |
 | [`docs/delivery-plan.md`](docs/delivery-plan.md) | Six-milestone plan |
-| [`docs/evaluation.md`](docs/evaluation.md) | Detection evaluation methodology; §8 holds the `make eval` table (synthetic T1/T2 only, pinned by a test) |
+| [`docs/evaluation.md`](docs/evaluation.md) | Detection evaluation methodology; §8 holds the `make eval` table (synthetic T1/T2, pinned by a test), §9 the first lab run and what it found |
 | [`docs/detection-rules.md`](docs/detection-rules.md) | The rule contract and each detector's specification, guards and hard negatives |
-| [`docs/adr/`](docs/adr) | Architecture decision records (ADR-009 … ADR-020) |
+| [`docs/adr/`](docs/adr) | Architecture decision records (ADR-009 … ADR-021) |
+| [`infra/lab/README.md`](infra/lab/README.md) | The lab runbook: what is safe about it, how to run it, what each traffic shape is for |
 | [`PLANNING.md`](PLANNING.md) | Index of the Milestone 0 planning package |
 | [`backend/README.md`](backend/README.md) | What the backend package contains today |
 | [`frontend/README.md`](frontend/README.md) | The web placeholder |

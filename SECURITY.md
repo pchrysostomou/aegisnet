@@ -165,11 +165,16 @@ which is the honest thing to say: the query asked for too much and a narrower on
 | Brief asks, per analyst | `BRIEF_USER_DAILY_LIMIT` / UTC day | the user | refuse |
 | Brief asks, per case | `BRIEF_INCIDENT_DAILY_LIMIT` / UTC day | the incident | refuse |
 
-The first six are measured, not just declared: `make load-test` fires whole budgets at once
-against a running stack and `docs/evaluation.md` §10 records what came back — 120 of 180
-concurrent reads allowed, `429` with a usable `Retry-After` for the rest, login refused after five
-wrong passwords, and the fixed-window edge costing exactly one extra budget and never more. The
-three brief limits are not in that suite and are not measured under concurrency: their window is
+Three of these are measured under concurrency rather than merely declared — the read bucket, the
+default bucket and login. `make load-test` fires whole budgets at once against a running stack and
+`docs/evaluation.md` §10 records what came back: 120 of 180 concurrent reads allowed, `429` with a
+usable `Retry-After` for the rest, reads and writes counted apart, login refused after five wrong
+passwords, and the fixed-window edge costing exactly one extra budget and never more.
+
+The two ingest limits are asserted one request at a time in the integration suite, not fired at
+once, so their atomicity under load is untested — an honest gap rather than an oversight, and the
+same shape of gap the load suite was written to close for reads. The three brief limits are not in
+that suite either: their window is
 a day, so firing a budget at once would leave the deployment unable to ask for a brief until
 midnight. They are held instead by `tests/security/test_brief_limits.py`, which exhausts each one
 over HTTP and proves each fails closed on its own.
@@ -238,9 +243,16 @@ and §9 records what the first run found.
 - TLS and a reverse proxy; the API and web ports bind to `127.0.0.1` only. `COOKIE_SECURE`
   defaults to `true`, so a browser will not return the refresh cookie over plain HTTP; the
   quickstart sends credentials as headers and never relies on the cookie.
-- Exponential login backoff, password reset, multi-factor authentication, session
-  listing, per-user token revocation from the API, user administration over HTTP.
-- Read-only container filesystems and image digest pinning (`THREAT_MODEL.md` T-5.1).
+- Password reset, multi-factor authentication, session listing, per-user token revocation
+  from the API, user administration over HTTP. **Exponential login backoff is no longer on
+  this list** — it arrived in Chunk 29 and is described above.
+- An unlock command. Nothing but a successful login clears a lock, which is why the backoff
+  ceiling is an hour rather than a day.
+- Image **digest** pinning. Kept as minor tags deliberately, because nothing here bumps a
+  digest and pinning without an updater stops security patches arriving; the image scan is
+  the compensating control and `THREAT_MODEL.md` R-10 records what it does not cover.
+  Read-only container filesystems are **no longer** on this list either — every service has
+  one since Chunk 30 (T-5.1).
 - Any outbound integration: no Perplexity call has ever been made.
 
 ## Verification

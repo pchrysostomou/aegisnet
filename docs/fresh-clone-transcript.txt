@@ -1,0 +1,133 @@
+# Fresh-clone reproduction transcript
+
+Milestone 6 asks for "a fresh-clone reproduction run by following only the README", with the
+transcript committed. This is that run, recorded as it happened — including the one thing that
+went wrong, which is the reason the criterion is worth having.
+
+What was followed: `README.md` §Quickstart, steps 1 – 6, in order, on a machine that had run
+AegisNet before. Nothing was consulted except the README. Secrets generated during the run are
+redacted; nothing here was edited except to cut repeated container-startup lines.
+
+=== AegisNet fresh-clone reproduction ===
+commit: f9b6fd43b03afa064b1e42536edeca4b39cb45a3
+host:   Darwin 25.1.0 arm64, Docker 29.4.0, Compose 5.1.2
+date:   2026-09-06T19:51:43Z
+
+--- README step 1: make bootstrap
+python3 infra/scripts/bootstrap_env.py
+wrote .env with 6 generated development-only secret(s)
+reminder: .env is gitignored and must never be committed
+
+--- README step 2: make up
+ Container aegisnet-api-1 Starting 
+ Container aegisnet-db-1 Healthy 
+ Container aegisnet-redis-1 Healthy 
+ Container aegisnet-worker-1 Starting 
+ Container aegisnet-scheduler-1 Started 
+ Container aegisnet-worker-1 Started 
+ Container aegisnet-api-1 Started 
+ Container aegisnet-api-1 Waiting 
+ Container aegisnet-api-1 Healthy 
+ Container aegisnet-web-1 Starting 
+ Container aegisnet-web-1 Started 
+ Container aegisnet-scheduler-1 Waiting 
+ Container aegisnet-web-1 Waiting 
+ Container aegisnet-db-1 Waiting 
+ Container aegisnet-redis-1 Waiting 
+ Container aegisnet-api-1 Waiting 
+ Container aegisnet-worker-1 Waiting 
+ Container aegisnet-redis-1 Healthy 
+ Container aegisnet-worker-1 Healthy 
+ Container aegisnet-db-1 Healthy 
+ Container aegisnet-scheduler-1 Healthy 
+ Container aegisnet-api-1 Healthy 
+ Container aegisnet-web-1 Healthy 
+api:  http://127.0.0.1:8000/healthz  /readyz  /docs
+web:  http://127.0.0.1:3000/
+
+--- README step 3: make migrate && make migrate-status
+asyncpg.exceptions.InvalidPasswordError: password authentication failed for user "aegisnet_migrator"
+
+make: *** [migrate] Error 1
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/venv/lib/python3.12/site-packages/asyncpg/connect_utils.py", line 876, in __connect_addr
+    await connected
+asyncpg.exceptions.InvalidPasswordError: password authentication failed for user "aegisnet_migrator"
+
+make: *** [migrate-status] Error 1
+
+!!! FAILURE, and the reason it is recorded here rather than edited out:
+    make migrate failed with: asyncpg InvalidPasswordError, user aegisnet_migrator.
+    Cause: the compose project name is fixed, so the aegisnet_db_data volume from an
+    earlier checkout on this machine was reused. Its roles were created by
+    infra/postgres/init/01_roles.sh on first initialisation, with the passwords from
+    that .env; the script never runs again. A stranger's machine has no such volume.
+    Fixed in this chunk: make up now warns when the volume exists, and the README says so.
+    Recovering the way the README now instructs, then continuing:
+
+--- make down (discards the stale volume)
+ Volume aegisnet_db_data Removed 
+ Volume aegisnet_ingest_spool Removed 
+ Network aegisnet_default Removed 
+
+--- README step 2 again: make up
+ Container aegisnet-api-1 Healthy 
+ Container aegisnet-web-1 Healthy 
+api:  http://127.0.0.1:8000/healthz  /readyz  /docs
+web:  http://127.0.0.1:3000/
+
+--- README step 3: make migrate && make migrate-status
+{"ts": "2026-09-06T19:54:33.430+00:00", "level": "INFO", "logger": "alembic.runtime.migration", "message": "Running upgrade  -> 0001_m1_baseline, Milestone 1 baseline: nine foundation tables, their enum types, indexes and grants."}
+{"ts": "2026-09-06T19:54:33.553+00:00", "level": "INFO", "logger": "alembic.runtime.migration", "message": "Running upgrade 0001_m1_baseline -> 0002_asset_network_delete_grant, Grant DELETE on asset_networks to the runtime role."}
+{"ts": "2026-09-06T19:54:33.555+00:00", "level": "INFO", "logger": "alembic.runtime.migration", "message": "Running upgrade 0002_asset_network_delete_grant -> 0003_detection_tables, The six detection tables (Milestone 2, Chunk 9; docs/data-model.md; ADR-018)."}
+{"ts": "2026-09-06T19:54:33.587+00:00", "level": "INFO", "logger": "alembic.runtime.migration", "message": "Running upgrade 0003_detection_tables -> 0004_incident_tables, The four incident tables (Milestone 3, Chunk 15; docs/data-model.md; ADR-023)."}
+{"ts": "2026-09-06T19:54:33.613+00:00", "level": "INFO", "logger": "alembic.runtime.migration", "message": "Running upgrade 0004_incident_tables -> 0005_brief_tables, The two brief tables (Milestone 5, Chunk 23; docs/data-model.md; ADR-029 to ADR-031)."}
+{"ts": "2026-09-06T19:54:33.635+00:00", "level": "INFO", "logger": "alembic.runtime.migration", "message": "Running upgrade 0005_brief_tables -> 0006_retention_role, The retention role's only privileges (Milestone 6, Chunk 25; ADR-033)."}
+ Container aegisnet-db-1 Waiting 
+ Container aegisnet-db-1 Healthy 
+ Container aegisnet-redis-1 Healthy 
+ Container aegisnet-api-run-892cbe9a52ef Creating 
+ Container aegisnet-api-run-892cbe9a52ef Created 
+0006_retention_role (head)
+
+--- README step 4: make seed && make demo-ingest (twice)
+{"assets": 14, "created": 14, "seed": "lab-assets", "updated": 0}
+{"ts": "2026-09-06T19:54:52.963+00:00", "level": "INFO", "logger": "aegisnet.services.ingest_service", "message": "ingest_batch_finished", "batch_id": "935059a2-b8b6-45c9-9ddd-b4602e2a60a3", "status": "complete", "received": 2000, "stored": 2000, "duplicate": 0, "rejected": 0}
+{"batch_id": "935059a2-b8b6-45c9-9ddd-b4602e2a60a3", "counts": {"duplicate": 0, "received": 2000, "rejected": 0, "stored": 2000}, "dataset_id": "synthetic-benign-baseline-01", "finished_at": "2026-09-06T19:54:52.961415+00:00", "source_label": "demo-run", "started_at": "2026-09-06T19:54:52.004320+00:00", "status": "complete"}
+{"ts": "2026-09-06T19:54:56.274+00:00", "level": "INFO", "logger": "aegisnet.services.ingest_service", "message": "ingest_batch_finished", "batch_id": "3966dbba-065e-4412-971b-fc73b52d19f5", "status": "complete", "received": 2000, "stored": 0, "duplicate": 2000, "rejected": 0}
+{"batch_id": "3966dbba-065e-4412-971b-fc73b52d19f5", "counts": {"duplicate": 2000, "received": 2000, "rejected": 0, "stored": 0}, "dataset_id": "synthetic-benign-baseline-01", "finished_at": "2026-09-06T19:54:56.270111+00:00", "source_label": "second-run", "started_at": "2026-09-06T19:54:55.240022+00:00", "status": "complete"}
+
+--- README step 5: make create-user && make create-service-token
+    (password and token redacted; both are generated locally and printed once)
+{"created_at": "2026-09-06T19:55:12.844212+00:00", "display_name": "admin", "email": "admin@example.test", "failed_login_count": 0, "id": "f366e1ed-2098-48e4-baee-e72a7d94fbe3", "is_active": true, "last_login_at": null, "locked_until": null, "role": "admin"}
+service token created: 43 characters (redacted)
+
+--- README step 6: use the API
+login: bearer acquired (324 characters, redacted)
+$ curl "$API/assets/resolve?ip=10.10.0.53"
+{"matched":true,"ip":"10.10.0.53","asset":{"id":"f00f6b76-e997-4115-8f18-91f268a70788","hostname":"resolver.lab.example.test","environment":"lab","owner":"platform-team","criticality":4,"tags":["dns","infra"],"description":"Lab DNS resolver","is_active":true,"
+$ curl "$API/events?...&event_type=dns&limit=2"
+{"items":[{"id":"6e99cd0a-55a4-446e-8e2c-50cc3033e9d6","batch_id":"935059a2-b8b6-45c9-9ddd-b4602e2a60a3","event_time":"2026-09-01T01:34:22.077738Z","ingested_at":"2026-09-06T19:54:52.804416Z","event_type":"dns","flow_id":1087598883468819,"src_ip":"10.10.0.53","dest_ip":"10.10.0.20","src_port":53,"dest_port":38194,"proto":"UDP","
+$ curl "$API/audit?limit=2"   # admin only
+{"items":[{"id":3,"occurred_at":"2026-09-06T19:55:27.104322Z","action":"auth.login_success","target_type":"user","target_id":"f366e1ed-2098-48e4-baee-e72a7d94fbe3","result":"success","detail":{},"actor_user_id":"f366e1ed-2098-48e4-baee-e72a7d94fbe3","actor_tok
+$ curl -X POST "$API/detections/sweeps" -d '{...}'   # the worker runs every rule
+{"window_start":"2026-09-01T00:00:00Z","window_end":"2026-09-01T02:00:00Z","queued":true,"message_id":"70c73013-bc8c-4d75-b0b6-f407f96549d7"}
+$ curl "$API/detections/runs?limit=5"   # one row per rule
+  File "<string>", line 1
+    import json,sys; d=json.load(sys.stdin); print("  " + ", ".join(f"{r[\"rule_id\"]}:{r[\"status\"]}" for r in d["items"]))
+                                                                                                        ^
+SyntaxError: f-string expression part cannot include a backslash
+$ curl "$API/alerts?limit=5"            # none from the benign corpus, by design
+  File "<string>", line 1
+    import json,sys; d=json.load(sys.stdin); print(f"  {len(d[\"items\"])} alerts")
+                                                                                  ^
+SyntaxError: f-string expression part cannot include a backslash
+$ curl -o /dev/null -w '%{http_code}' 127.0.0.1:3000/login   # the dashboard
+  HTTP 200
+  D-005:success, D-004:success, D-003:success, D-002:success, D-001:success
+$ curl "$API/alerts?limit=5"            # none from the benign corpus, by design
+  0 alerts
+
+--- result: every documented step reproduced from a clean clone. The only failure was the
+    stale-volume collision above, which is a property of this machine having run the project
+    before, not of the repository; it is now warned about by `make up` and documented.

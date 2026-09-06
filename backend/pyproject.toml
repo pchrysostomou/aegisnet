@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aegisnet"
-version = "0.1.0"
+version = "1.0.0"
 description = "AegisNet — defensive network threat detection lab (backend)"
 # Must be inside this directory: hatchling rejects a path outside the project root, which
 # makes the package unbuildable. Project-level documentation is at ../README.md.

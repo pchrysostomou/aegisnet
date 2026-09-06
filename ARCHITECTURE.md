@@ -13,7 +13,7 @@ Last updated: 2026-09-05
 | §1 layering and `domain/` purity | Implemented and enforced by import-linter in CI (two contracts) |
 | §2 `api`, `worker`, `db`, `broker/cache`, `web` | Running: FastAPI api with auth, RBAC, audit and rate limits; Dramatiq worker with six actors (`import_dataset`, `import_upload`, `run_detectors`, `recompute_baselines`, `scheduled_sweep`, `nightly_baselines`); PostgreSQL 16; Redis 7 as broker, limiter and denylist; Next.js 15 placeholder |
 | §2 `scheduler` (periodiq) | Deferred by ADR-010; **delivered in M2 Chunk 12 (ADR-020)**: a sixth service sending the ten-minute sweep and the nightly baseline recompute |
-| §2 `perplexity` client | Not started (M5); no outbound call exists |
+| §2 `perplexity` client | Implemented in M5 (Chunks 21–24, ADR-029 – ADR-032): the redaction boundary, the hardened client, the brief schema and its citation and safety checks, two append-only tables and the dashboard panel. **Off by default, and no outbound call has ever been made from this repository** |
 | §3 ingest → validate → persist → enqueue | Implemented: HTTP and registry import, capped spool, per-line rejects, idempotent `event_hash`, audit per batch |
 | §3 detectors, baselines, correlation, redaction, briefs, export | Detectors, baselines and alert storage implemented (M2, Chunks 8 – 12); correlation, redaction, briefs and export not started (M3 – M5) |
 | §4 trust boundaries TB-1, TB-2, TB-5, TB-6 | Mitigations in place with named tests (`THREAT_MODEL.md`); TB-3/TB-4 have no code yet |

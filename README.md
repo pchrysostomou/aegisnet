@@ -11,7 +11,7 @@ correlating findings into incidents, and producing evidence-based investigation 
 human analysts. Everything runs on one machine with `docker compose`, binds to loopback,
 and can be exercised end to end with the committed synthetic corpus.
 
-> **Status: Milestones 1 and 2 complete (Chunks 1–13).** The stack
+> **Status: Milestones 1–5 complete (Chunks 1–24); Milestone 6 in progress (Chunks 25–30 done).** The stack
 > builds and reaches healthy from a clean clone; the schema is created with least-privilege
 > grants; users, roles, service tokens, rate limits and an append-only audit trail are in
 > place; the HTTP API ingests telemetry, manages the asset inventory and serves bounded event
@@ -112,9 +112,9 @@ aspirational:
 | The deployment hardened where it is built rather than where it runs: every container on a **read-only root filesystem** with sized `tmpfs` mounts for exactly what `docker diff` proved it writes, a **Trivy image scan** that reads what is inside the images no lockfile audit can see, and the lab's **pre-flight asked of a running container in CI** instead of by an operator who remembered | ✅ Milestone 6, Chunk 30 ([ADR-037](docs/adr/ADR-037-the-last-three-rows-are-about-the-deployment.md)); verified by rebuilding and starting the stack — a refused `touch`, a 1.9 MB upload through the api's tmpfs, zero rootfs writes — and digest pinning was re-examined and deliberately **kept as tags** (R-10), because nothing here bumps a digest and pinning without an updater stops patches arriving |
 | Two bounds on what happens *after* an ask gets through: a **lockout that lengthens** — 15, 30, 60, 60 minutes, forgotten after a day so it is never permanent for an account that cannot log in — and a **statement timeout**, in two budgets, because the API, the workers and the CLI share one database role and no single number bounds both a request and a sweep over 200 000 events. The migrator gets no timeout at all, asked for explicitly | ✅ Milestone 6, Chunk 29 ([ADR-036](docs/adr/ADR-036-two-bounds-that-live-inside-the-application.md)); a cancelled statement answers `503`, not `500`, because it means the query asked for too much — and the database suite proves the bound with `pg_sleep`, a statement that provably cannot finish inside it |
 | Three limits this project published and did not enforce, now enforced: a **deadline on the request body** (`408`, the partial upload discarded), so a body delivered one byte at a time is refused where no size cap ever reaches it; **per-analyst and per-case daily limits on asking for a brief**, spent narrowest-first so a loop on one case cannot cost that analyst every other case; and the dashboard **writing out the twenty characters that change what text says** — `U+202E` and friends — in the same notation the exported report already used | ✅ Milestone 6, Chunk 28 ([ADR-035](docs/adr/ADR-035-three-limits-the-model-claimed-and-the-code-did-not-have.md)); all three were found by writing the coverage matrix, and the third turned up a second defect — the renderer's block grammar matched `\s`, which in JavaScript swallows `U+FEFF` |
-| The threat model, parsed by the suite: `THREAT_MODEL.md` §6 maps every one of the thirty-six threats to the tests that hold its mitigation up — as pytest node ids, vitest and Playwright titles and CI jobs — and a checker fails on a renamed test, a deleted row, a status the evidence does not support or an invented residual-risk id. `docs/evaluation.md` §8 gained the provenance §6 had always asked for: the commit the corpus was measured at, the generator seed and the rule versions | ✅ Milestone 6, Chunk 27 ([ADR-034](docs/adr/ADR-034-the-threat-model-is-checked-by-the-suite.md)); writing the matrix found three places the model claimed more than the code did — all three closed in Chunk 28 — and the five `partial` rows that remain are what M6 still owes |
+| The threat model, parsed by the suite: `THREAT_MODEL.md` §6 maps every one of the thirty-six threats to the tests that hold its mitigation up — as pytest node ids, vitest and Playwright titles and CI jobs — and a checker fails on a renamed test, a deleted row, a status the evidence does not support or an invented residual-risk id. `docs/evaluation.md` §8 gained the provenance §6 had always asked for: the commit the corpus was measured at, the generator seed and the rule versions | ✅ Milestone 6, Chunk 27 ([ADR-034](docs/adr/ADR-034-the-threat-model-is-checked-by-the-suite.md)); writing the matrix found three places the model claimed more than the code did. All eight gaps it found were closed across Chunks 28–30, so §6 is now thirty-six `test` rows and no `partial` |
 | Real sensor output reads correctly: a flow event is filed under the instant the conversation began, not when Suricata announced it, and a DNS record's direction comes from its own type rather than from the presence of a response code | ✅ Chunk 14 ([ADR-022](docs/adr/ADR-022-event-time-and-dns-direction.md)); the two defects the lab found, with four of five rules firing on the real capture afterwards — [`docs/evaluation.md`](docs/evaluation.md) §9 |
-| The threat-model coverage matrix, the demo script and the release checklist | ⬜ Milestone 6, remaining ([roadmap](#roadmap)) |
+| The release artefacts: a fresh-clone reproduction that **records the failure it hit** rather than a clean re-run ([transcript](docs/fresh-clone-transcript.txt)), a three-minute [demo script](docs/demo-script.md) with measured timings, and a [release checklist](docs/RELEASE_CHECKLIST.md) that says what it would not have caught | ✅ Milestone 6, Chunk 31 |
 
 ---
 
@@ -243,7 +243,7 @@ threat catalogue with the test that verifies each mitigation is in
 want to know what is proven rather than intended: one row per threat, the tests named as node
 ids, and a status of `test`, `partial` or `accepted`. It is parsed by the suite
 (`tests/security/test_threat_coverage.py`), so a renamed test breaks the document that cites
-it — and the `partial` rows are the honest list of what M6 still owes (ADR-034). Chunk 28 closed three of the eight and five remain (ADR-035).
+it. §6 is **thirty-six `test` rows and no `partial`**: the eight gaps the matrix found were closed across Chunks 28–30 (ADR-035, ADR-036, ADR-037), two of them by recording R-10 and R-11 as accepted residual risks rather than by writing code.
 
 | Permission | viewer | analyst | admin | ingest_service |
 |---|:-:|:-:|:-:|:-:|
@@ -286,6 +286,12 @@ cd aegisnet
 make bootstrap
 
 # 2. Build the images, start the stack, and wait until every service is healthy.
+#    If you have run AegisNet on this machine before, run `make down` first. The database
+#    volume is named after the compose project, so it outlives the checkout, and its roles
+#    were created from whichever .env existed when it was first initialised — a new .env
+#    then fails several steps later with `password authentication failed for user
+#    "aegisnet_migrator"`. `make up` warns when it sees such a volume. `make down` discards
+#    it, and the ingested data with it.
 make up
 
 # 3. Create the schema. Runs `alembic upgrade head` inside the api image as the migrator
@@ -447,9 +453,13 @@ The worker's and the scheduler's healthchecks are process liveness only and make
 (`/readyz`) covers PostgreSQL and Redis reachability and nothing else; it names no
 component in its response.
 
-The database is initialised with two least-privilege roles by
+The database is initialised with three least-privilege roles by
 [`infra/postgres/init/01_roles.sh`](infra/postgres/init/01_roles.sh): `aegisnet_migrator`
-owns the schema, `aegisnet_app` is the runtime role and never receives DDL rights. The
+owns the schema, `aegisnet_app` is the runtime role and never receives DDL rights, and
+`aegisnet_retention` is **the only principal in the deployment that may `DELETE`** — it
+holds `SELECT, DELETE` on the four tables with a retention period and can write nothing
+anywhere, so the audit log and the brief tables stay append-only for the application even
+though the deployment has a retention policy ([ADR-033](docs/adr/ADR-033-deletion-is-a-different-principal.md)). The
 script validates every interpolated role name and secret against a strict allowlist and
 fails closed, and it creates no tables. The schema is created only by `make migrate`,
 which runs the Alembic revisions shipped inside the package under the migrator role
@@ -516,7 +526,7 @@ reporting, as described in [`SECURITY.md`](SECURITY.md).
 | M3 | Correlation into incidents, timeline, analyst workflow | ✅ **Complete** (Chunks 15–17): the grouping policy, the four incident tables, the workflow state machine, the incidents API with audited transitions, notes and the role matrix, and the multi-stage scenario with its correlation metrics. Every M3 acceptance criterion has evidence |
 | M4 | Analyst dashboard (Next.js) | ✅ **Complete** (Chunks 18–20): sign-in and the session model, the typed API boundary, the incident queue, the case view with its timeline, workflow controls and notes, the `SafeMarkdown` renderer, the asset inventory, the audit viewer, and the Playwright suite. Every M4 acceptance criterion has evidence |
 | M5 | Investigation brief via Perplexity, with redaction canaries | ✅ **Complete** (Chunks 21–24): the redaction boundary and its canary suite, the hardened client, the brief schema with its citation and safety checks, the two append-only tables with their routes and CLI, the committed offline sample, the deterministic `report.md` export and the dashboard's brief panel. All eight M5 acceptance criteria are ticked with evidence. Off by default; **no call has ever been made from this repository** |
-| M6 | Hardening, evaluation with measured accuracy, documentation, release | 🟡 Chunks 25–30 done: the retention policy with its third database role (ADR-033), the rate limits measured under concurrency ([`docs/evaluation.md`](docs/evaluation.md) §10), and the threat-model coverage matrix the suite parses, alongside the provenance §8 had been missing ([ADR-034](docs/adr/ADR-034-the-threat-model-is-checked-by-the-suite.md)). Chunk 28 then closed three of the eight rows the matrix named — an upload deadline, per-analyst and per-case brief limits, and the dashboard writing out characters that change what text says ([ADR-035](docs/adr/ADR-035-three-limits-the-model-claimed-and-the-code-did-not-have.md)). Chunk 29 then closed the lengthening lockout and the statement timeout ([ADR-036](docs/adr/ADR-036-two-bounds-that-live-inside-the-application.md)). What remains is three `partial` rows, all about how the deployment is built — read-only root filesystems and digest pinning, the lab's running pre-flight, and a container image scan — then the fresh-clone reproduction transcript, the demo script and the release checklist |
+| M6 | Hardening, evaluation with measured accuracy, documentation, release | 🟡 Chunks 25–30 done: the retention policy with its third database role (ADR-033), the rate limits measured under concurrency ([`docs/evaluation.md`](docs/evaluation.md) §10), and the threat-model coverage matrix the suite parses, alongside the provenance §8 had been missing ([ADR-034](docs/adr/ADR-034-the-threat-model-is-checked-by-the-suite.md)). Chunk 28 then closed three of the eight rows the matrix named — an upload deadline, per-analyst and per-case brief limits, and the dashboard writing out characters that change what text says ([ADR-035](docs/adr/ADR-035-three-limits-the-model-claimed-and-the-code-did-not-have.md)). Chunk 29 closed the lengthening lockout and the statement timeout ([ADR-036](docs/adr/ADR-036-two-bounds-that-live-inside-the-application.md)), and Chunk 30 the last three — read-only root filesystems, a container image scan, and the lab's pre-flight asked of a running container in CI ([ADR-037](docs/adr/ADR-037-the-last-three-rows-are-about-the-deployment.md)); digest pinning was re-examined and deliberately kept as tags (R-10). **§6 is thirty-six `test` rows and no `partial`.** What remains is Chunk 31: the fresh-clone reproduction transcript, the demo script, the release checklist and the `v1.0.0` tag |
 
 Detector accuracy is **unmeasured** and no claim is made until Milestone 6
 ([`docs/evaluation.md`](docs/evaluation.md)). The full plan with acceptance gates is in
@@ -543,6 +553,9 @@ Detector accuracy is **unmeasured** and no claim is made until Milestone 6
 | [`docs/data-model.md`](docs/data-model.md) | PostgreSQL schema design |
 | [`docs/PRD.md`](docs/PRD.md) | Product requirements |
 | [`docs/delivery-plan.md`](docs/delivery-plan.md) | Six-milestone plan |
+| [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) | What is checked before a tag, and why those checks rather than more obvious ones |
+| [`docs/demo-script.md`](docs/demo-script.md) | Three minutes from a running stack to a case, with timings measured on the fresh-clone run |
+| [`docs/fresh-clone-transcript.txt`](docs/fresh-clone-transcript.txt) | The reproduction run, including the one thing that went wrong |
 | [`docs/evaluation.md`](docs/evaluation.md) | Detection evaluation methodology; §8 holds the `make eval` table (synthetic T1/T2, pinned by a test, with the corpus commit, seed and rule versions it was measured at), §9 the first lab run and what it found, §10 the rate limits measured under concurrency |
 | [`docs/detection-rules.md`](docs/detection-rules.md) | The rule contract and each detector's specification, guards and hard negatives |
 | [`docs/adr/`](docs/adr) | Architecture decision records (ADR-009 … ADR-037) |

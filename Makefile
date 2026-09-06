@@ -107,6 +107,19 @@ build: require-env ## Build the api, worker and web images
 # healthcheck, so --wait returns only once all five report healthy (or fails after the
 # timeout, printing which dependency did not come up).
 up: require-env ## Build if needed, start the stack and wait until every service is healthy
+	@# The database volume is named after the compose project, so it outlives a checkout. Its
+	@# roles were created by infra/postgres/init/01_roles.sh on first initialisation and that
+	@# script never runs again — so a volume from an earlier .env keeps the *old* passwords, and
+	@# the only symptom is asyncpg saying "password authentication failed for user
+	@# aegisnet_migrator" several steps later, in `make migrate`. Found by the fresh-clone
+	@# reproduction in Chunk 31, which is exactly the kind of thing that criterion exists for.
+	@if docker volume inspect aegisnet_db_data >/dev/null 2>&1; then \
+		echo "note: reusing the existing aegisnet_db_data volume."; \
+		echo "      Its database roles come from the .env that was in force when it was created."; \
+		echo "      If 'make migrate' fails with 'password authentication failed for user"; \
+		echo "      \"aegisnet_migrator\"', that is why: run 'make down' to discard the volume,"; \
+		echo "      then 'make up' again. 'make down' deletes the ingested data with it."; \
+	fi
 	$(COMPOSE) up --build --detach --wait --wait-timeout 240
 	@echo "api:  http://127.0.0.1:8000/healthz  /readyz  /docs"
 	@echo "web:  http://127.0.0.1:3000/"

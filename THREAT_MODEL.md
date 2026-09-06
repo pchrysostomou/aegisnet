@@ -1,8 +1,9 @@
 # AegisNet — Threat Model
 
 Method: STRIDE per trust boundary, with a data-flow-driven asset inventory.
-Status: **Reviewed at the Milestone 1 gate (2026-09-05). Revisit at the end of every milestone.**
-Last updated: 2026-09-05
+Status: **Reviewed at every milestone gate; last at the Milestone 6 gate (2026-09-06), where §6 became
+a machine-checked coverage matrix.** Revisit at the end of every milestone.
+Last updated: 2026-09-06
 
 > Note on framing: AegisNet is a *defensive* tool that ingests attacker-influenced data. The most important
 > threats are therefore **inbound-data threats** (malicious log content) and **outbound-data threats**
@@ -60,7 +61,7 @@ them is renamed away.
 | ID | STRIDE | Threat | Mitigation | Verified by |
 |---|---|---|---|---|
 | T-2.1 | Spoofing | Credential stuffing / weak passwords | Argon2id, minimum-length policy, per-account + per-IP login rate limit with backoff, generic failure messages | `backend/tests/unit/test_auth_service.py` (Argon2id verification, generic failure for unknown/wrong/inactive/locked, lockout after `LOGIN_MAX_FAILURES` and release after the window, dummy verification for unknown accounts), `tests/integration/test_auth_routes.py` (identical `401` bodies, 5 per 15 min per client and per hashed account, fail-closed when Redis is down) — Chunk 6. Chunk 29 added the backoff the mitigation names: each lock past the threshold is twice the last to an hour's ceiling, and a lock nobody has touched for a day is forgotten so the escalation is not permanent for an account that never logs in successfully — `test_each_lock_is_twice_the_last_until_the_ceiling`, `test_a_lock_nobody_touched_for_long_enough_is_forgotten`, and `test_a_longer_lock_changes_nothing_the_caller_can_see`, because an escalation a caller can read off the response is an oracle. The per-address and per-account budgets are separate settings from the same chunk (R-9) |
-| T-2.2 | Elevation | Viewer performs analyst/admin actions; IDOR on incident ids | Deny-by-default RBAC dependency on **every** route; permission matrix test asserting each role × endpoint | `backend/tests/security/test_rbac.py` — Chunk 6: enumerates every `APIRoute` and fails on one without a permission dependency (allowlist: `/healthz`, `/readyz`, login, refresh); 19 routes × 4 roles matrix; a bad credential is `401`, never anonymous; a service token is not a user; permissions follow the stored role; every denial audited as `rbac.denied` |
+| T-2.2 | Elevation | Viewer performs analyst/admin actions; IDOR on incident ids | Deny-by-default RBAC dependency on **every** route; permission matrix test asserting each role × endpoint | `backend/tests/security/test_rbac.py` — Chunk 6: enumerates every `APIRoute` and fails on one without a permission dependency (allowlist: `/healthz`, `/readyz`, login, refresh); a 36-case × 4-role matrix (144 parametrized cases); a bad credential is `401`, never anonymous; a service token is not a user; permissions follow the stored role; every denial audited as `rbac.denied` |
 | T-2.3 | Tampering | Illegal workflow transition (e.g. `new → closed` skipping triage) | Server-side state machine; client cannot supply arbitrary next state; the status the caller believed the case held is part of the `UPDATE`'s `WHERE`, so a stale read loses instead of overwriting | `backend/tests/unit/test_correlation_domain.py` (the transition table, both directions), `tests/unit/test_incident_service.py` (every refusal path incl. the lost race), `tests/integration/test_incident_routes.py` (`409` + `incident.status_change_refused` audited as denied), `tests/db/test_incident_store.py` (the compare-and-set writes nothing when it loses, against real PostgreSQL) — Chunk 16
 | T-2.4 | Spoofing | Token theft / replay | Short-lived access tokens, rotating refresh with reuse detection, `Secure`/`HttpOnly`/`SameSite=Strict` cookies, logout revocation list in Redis | `backend/tests/unit/test_auth_service.py` (rotation, reuse revokes the whole chain, expiry, logout denylists the `jti`, forged/tampered/`alg=none`/wrong-issuer/over-long/future-dated tokens refused, tokens die on role change or deactivation), `tests/integration/test_auth_routes.py` (`HttpOnly; SameSite=Strict; Path=/api/v1/auth` cookie, `Secure` by default, replayed cookie kills the chain and is cleared), `tests/db/test_auth_store.py` — Chunk 6 |
 | T-2.5 | Repudiation | Analyst denies closing a case as false positive | Append-only audit log; no UPDATE/DELETE grant on audit table for the app role; no foreign key on `audit_log` so no referential action can rewrite a row; every transition and every refused transition is written by the route with the principal that made it, after the change commits (ADR-024) | `backend/tests/db/test_grants.py` (Chunk 2): the app role's UPDATE, DELETE and TRUNCATE on `audit_log` are refused by PostgreSQL; `tests/unit/test_audit_service.py` (credential-like keys dropped, values, keys and nesting bounded, actor attribution), `tests/db/test_audit_store.py` (round trip, newest first, filters, cursors), `tests/integration/test_audit_routes.py` (admin only) — Chunk 6 |
@@ -120,8 +121,8 @@ them is renamed away.
 ## 5. Review cadence
 
 Re-run this model at each milestone gate. Any new external egress, new endpoint, or new rendered field requires
-a new row here before merge. `docs/RELEASE_CHECKLIST.md` blocks `v1.0.0` until every mitigation above has a
-named passing test or an explicit accepted-risk entry — **§6 is where that is written down and checked**, and it
+a new row here before merge. [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) blocks `v1.0.0` until every mitigation
+above has a named passing test or an explicit accepted-risk entry — **§6 is where that is written down and checked**, and it
 is the artefact to read if you want to know what this project has actually proven rather than what it intends.
 
 ### Milestone 1 gate review (2026-09-05)
@@ -290,11 +291,13 @@ is the artefact to read if you want to know what this project has actually prove
   security patches arriving — the image scan is the compensating control, and it explicitly does
   not cover a tag that moves to something malicious but clean. **R-11**: L-3, the operator's
   attestation that the systems are theirs, cannot be automated and never will be.
-- Milestone 1 rows whose mitigation has no named test yet: the
-  query-timeout and load-test parts of T-2.6 (evaluation plan), and the read-only root filesystem and digest
-  pinning parts of T-5.1 (M6). Rows outside Milestone 1's scope keep their planning-phase wording: T-1.3
-  (dashboard rendering, M4), T-5.5 (the lab, M2), and every TB-3 and TB-4 row (M5). All are carried in
-  `docs/STATUS.md` under open risks or the milestone plan.
+- ~~Milestone 1 rows whose mitigation has no named test yet.~~ **Superseded, and every clause of it
+  is now false**: the query timeout and the load test (T-2.6) arrived in Chunks 26 and 29, the
+  read-only root filesystem (T-5.1) in Chunk 30, T-1.3's dashboard rendering in Chunks 19–20, T-5.5's
+  lab in Chunk 13 and its running pre-flight in Chunk 30, and every TB-3 and TB-4 row in Milestone 5.
+  Digest pinning is the one clause that was not written, and it is a recorded decision (R-10) rather
+  than an omission. This bullet is kept struck through rather than deleted because it is what the
+  model looked like before §6 existed, and §6 is now the answer to the question it was asking.
 - Findings from external analysis were folded in during Chunk 6 (`docs/STATUS.md` E-39 – E-41): an upload's
   bytes no longer influence any file name, and the bootstrap script creates `.env` with mode 0600 in one call.
 

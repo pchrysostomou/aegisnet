@@ -4,9 +4,23 @@ All notable changes to AegisNet are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Nothing is released yet. There is no tagged version.
+## [1.0.0] — 2026-09-06
 
-## [Unreleased]
+The first tagged release. Everything below this heading was built chunk by chunk across six
+milestones; `docs/STATUS.md` carries the evidence row for each, and
+`docs/RELEASE_CHECKLIST.md` records what was checked before the tag.
+
+Two things this release deliberately does **not** claim. Detector accuracy on real traffic is
+unmeasured — `docs/evaluation.md` §8 reports what the rules do on data this repository generated,
+and §9 what a real sensor's output broke the first time it met them. And the investigation-brief
+integration is off by default: **no outbound API call has ever been made from this repository.**
+
+### Added in the release chunk (Chunk 31)
+- `docs/RELEASE_CHECKLIST.md`, `docs/demo-script.md`, and the fresh-clone reproduction transcript
+  in `docs/fresh-clone-transcript.txt` — which records a real failure rather than a clean sheet.
+- `make up` now warns when it reuses a `db_data` volume from an earlier `.env`, because that is
+  what the fresh-clone reproduction hit: the roles come from the volume, not the checkout, and the
+  only symptom was `password authentication failed` several steps later.
 
 ### Added
 - **Read-only root filesystems on every service** (T-5.1), with sized `tmpfs` mounts for exactly

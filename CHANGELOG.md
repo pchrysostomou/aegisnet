@@ -51,6 +51,40 @@ Nothing is released yet. There is no tagged version.
   EVE DNS shapes so T1 and T2 exercise the one that broke D-003.
 
 ### Added
+- **Chunk 22 (Milestone 5) — the client and the contract for what comes back (ADR-030).**
+  `adapters/perplexity/` is the only code in this project that talks to somebody else, and
+  `domain/briefs/` decides what may be stored. **Both are off by default and no call has been
+  made from this repository**: every test runs against committed fixtures through a mock
+  transport, which is also the only way to assert what *would* have been sent.
+- Recommendations are an **enum** of nine things a person does — investigate, review with the
+  owner, check the baseline, collect evidence, correlate, monitor, document, escalate, or
+  nothing. A model that invents an action is refused rather than approximated. An incident tool
+  whose AI output says "block 203.0.113.5" in a structured field is one integration away from a
+  tool that does.
+- An external claim must cite an https source the brief carries. A citation id pointing at
+  nothing is a refusal — a dangling reference is a fabricated citation wearing a number. An
+  external claim with *no* citation is kept and marked `UNVERIFIED`, because a reader deciding
+  what to trust is better served than by a silent deletion.
+- A brief has no field for a severity, a status or a verdict, and a test asserts the exact field
+  set: successful prompt injection still has no channel to change what the detectors concluded.
+- The call is bounded everywhere — one timeout, two jittered retries on the statuses worth
+  retrying and none on the ones that will not change, a response byte cap checked before
+  parsing, `max_tokens`, a content-addressed cache so an unchanged case costs nothing, and a
+  daily budget with a hard stop.
+- The API key is a `SecretStr`, travels only in a header, and is in `secret_values()` so the log
+  scrubber would catch it even if the client were wrong. A transport failure records the
+  exception's *type*, because an httpx error carries the request and the request carries the
+  header. `verify` is never mentioned and no setting could disable it — a test greps for that.
+- [`docs/perplexity-integration.md`](docs/perplexity-integration.md) says what is sent, what is
+  accepted, how to turn it on, and every way it fails.
+
+### Fixed
+- **The safety filter was a pydantic validator, which made it unable to do its job.** Pydantic
+  converts any `ValueError` raised inside a validator into a `ValidationError`, so "the model
+  recommended attacking something" arrived indistinguishable from "a field was too long" and
+  the client could only ever record `schema_rejected`. Shape is validation; policy is now its
+  own step (`enforce_safety`), and `safety_rejected` is a record that can actually happen.
+
 - **Chunk 21 (Milestone 5) — the outbound boundary, and nothing else (ADR-029).**
   `domain/redaction/` turns a case into a `CaseEvidencePacket`: derived numbers, stable tokens
   and timestamps. **No client, no configuration and no API key ship in this chunk** — there is

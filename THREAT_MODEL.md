@@ -159,6 +159,16 @@ named passing test or an explicit accepted-risk entry.
   and the rest of TB-4 arrive with the client in Chunk 22. The suite found a real leak on its first
   run: a timeline summary this project writes quotes the entity, so addresses are now substituted
   inside sentences and not merely scanned for.
+- Chunk 22 closed the rest of TB-3 and the schema half of TB-4 (ADR-030), still **without making a
+  call**: T-3.3 (key in a `SecretStr`, header-only, in `secret_values()`, exception *types* logged
+  rather than exceptions), T-3.4 (content-addressed cache, daily budget, `max_tokens`), T-3.6 (one
+  https host, and no setting exists that could disable verification — a test greps for one), T-4.2
+  (https citations, dangling ids refused, uncited external claims kept and marked `UNVERIFIED`),
+  T-4.3 (recommendations are an enum; a denylist of operational verbs behind it), and T-4.5 (a
+  response byte cap checked before parsing). T-4.1's narrative-only property is asserted at the
+  type: `InvestigationBrief` has no field for a severity, a status or a verdict. T-4.4's renderer
+  already exists from Chunk 19. The feature is off by default and every test uses a mock transport
+  over committed fixtures.
 - New rendered fields: none (the web app is still a health placeholder).
 - Milestone 1 rows whose mitigation has no named test yet: the
   query-timeout and load-test parts of T-2.6 (evaluation plan), and the read-only root filesystem and digest

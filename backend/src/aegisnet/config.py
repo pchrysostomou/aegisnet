@@ -104,6 +104,32 @@ class Settings(BaseSettings):
     # Queue a sweep over a batch's event-time span as soon as the batch completes.
     post_ingest_sweep: bool = True
 
+    # ---- the investigation brief (TB-3, TB-4; ADR-029, ADR-030)
+    # Off unless somebody turns it on. This is the only feature that sends anything outside
+    # the deployment, so the default has to be the one that does not.
+    brief_enabled: bool = False
+    perplexity_api_key: SecretStr | None = None
+    perplexity_base_url: str = "https://api.perplexity.ai"
+    perplexity_model: Annotated[str, Field(min_length=1, max_length=64)] = "sonar"
+    perplexity_timeout_seconds: Annotated[float, Field(gt=0, le=120)] = 30.0
+    perplexity_max_retries: Annotated[int, Field(ge=0, le=5)] = 2
+    perplexity_max_tokens: Annotated[int, Field(ge=64, le=4096)] = 1200
+    # A response larger than this is not read (T-4.5).
+    perplexity_max_response_bytes: Annotated[int, Field(ge=1024)] = 256 * 1024
+    # A hard stop on spend and on exposure: past this many calls in a day, the answer is no.
+    brief_daily_budget: Annotated[int, Field(ge=0, le=10_000)] = 50
+
+    @field_validator("perplexity_base_url")
+    @classmethod
+    def _https_only_known_host(cls, value: str) -> str:
+        """T-3.6: no plaintext, no redirection to somewhere else, no custom CA bypass flag —
+        there is no setting to turn verification off because there is no code that reads one."""
+        allowed = {"https://api.perplexity.ai"}
+        cleaned = value.rstrip("/")
+        if cleaned not in allowed:
+            raise ValueError(f"perplexity_base_url must be one of {sorted(allowed)}")
+        return cleaned
+
     @field_validator("sweep_cadence_minutes")
     @classmethod
     def _cadence_divides_the_hour(cls, value: int) -> int:
@@ -193,6 +219,10 @@ class Settings(BaseSettings):
             self.postgres_migrator_password.get_secret_value(),
             self.redis_password.get_secret_value(),
         }
+        # The Perplexity key is the one secret that is also sent somewhere, so it is the one
+        # most likely to end up in an exception string or a debug line (T-3.3).
+        if self.perplexity_api_key is not None:
+            values.add(self.perplexity_api_key.get_secret_value())
         return frozenset(v for v in values if len(v) >= 8)
 
 

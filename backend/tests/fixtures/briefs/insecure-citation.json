@@ -1,0 +1,17 @@
+{
+  "id": "fixture",
+  "model": "sonar",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"summary\": \"Host asset-A scanned forty ports on int-1, failed twelve authentications in ninety seconds, then contacted ext-1 every sixty seconds and uploaded 400 MiB \\u2014 roughly eighty times its own weekly p95.\", \"claims\": [{\"text\": \"asset-A reached 40 distinct ports on one internal host inside ten minutes.\", \"kind\": \"observed\", \"citations\": []}, {\"text\": \"Twelve authentication failures fell inside a ninety-second window.\", \"kind\": \"observed\", \"citations\": []}, {\"text\": \"Regular sixty-second callbacks with jitter under 2% are a common command-and-control pattern.\", \"kind\": \"external\", \"citations\": [1]}], \"recommendations\": [{\"action\": \"investigate_host\", \"detail\": \"Confirm what asset-A was running during the window.\"}, {\"action\": \"review_with_asset_owner\", \"detail\": \"The owner may recognise the upload as a backup.\"}], \"citations\": [{\"id\": 1, \"url\": \"http://attack.mitre.org/techniques/T1071/\", \"title\": \"Plaintext\"}], \"limitations\": \"The packet carries no process or user context, and destinations are tokens rather than addresses.\"}"
+      }
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 812,
+    "completion_tokens": 340
+  }
+}

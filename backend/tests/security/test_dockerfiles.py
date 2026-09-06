@@ -11,7 +11,9 @@ from tests.conftest import REPO_ROOT
 
 pytestmark = pytest.mark.security
 
-DOCKERFILES = [REPO_ROOT / "backend" / "Dockerfile", REPO_ROOT / "frontend" / "Dockerfile"]
+BACKEND_DOCKERFILE = REPO_ROOT / "backend" / "Dockerfile"
+FRONTEND_DOCKERFILE = REPO_ROOT / "frontend" / "Dockerfile"
+DOCKERFILES = [BACKEND_DOCKERFILE, FRONTEND_DOCKERFILE]
 FROM_LINE = re.compile(r"^FROM\s+(?P<image>\S+)(?:\s+AS\s+(?P<stage>\S+))?", re.IGNORECASE)
 
 
@@ -84,3 +86,23 @@ def test_base_images_are_pinned_by_tag(path: Path) -> None:
         if line.upper().startswith("ARG ") and "_IMAGE=" in line:
             image = line.split("=", 1)[1]
             assert ":" in image and not image.endswith(":latest"), line
+
+
+def test_the_dashboard_runtime_ships_no_package_manager() -> None:
+    """T-5.6, and the first thing the image scan found.
+
+    `node:22-alpine` ships npm and corepack, and npm carries its own bundled dependency tree —
+    tar, sigstore, pacote, `@npmcli`. `pnpm audit --prod` reads this app's lockfile and those
+    packages are not in it, so both lockfile audits are structurally blind to them: the scan
+    reported a CRITICAL in `tar` inside an image whose own dependencies were clean (E-91).
+
+    A Next standalone server runs `node server.js` and uses neither tool, so they are deleted
+    rather than upgraded — which removes the whole class instead of this month's instance, and
+    takes away the most convenient way to install something into a container somebody has just
+    got code execution in.
+    """
+    runtime = _stages(FRONTEND_DOCKERFILE)["runtime"]
+    removed = " ".join(runtime)
+    for tool in ("/usr/local/lib/node_modules/npm", "/usr/local/bin/npx", "corepack"):
+        assert tool in removed, f"the runtime stage no longer removes {tool}"
+    assert "rm -rf" in removed

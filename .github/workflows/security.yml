@@ -110,6 +110,7 @@ jobs:
           format: table
 
       - name: Scan the dashboard image
+        if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
@@ -120,6 +121,7 @@ jobs:
           format: table
 
       - name: Scan the datastore images this project pulls rather than builds
+        if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
@@ -130,6 +132,7 @@ jobs:
           format: table
 
       - name: Scan redis
+        if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image

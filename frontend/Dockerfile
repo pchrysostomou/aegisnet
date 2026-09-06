@@ -42,6 +42,16 @@ COPY --from=build --chown=node:node /app/public ./public
 # layer, which `read_only: true` forbids (T-5.1). Nothing has been observed writing here — every
 # page is force-dynamic and every fetch no-store — but Next's file cache lives at this path and
 # the case actions call revalidatePath, so it is mounted rather than gambled on.
+# The base image ships npm and corepack; a Next standalone server runs `node server.js` and
+# uses neither. They are removed rather than left in place because npm carries its own bundled
+# dependency tree — tar, sigstore, pacote, @npmcli — which `pnpm audit` structurally cannot see:
+# it reads this app's lockfile, and those packages are not in it. The image scan found exactly
+# that on its first working run (T-5.6, E-91), which is the gap the scan was added for. Deleting
+# an interpreter's package manager from a runtime image also removes the most convenient way to
+# install something into a container somebody has just got code execution in.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+    /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
+
 RUN mkdir -p /app/.next/cache && chown node:node /app/.next/cache
 
 USER node

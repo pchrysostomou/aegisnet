@@ -25,6 +25,14 @@ Nothing is released yet. There is no tagged version.
   Makefile recipe is a check nobody runs.
 
 ### Fixed
+- **npm is no longer shipped in the dashboard runtime image.** The image scan's first working
+  run found a CRITICAL in `tar` and HIGH findings in `sigstore`, `pacote`, `picomatch` and
+  `ip-address` — all inside npm's own bundled tree in the base image, none of them in this
+  app's lockfile, which is why `pnpm audit --prod` passes on the same commit. A Next
+  standalone server runs `node server.js`, so npm, npx and corepack are removed rather than
+  upgraded: the whole class goes instead of this month's instance.
+- The image-scan job stopped at its first failing image, silently skipping the rest. The later
+  scans now run regardless, so one run reports every image.
 - `actions/upload-artifact` was pinned at `v4` in the e2e job and `v7` everywhere else. `v4`
   runs on Node 20, which GitHub removes from hosted runners on 2026-09-16, so that job was
   ten days from breaking. Found by auditing every `uses:` after the Trivy action failed to

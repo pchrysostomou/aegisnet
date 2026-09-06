@@ -1,7 +1,14 @@
 # Security scanning (THREAT_MODEL T-5.4 secret scanning, T-5.6 vulnerable dependencies).
 #
 # Runs on every push and pull request and once a week, so a newly published advisory
-# against an unchanged lockfile is still surfaced.
+# against an unchanged lockfile — or an unchanged image tag — is still surfaced.
+#
+# Three jobs read lockfiles and one reads what is actually inside the images. The lockfile
+# audits cannot see a base image at all: a CVE in the distribution's openssl ships in every
+# container this project builds and appears in no lockfile. The weekly run matters more for
+# `images` than for the others, because the base images are pinned by tag and follow their
+# upstream (decision F-5, residual risk R-10) — the scan is what turns that from a blind spot
+# into a thing somebody is told about.
 
 name: security
 
@@ -62,3 +69,72 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: pnpm audit (production dependencies, high and above)
         run: pnpm audit --prod --audit-level=high
+
+  images:
+    name: trivy · what is inside the images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # Compose interpolates the whole manifest, so it wants the variables even to build.
+      - name: Generate a throwaway .env
+        run: python3 infra/scripts/bootstrap_env.py
+
+      # The images the stack actually runs, built the way the stack builds them. Scanning the
+      # Dockerfiles instead would miss everything the base image brings, which is the half no
+      # lockfile audit can reach.
+      #
+      # Two builds cover four services: api, worker and scheduler are the same context and the
+      # same target, so they are one image under three names — `test_the_image_scan_covers_every_
+      # image_the_stack_runs` asserts that rather than leaving it as a thing somebody noticed
+      # once. db and redis are pulled, not built, which is exactly why they are scanned: nothing
+      # in this repository decides what is inside them (R-10).
+      - name: Build the runtime images
+        run: |
+          docker compose build api web
+          docker pull postgres:16-alpine
+          docker pull redis:7-alpine
+
+      - name: Scan the project images
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: image
+          image-ref: aegisnet-api:latest
+          severity: HIGH,CRITICAL
+          # Unfixed findings are reported by the summary step below and do not fail the job.
+          # A base image carrying a CVE with no upstream fix would otherwise turn every push
+          # red until somebody with no fix available invented one, and a gate nobody can pass
+          # is a gate people learn to switch off.
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      - name: Scan the dashboard image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: image
+          image-ref: aegisnet-web:latest
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      - name: Scan the datastore images this project pulls rather than builds
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: image
+          image-ref: postgres:16-alpine
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      - name: Scan redis
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: image
+          image-ref: redis:7-alpine
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table

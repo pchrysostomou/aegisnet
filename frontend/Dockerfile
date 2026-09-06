@@ -37,6 +37,13 @@ COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static
 COPY --from=build --chown=node:node /app/public ./public
 
+# The tmpfs mount point exists in the image rather than being created by the runtime, for the
+# same reason as the backend's: a destination Docker has to create is a write to the container
+# layer, which `read_only: true` forbids (T-5.1). Nothing has been observed writing here — every
+# page is force-dynamic and every fetch no-store — but Next's file cache lives at this path and
+# the case actions call revalidatePath, so it is mounted rather than gambled on.
+RUN mkdir -p /app/.next/cache && chown node:node /app/.next/cache
+
 USER node
 EXPOSE 3000
 CMD ["node", "server.js"]

@@ -352,3 +352,43 @@ def test_the_lab_target_is_external_to_the_outbound_detectors() -> None:
     target = _services()["target"]["networks"]["lab"]["ipv4_address"]
     assert ipaddress.ip_address(target) in LAB_SUBNET
     assert not is_internal(target), "the lab target must look external to the outbound rules"
+
+
+# ---------------------------------------------------------------- the running side (T-5.5)
+
+CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+
+
+def test_a_running_lab_container_is_asked_whether_it_can_reach_anything() -> None:
+    """Every other test in this file holds the lab to what it *declares*, and a manifest can be
+    wrong in a way a manifest cannot detect (T-5.5).
+
+    `internal: true` tells Docker not to attach a default route. It does not stop the host-side
+    bridge address from answering — that took `com.docker.network.bridge.inhibit_ipv4`, and the
+    way anyone found out was by running `infra/lab/preflight.py` inside a lab container and
+    watching it fail (E-54). Until Chunk 30 nothing ran it except an operator who remembered.
+
+    It is in CI now, and this is what stops it being quietly removed: the assertion is on the
+    job existing and on it running the pre-flight *inside a container*, not merely on a job with
+    the right name.
+    """
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    assert "lab" in workflow["jobs"], "ci.yml no longer runs the lab pre-flight"
+
+    steps = workflow["jobs"]["lab"]["steps"]
+    commands = " ".join(str(step.get("run", "")) for step in steps)
+
+    assert "preflight.py" in commands, "the job does not run the pre-flight"
+    assert "exec" in commands, "the pre-flight must be asked of a running container, not the host"
+    assert "aegisnet_lab" in commands, "the job does not inspect the lab network"
+    assert "--profile lab" in commands, "the lab must stay behind its opt-in profile even in CI"
+    # Suricata is never pulled: only the target comes up, and it builds from this project's own
+    # runtime image. A job that needed a third-party sensor image would be the kind of expensive
+    # that gets deleted the first time it is slow.
+    assert "up -d --build target" in commands
+    assert "suricata" not in commands
+
+    teardown = [step for step in steps if "down" in str(step.get("run", ""))]
+    assert teardown and all(
+        step.get("if") == "always()" for step in teardown
+    ), "a lab left running after a failed job is a lab nobody tore down"

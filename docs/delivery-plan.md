@@ -224,7 +224,10 @@ review pass · tag `v1.0.0`.
       (Chunk 26): 120 of 180 concurrent reads allowed, the refusals carrying the documented envelope and a
       `Retry-After` inside the window, login refused after five wrong passwords, and the fixed-window edge
       measured at exactly 2× the limit. Numbers and their limits in `docs/evaluation.md` §10.
-- [ ] All containers run as non-root; compose publishes only `127.0.0.1` ports (verified test).
+- [x] All containers run as non-root; compose publishes only `127.0.0.1` ports (verified test) —
+      `test_every_published_port_binds_to_loopback`, `test_datastores_worker_and_scheduler_publish_no_port`
+      and the `test_dockerfiles.py` non-root tests, since Chunk 1. Chunk 30 added the read-only root
+      filesystem on top, measured and then verified against a running stack (ADR-037).
 - [x] `docs/evaluation.md` reports precision/recall for all five detectors on the labelled corpus, with the
       command used and the corpus commit sha — §8, written by `make eval` and pinned by a test. Chunk 27
       added the commit (`6ff7d3c798ed`, the one that last changed the cases or the corpus), the generator
@@ -233,11 +236,14 @@ review pass · tag `v1.0.0`.
       table — this criterion is about provenance, not about accuracy on real traffic (R-1).
 - [ ] A fresh-clone reproduction run by following only the README succeeds; transcript committed.
 - [ ] Coverage gates met (≥85% on `domain/`, ≥70% overall).
-- [ ] Every `THREAT_MODEL.md` mitigation maps to a named passing test or an accepted-risk entry — the
-      mapping exists and is machine-checked (§6, Chunk 27, ADR-034), and it says thirty-three rows are
-      verified and three are `partial` — Chunk 28 closed three of the original eight (ADR-035) and
-      Chunk 29 two more (ADR-036). The three that remain are all about how the deployment is built.
-      The criterion is met when no `partial` remains; each one names what is missing.
+- [x] Every `THREAT_MODEL.md` mitigation maps to a named passing test or an accepted-risk entry —
+      §6 is **thirty-six `test` rows and no `partial`**, and it is machine-checked (Chunk 27, ADR-034):
+      a renamed test, a deleted row or an invented residual-risk id fails the suite. Of the eight gaps
+      the matrix found, three were closed by code in Chunk 28 (ADR-035), two more in Chunk 29
+      (ADR-036), and three in Chunk 30 (ADR-037) — two of those by deciding, in the open, that the
+      mitigation as first worded was wrong for a single-node self-hosted lab: R-10 (digest pinning,
+      kept as tags because nothing here bumps a digest) and R-11 (the lab's operator attestation,
+      which cannot be automated).
 - [ ] Release checklist fully ticked, then `v1.0.0` tagged.
 
 **Commands.** `make ci-local` · `make eval` · `make load-test` · `make release-check`.

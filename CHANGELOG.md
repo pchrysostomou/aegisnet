@@ -9,6 +9,38 @@ Nothing is released yet. There is no tagged version.
 ## [Unreleased]
 
 ### Added
+- **Read-only root filesystems on every service** (T-5.1), with sized `tmpfs` mounts for exactly
+  what each one writes. Those paths were measured, not guessed: `docker diff` against a stack that
+  had been up seven hours said db writes only its socket directory, api/worker/scheduler write only
+  dramatiq's Prometheus directory, and redis and web write nothing at all. Verified by rebuilding
+  and starting the stack — six healthy containers, `touch /app/probe` refused, a 1.9 MB multipart
+  upload accepted through the api's tmpfs, and no rootfs writes afterwards.
+- **A container image scan** (T-5.6). `pip-audit` and `pnpm audit` read lockfiles, and a lockfile
+  cannot see a base image. The `images` job builds what the stack builds and scans it with Trivy
+  alongside the two images the stack pulls. It fails the job rather than uploading SARIF, because
+  code scanning is not enabled on a private repository and a report nobody can read is not a
+  control; it ignores unfixed findings, because a gate nobody can pass is a gate people switch off.
+- **The lab's pre-flight now runs in CI** (T-5.5), asked of a running container rather than of a
+  manifest. Only the lab target comes up, so Suricata is never pulled. A check that lives in a
+  Makefile recipe is a check nobody runs.
+
+### Fixed
+- `/app/samples` did not exist in the api image, so Docker created the bind-mount destination at
+  container start — a write to the container layer, which `read_only` forbids. Both that and the
+  web cache directory are created in their Dockerfiles now. Measuring before changing is what
+  caught it; a compose-only change would have shipped and broken the stack.
+
+### Changed
+- **Decision F-5 re-examined and kept.** Base images stay pinned by minor tag rather than by
+  digest, because nothing in this repository bumps a digest — there is no Dependabot configuration
+  — and pinning without an updater freezes the images and stops security patches arriving. The
+  image scan is the compensating control. Recorded as residual risk **R-10**, including what it
+  does not cover: a tag that moves to something malicious but free of known CVEs.
+- `THREAT_MODEL.md` §6 is **thirty-six verified rows and no `partial`**. Of the eight gaps the
+  coverage matrix found in Chunk 27, six were closed by writing code or tests and two by deciding
+  in the open that the mitigation as first worded was wrong for a single-node lab (R-10, R-11).
+
+### Added
 - **A lockout that lengthens** (T-2.1). Each failure past the threshold doubles the lock — 15, 30,
   60, 60 minutes — so a batch of guesses costs more than the last instead of a flat fifteen
   minutes. A lock nobody has touched for a day is forgotten, or the escalation would be permanent

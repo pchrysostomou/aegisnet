@@ -57,7 +57,12 @@ COPY --chown=aegisnet:aegisnet pyproject.toml alembic.ini ./
 # The upload spool (SPOOL_DIR, ADR-016). Created here, owned by the runtime user, so the
 # named volume Compose mounts over it inherits that ownership on first use instead of
 # root's; the process must never need to be root to write an upload.
-RUN mkdir -p /app/spool && chown aegisnet:aegisnet /app/spool
+# Both mount points exist in the image on purpose. Docker will happily create a missing
+# bind-mount destination, but that write lands on the container's own layer — which is
+# exactly what `read_only: true` forbids (T-5.1). `/app/samples` is mounted read-only from
+# the host and `/app/spool` is a named volume; neither needs a writable rootfs to work,
+# and neither may depend on one.
+RUN mkdir -p /app/spool /app/samples && chown aegisnet:aegisnet /app/spool /app/samples
 
 USER aegisnet
 EXPOSE 8000

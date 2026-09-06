@@ -260,5 +260,10 @@ def test_the_prose_above_the_table_counts_the_partial_rows_correctly(
     whose entire purpose is not being stale."""
     words = ("Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine")
     partial = sum(1 for row in rows if row.status == "partial")
-    claim = f"{words[partial]} rows are `partial` today"
+    # "Zero rows are `partial` today" is not a sentence anybody writes. The point of this test
+    # is that the number above the table is true, not that it is phrased in one fixed way, so
+    # at zero it accepts the sentence a person would actually write.
+    claim = (
+        "**No row is `partial`.**" if partial == 0 else f"{words[partial]} rows are `partial` today"
+    )
     assert claim in document, f"the summary above the table should read {claim!r}"

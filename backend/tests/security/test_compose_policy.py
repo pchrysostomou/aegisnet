@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 import yaml
 
-from tests.conftest import REPO_ROOT
+from tests.conftest import REPO_ROOT, make_settings
 
 pytestmark = pytest.mark.security
 
@@ -223,3 +223,101 @@ def test_the_upload_spool_is_a_named_volume_shared_by_api_and_worker_only() -> N
     assert not any(
         "spool" in str(v) for s in _services(TEST_COMPOSE).values() for v in s.get("volumes", [])
     )
+
+
+# ---------------------------------------------------------------- read-only rootfs (T-5.1)
+
+READ_ONLY_EXCEPTIONS: dict[str, str] = {}
+"""Services in the shipped stack that cannot run on a read-only root filesystem, and why.
+
+Empty, and meant to stay that way. A name added here costs a sentence, which is the point: it
+turns "this one writes to its rootfs" from something nobody notices into a decision somebody
+made in the open — the same shape as the lab sensor's single `NET_RAW` capability (ADR-021).
+"""
+
+WRITABLE_PATHS: dict[str, set[str]] = {
+    "db": {"/run/postgresql"},
+    "redis": set(),
+    "api": {"/tmp"},  # noqa: S108 - a path inside a container, not a host temp file
+    "worker": {"/tmp"},  # noqa: S108 - as above
+    "scheduler": {"/tmp"},  # noqa: S108 - as above
+    "web": {"/app/.next/cache"},
+}
+"""Exactly what each service may write outside its volumes, pinned so a deletion fails the
+suite rather than the stack.
+
+These are measured rather than assumed: `docker diff` against a stack that had been up for
+seven hours reported db writing only its socket directory, api/worker/scheduler writing only
+dramatiq's Prometheus directory under /tmp, and redis and web writing nothing at all. The web
+entry is insurance and the manifest says so.
+"""
+
+
+def _tmpfs_paths(service: dict[str, Any]) -> set[str]:
+    """The mount points of a service's tmpfs entries, without their options."""
+    return {str(entry).split(":", 1)[0] for entry in service.get("tmpfs", [])}
+
+
+def test_every_service_runs_on_a_read_only_root_filesystem() -> None:
+    """T-5.1. Two of the mitigation's five clauses were unwritten until Chunk 30; this is one.
+
+    A read-only rootfs does not stop an attacker who reaches code execution, but it removes the
+    quiet half of most persistence: dropping a binary, editing an entrypoint, leaving something
+    behind that survives a restart. Everything this stack legitimately writes goes to a named
+    volume or a sized tmpfs, both of which are declared here.
+    """
+    offenders = {
+        name: service.get("read_only")
+        for name, service in _services(COMPOSE).items()
+        if name not in READ_ONLY_EXCEPTIONS and service.get("read_only") is not True
+    }
+    assert not offenders, f"these services do not set read_only: {offenders}"
+
+
+def test_an_exception_to_the_read_only_rule_has_to_give_a_reason() -> None:
+    services = _services(COMPOSE)
+    for name, reason in READ_ONLY_EXCEPTIONS.items():
+        assert name in services, f"{name} is excepted and is not a service"
+        assert reason.strip(), f"{name} is excepted without saying why"
+
+
+def test_each_service_writes_only_where_the_manifest_says_it_may() -> None:
+    """The other half: `read_only: true` with an unexamined pile of tmpfs mounts underneath it
+    would be hardening in name only."""
+    for name, service in _services(COMPOSE).items():
+        assert _tmpfs_paths(service) == WRITABLE_PATHS[name], (
+            f"{name}'s writable paths changed; measure what it writes with `docker diff` and "
+            "update WRITABLE_PATHS with the reason, rather than widening it quietly"
+        )
+
+
+def test_every_tmpfs_is_sized_because_a_tmpfs_is_memory() -> None:
+    """An unbounded tmpfs turns a write path into a way to exhaust the host's RAM — which is
+    the DoS half of T-1.4 and T-2.6 arriving by the back door."""
+    for name, service in _services(COMPOSE).items():
+        for entry in service.get("tmpfs", []):
+            assert "size=" in str(entry), f"{name} mounts {entry} with no size"
+
+
+def test_the_api_can_spool_the_largest_upload_it_accepts() -> None:
+    """Starlette rolls a multipart part over 1 MiB onto disk, which on the api is now a tmpfs.
+    Sizing it below `INGEST_MAX_BODY_BYTES` would mean a legitimate upload refused by the mount
+    rather than by the documented cap — so the number is read from the settings, not repeated.
+    """
+    tmpfs = _services(COMPOSE)["api"]["tmpfs"]
+    entry = next(e for e in tmpfs if str(e).startswith("/tmp"))  # noqa: S108 - container path
+    size = re.search(r"size=(\d+)([kmg])", str(entry), re.IGNORECASE)
+    assert size, f"the api's tmpfs has no parsable size: {entry}"
+    multiplier = {"k": 1024, "m": 1024**2, "g": 1024**3}[size.group(2).lower()]
+    assert int(size.group(1)) * multiplier >= make_settings().ingest_max_body_bytes
+
+
+def test_the_hardened_manifests_are_the_shipped_ones_only() -> None:
+    """`read_only` is deliberately not asserted on the test runner or the lab, and the reason is
+    worth writing down rather than leaving as an omission. The test runner's whole job is to
+    write into a bind-mounted checkout — `make format` rewrites files — and it is never shipped.
+    The lab's sensor writes a pid file and its own capture, which is T-5.7's territory.
+    """
+    for manifest in (TEST_COMPOSE, LAB_COMPOSE):
+        for service in _services(manifest).values():
+            assert "read_only" not in service or service["read_only"] is False

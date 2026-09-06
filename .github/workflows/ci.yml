@@ -300,6 +300,49 @@ jobs:
         if: always()
         run: docker compose down --volumes --remove-orphans
 
+  lab:
+    # T-5.5's running half. Every other lab assertion holds the manifests to what they
+    # *declare* — internal network, documentation addresses, no published port — and a file can
+    # be wrong in a way a file cannot detect: Docker could attach a default route anyway, or
+    # the host-side bridge address could answer. `make lab-preflight` has always been able to
+    # ask a running container, and until Chunk 30 nothing ran it except an operator who
+    # remembered to. It is cheap enough not to have been left out: only the lab *target* comes
+    # up, which builds from this project's own runtime image, and Suricata is never pulled.
+    name: lab · the isolation is asked of a running container
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Generate a throwaway .env
+        run: python3 infra/scripts/bootstrap_env.py
+
+      - name: Bring up the lab target only
+        run: docker compose -f infra/lab/docker-compose.lab.yml --profile lab up -d --build target
+
+      - name: L-0 · the network is internal and in documentation space
+        run: |
+          internal=$(docker network inspect aegisnet_lab --format '{{.Internal}}')
+          echo "Internal=$internal"
+          test "$internal" = "true"
+
+      - name: L-0 · ask the running container whether it can reach anything
+        run: docker compose -f infra/lab/docker-compose.lab.yml --profile lab exec -T target python /lab/preflight.py
+
+      - name: L-1 · only containers this manifest created are attached
+        run: |
+          attached=$(docker network inspect aegisnet_lab --format '{{range .Containers}}{{.Name}} {{end}}')
+          echo "attached: $attached"
+          for name in $attached; do
+            case "$name" in
+              aegisnet-lab-*) ;;
+              *) echo "a container the lab did not create is on its network: $name"; exit 1 ;;
+            esac
+          done
+
+      - name: Tear the lab down
+        if: always()
+        run: docker compose -f infra/lab/docker-compose.lab.yml --profile lab down --volumes --remove-orphans
+
   e2e:
     # The Milestone 4 gate: a real browser against a real stack. The unit tests cannot reach
     # what this covers — that hostile log content renders inert in a browser, that a viewer is

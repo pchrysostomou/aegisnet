@@ -9,21 +9,34 @@
 #     gosu/setpriv, which needs CAP_SETUID/CAP_SETGID and therefore fails under cap_drop ALL
 #     ("setresuid failed: Operation not permitted"). They are started directly as that user
 #     via `user:` so no privilege switch is ever attempted.
-#   * `read_only` root filesystems are deliberately deferred to Milestone 6 (THREAT_MODEL T-5.1, partial).
-#   * Image tags are pinned by minor version. Digest pinning is tracked as F-5 and is NOT done yet;
-#     run `make pin-digests` to obtain manifest-list digests, then commit them here.
+#   * Every service runs on a `read_only` root filesystem (THREAT_MODEL T-5.1). The writable paths
+#     below are not guesses: `docker diff` on a stack that had been up seven hours says db writes
+#     only its socket directory, api/worker/scheduler write only dramatiq's Prometheus directory
+#     under /tmp, and redis and web write nothing at all.
+#   * Image tags are pinned by minor version, and stay that way: Chunk 30 re-examined decision
+#     F-5 and kept it, because nothing in this repository bumps a digest (there is no Dependabot
+#     configuration at all), so pinning without an updater would freeze the images and stop
+#     security patches arriving. The compensating control is the `images` job in
+#     .github/workflows/security.yml, which scans what is actually inside every image on every
+#     push and weekly. The reasoning and what it does *not* cover are residual risk R-10.
+#     `make pin-digests` still prints the digests for anyone who decides otherwise.
 
 name: aegisnet
 
 x-hardening: &hardening
   cap_drop: ["ALL"]
   security_opt: ["no-new-privileges:true"]
+  read_only: true
   restart: unless-stopped
 
 services:
   db:
     image: postgres:16-alpine
     <<: *hardening
+    tmpfs:
+      # The unix socket and its lock file — all `docker diff` found db writing outside
+      # its data volume. On alpine /var/run is a symlink to /run, which is the real path.
+      - /run/postgresql:size=16m,mode=1777
     # uid 70 in the alpine image. Owns /var/lib/postgresql/data and /var/run/postgresql, so
     # initdb and the socket directory need no chown and no capability.
     user: postgres
@@ -70,6 +83,11 @@ services:
       args:
         GIT_SHA: ${GIT_SHA:-unknown}
     <<: *hardening
+    tmpfs:
+      # dramatiq creates its Prometheus directory at import, and Starlette rolls a
+      # multipart part over 1 MiB to disk here. Sized above INGEST_MAX_BODY_BYTES so a
+      # legitimate upload cannot be refused by the tmpfs rather than by the cap.
+      - /tmp:size=128m,mode=1777
     command:
       ["uvicorn", "aegisnet.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-server-header"]
     env_file: [.env]
@@ -108,6 +126,9 @@ services:
       args:
         GIT_SHA: ${GIT_SHA:-unknown}
     <<: *hardening
+    tmpfs:
+      # Same import, plus one counter file per process under dramatiq-prometheus.
+      - /tmp:size=128m,mode=1777
     command: ["dramatiq", "aegisnet.workers.main", "--processes", "1", "--threads", "2"]
     env_file: [.env]
     environment:
@@ -141,6 +162,9 @@ services:
       args:
         GIT_SHA: ${GIT_SHA:-unknown}
     <<: *hardening
+    tmpfs:
+      # The same dramatiq import and nothing else; it only sends messages.
+      - /tmp:size=16m,mode=1777
     command: ["periodiq", "aegisnet.workers.main"]
     env_file: [.env]
     environment:
@@ -161,6 +185,12 @@ services:
       context: ./frontend
       target: runtime
     <<: *hardening
+    tmpfs:
+      # Insurance, and said plainly: seven hours of running wrote nothing here, because
+      # every page is force-dynamic and every fetch is no-store. But Next's file cache
+      # writes under this path and the case actions call revalidatePath, so being wrong
+      # would be a 500 in the middle of an analyst's workflow rather than a boot failure.
+      - /app/.next/cache:size=64m,mode=1777
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-AegisNet}

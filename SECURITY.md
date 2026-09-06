@@ -167,16 +167,20 @@ which is the honest thing to say: the query asked for too much and a narrower on
 | Brief asks, per analyst | `BRIEF_USER_DAILY_LIMIT` / UTC day | the user | refuse |
 | Brief asks, per case | `BRIEF_INCIDENT_DAILY_LIMIT` / UTC day | the incident | refuse |
 
-Three of these are measured under concurrency rather than merely declared — the read bucket, the
-default bucket and login. `make load-test` fires whole budgets at once against a running stack and
+Three of these have been *measured* under concurrency rather than merely declared — the read
+bucket, the default bucket and login. `make load-test` fires whole budgets at once against a running stack and
 `docs/evaluation.md` §10 records what came back: 120 of 180 concurrent reads allowed, `429` with a
 usable `Retry-After` for the rest, reads and writes counted apart, login refused after five wrong
 passwords, and the fixed-window edge costing exactly one extra budget and never more.
 
-The two ingest limits are asserted one request at a time in the integration suite, not fired at
-once, so their atomicity under load is untested — an honest gap rather than an oversight, and the
-same shape of gap the load suite was written to close for reads. The three brief limits are not in
-that suite either: their window is
+The two ingest limits now have load tests of their own — the request limit fired as a whole
+budget at once, and a refused ingest checked for anything left behind in the spool — so the
+suite is seven tests rather than five. **They have not been run for a release**: `make load-test`
+needs a stack somebody owns and spends fifteen-minute login budgets, so
+`docs/RELEASE_CHECKLIST.md` leaves that box deliberately unticked and `docs/evaluation.md` §10
+still records only the four limits measured in Chunk 26. Written and not yet measured is a
+weaker claim than measured, and it is the true one. The three brief limits are not in
+that suite at all: their window is
 a day, so firing a budget at once would leave the deployment unable to ask for a brief until
 midnight. They are held instead by `tests/security/test_brief_limits.py`, which exhausts each one
 over HTTP and proves each fails closed on its own.

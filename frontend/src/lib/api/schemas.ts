@@ -2,7 +2,7 @@
  * The shapes the API promises, restated so this app can refuse anything else.
  *
  * These mirror `backend/src/aegisnet/api/schemas.py` and are documented in
- * `docs/api-milestone-1.md` … `api-milestone-3.md`. Parsing at the boundary is not ceremony:
+ * `docs/api-milestone-1.md` … `api-milestone-5.md`. Parsing at the boundary is not ceremony:
  * every string below started life in a packet somebody else sent, and a response that has
  * drifted from the contract should fail here — loudly, in one place — rather than as an
  * undefined halfway down a component tree.

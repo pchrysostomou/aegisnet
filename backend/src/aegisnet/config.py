@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     postgres_retention_user: str = "aegisnet_retention"
     postgres_retention_password: SecretStr = SecretStr(f"__{PLACEHOLDER_MARKER}__")
     # How long any one statement may run (T-2.6). Two budgets, because two workloads share
-    # one *principal*: the API, the four actors and the CLI all connect as `aegisnet_app`, and
+    # one *principal*: the API, the actors and the CLI all connect as `aegisnet_app`, and
     # a value loose enough for a 200 000-event sweep load is far too loose to bound a request.
     # A privilege belongs to a role, which is why the grants live in a migration; a statement
     # budget belongs to a workload, so it is set where the engine is built.

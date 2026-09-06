@@ -1,7 +1,11 @@
 # AegisNet — Planning Package Index (M0)
 
-Defensive network threat detection lab. **Planning phase output only — no application code exists yet.**
-Last updated: 2026-08-28
+Defensive network threat detection lab. **This was the M0 planning package, written before any
+code existed.** All six milestones have since shipped and `v1.0.0` is tagged: read
+[README.md](README.md) for what the project does today and [docs/STATUS.md](docs/STATUS.md) for
+the evidence. The documents below are kept because the order they are listed in is still the
+order to read them in, but each one has moved on from its planning-phase state.
+Last updated: 2026-09-06
 
 ## Read in this order
 
@@ -9,7 +13,7 @@ Last updated: 2026-08-28
 |---|---|---|
 | 1 | [docs/PRD.md](docs/PRD.md) | What we are building, for whom, what is explicitly out of scope, and the v1.0 Definition of Done |
 | 2 | [ARCHITECTURE.md](ARCHITECTURE.md) | Components, layering rules, the Mermaid data-flow diagram, the Dramatiq decision, ADRs, failure modes |
-| 3 | [THREAT_MODEL.md](THREAT_MODEL.md) | Assets, six trust boundaries, STRIDE threats with verification tests, eight accepted residual risks |
+| 3 | [THREAT_MODEL.md](THREAT_MODEL.md) | Assets, six trust boundaries, STRIDE threats with verification tests, twelve accepted residual risks, and the §6 coverage matrix the suite parses |
 | 4 | [docs/repo-structure.md](docs/repo-structure.md) | Monorepo layout and the conventions that keep detectors pure and testable |
 | 5 | [docs/data-model.md](docs/data-model.md) | PostgreSQL schema, ER diagram, indexes, retention |
 | 6 | [docs/api-milestone-1.md](docs/api-milestone-1.md) | Exact M1 endpoints, limits, error shape, acceptance criteria |

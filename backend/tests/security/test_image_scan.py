@@ -81,17 +81,71 @@ BUILT_HERE = "aegisnet-"
 def test_a_finding_in_an_image_this_project_builds_fails_the_job() -> None:
     """Where the gate belongs: on the images where a finding is actionable.
 
-    Code scanning is not enabled on this repository — the API answers `403` — so a SARIF upload
-    would go nowhere and the finding would be lost. For the api and the dashboard the job has to
-    be the gate, and Chunk 30 proved the gate is worth having: it found npm's bundled `tar` and
-    an openssl a release behind, and both were fixed rather than suppressed.
+    For the api and the dashboard the job is the gate, and Chunk 30 proved the gate is worth
+    having: it found npm's bundled `tar` and an openssl a release behind, and both were fixed
+    rather than suppressed. A gate is stronger than a report, so these do not need one.
     """
     ours = [s for s in _scan_steps() if str(s["with"]["image-ref"]).startswith(BUILT_HERE)]
     assert ours, "nothing this project builds is scanned"
     for step in ours:
         assert str(step["with"].get("exit-code")) == "1", f"{step.get('name')} does not gate"
         assert step["with"].get("severity") == "HIGH,CRITICAL"
-    assert "sarif" not in SECURITY_WORKFLOW.read_text(encoding="utf-8").lower()
+
+
+def _upload_steps() -> list[dict[str, Any]]:
+    return [step for step in _job()["steps"] if "upload-sarif" in str(step.get("uses", ""))]
+
+
+def test_the_report_only_scans_publish_where_a_finding_can_be_read() -> None:
+    """The half of the decision that changed, and the reason it is a test rather than a comment.
+
+    This assertion used to be its inverse — `"sarif" not in` the workflow at all — on the
+    reasoning that code scanning was unavailable because the repository was private and a report
+    nobody can open is not a control. **The repository was never private.** It has carried a
+    `PublicEvent` at its `created_at` second since 2026-08-28; the belief came from an
+    instruction that was recorded and never checked against the API, and it propagated into
+    `THREAT_MODEL.md`, `ADR-037` and this file. The code-scanning API answers `no analysis
+    found`, not `403`.
+
+    So the premise is gone and the conclusion goes with it: the two scans that only *print* now
+    publish, because a finding in the Security tab outlives a log line. The gate above is
+    unchanged — this is the weaker half of the job getting somewhere durable to land, not the
+    stronger half being relaxed into a report.
+    """
+    uploads = _upload_steps()
+    assert uploads, "the report-only scans publish nowhere again"
+
+    sarif_scans = [s for s in _scan_steps() if s["with"].get("format") == "sarif"]
+    assert sarif_scans, "nothing is written in SARIF for those uploads to publish"
+
+    # A gate is stronger than a report. If an image this project builds ever produced SARIF
+    # instead of failing the job, that would be the gate quietly becoming a notification.
+    for step in sarif_scans:
+        assert not str(step["with"]["image-ref"]).startswith(BUILT_HERE), (
+            f"{step.get('name')} reports on an image whose findings should fail the job"
+        )
+
+    # Distinct categories, or the second upload replaces the first and the Security tab shows
+    # one datastore instead of two — a silent halving of the coverage this job claims.
+    categories = [str(step["with"]["category"]) for step in uploads]
+    assert len(categories) == len(set(categories)), f"uploads share a category: {categories}"
+
+    written = {str(step["with"]["output"]) for step in sarif_scans}
+    published = {str(step["with"]["sarif_file"]) for step in uploads}
+    assert written == published, f"written {sorted(written)} but published {sorted(published)}"
+
+
+def test_the_job_may_publish_and_the_lockfile_audits_may_not() -> None:
+    """`security-events: write` is the one token in this workflow that can write anything.
+
+    It belongs to the job that publishes and to no other. The workflow's default stays
+    `contents: read`, so a compromised dependency in `pip-audit` cannot forge a code-scanning
+    result that says the images are clean.
+    """
+    assert _workflow()["permissions"].get("security-events") is None, (
+        "the whole workflow can publish; scope it to the job that needs to"
+    )
+    assert _job()["permissions"].get("security-events") == "write"
 
 
 def test_an_image_this_project_only_pulls_is_reported_and_not_gated_on() -> None:

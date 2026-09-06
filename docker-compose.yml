@@ -14,9 +14,11 @@
 #     only its socket directory, api/worker/scheduler write only dramatiq's Prometheus directory
 #     under /tmp, and redis and web write nothing at all.
 #   * Image tags are pinned by minor version, and stay that way: Chunk 30 re-examined decision
-#     F-5 and kept it, because nothing in this repository bumps a digest (there is no Dependabot
-#     configuration at all), so pinning without an updater would freeze the images and stop
-#     security patches arriving. The compensating control is the `images` job in
+#     F-5 and kept it, because at the time nothing in this repository bumped a digest, so
+#     pinning without an updater would freeze the images and stop security patches arriving.
+#     Chunk 32 added `.github/dependabot.yml`, whose `docker` ecosystem is the updater that
+#     argument said did not exist — so the decision now rests on inertia rather than on that
+#     reason, and revisiting it is issue #14 rather than a thing nobody wrote down. The compensating control is the `images` job in
 #     .github/workflows/security.yml, which scans what is actually inside every image on every
 #     push and weekly. The reasoning and what it does *not* cover are residual risk R-10.
 #     `make pin-digests` still prints the digests for anyone who decides otherwise.

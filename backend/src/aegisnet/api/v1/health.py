@@ -2,13 +2,14 @@
 
 ``/healthz`` answers "is this process running".
 
-``/readyz`` answers "can the API serve its Chunk 1 responsibilities", which means only
-PostgreSQL and Redis connectivity. It deliberately makes **no** claim about ingestion,
-normalisation, queue depth, or worker capability — none of those exist yet.
+``/readyz`` answers "can this process reach the two dependencies it cannot serve a request
+without", which means PostgreSQL and Redis connectivity and nothing else. It deliberately
+makes **no** claim about ingestion, normalisation, queue depth, or worker capability: those
+all exist, and none of them is a reason to take the API out of a load balancer.
 
 Per-component detail is withheld from the response so that an unauthenticated caller
 cannot map internal dependencies (decision F-15). Detail is available in the server log
-under the request's correlation id, and an authenticated admin view arrives with Chunk 6.
+under the request's correlation id; no authenticated per-component view was ever built.
 """
 
 from __future__ import annotations

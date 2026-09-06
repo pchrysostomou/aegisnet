@@ -1,8 +1,8 @@
 /**
  * The only markdown this dashboard renders (T-4.4, T-1.3).
  *
- * A note is free text an analyst typed, and from Milestone 5 an investigation brief will be
- * free text a language model wrote about attacker-controlled input. Both are hostile until
+ * A note is free text an analyst typed, and an investigation brief is free text a language
+ * model wrote about attacker-controlled input. Both are hostile until
  * proven otherwise, so this renderer is built the other way round from a normal one: instead
  * of parsing markdown into HTML and then trying to clean the HTML, it parses a **small, fixed
  * grammar** straight into React elements. There is no HTML string at any point, so there is

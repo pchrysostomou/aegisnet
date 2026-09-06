@@ -1,7 +1,8 @@
 """Thin async Redis client wiring.
 
-Chunk 1 scope: create a client and answer "can we reach Redis". The rate limiter and the
-response cache are separate concerns delivered in later chunks.
+This module is the client wiring only: create a client and answer "can we reach Redis".
+The rate limiter and the token denylist live in ``rate_limiter``, and the brief cache is
+content-addressed inside the Perplexity client.
 """
 
 from __future__ import annotations

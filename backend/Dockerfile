@@ -6,8 +6,9 @@
 #   runtime — minimal non-root image used by the api and worker services
 #
 # Base images are pinned by minor version and stay that way: decision F-5, re-examined in
-# Chunk 30 and kept, because nothing in this repository bumps a digest, so pinning without an
-# updater would freeze the images and stop security patches arriving. The compensating control
+# Chunk 30 and kept, because at the time nothing in this repository bumped a digest, so pinning
+# without an updater would freeze the images and stop security patches arriving. Chunk 32's
+# `.github/dependabot.yml` is that updater, so half the reason has expired (issue #14). The compensating control
 # is the `images` job in .github/workflows/security.yml and the record is residual risk R-10.
 # `make pin-digests` prints the digests for anyone who decides otherwise.
 

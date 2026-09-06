@@ -15,9 +15,10 @@ one. `TimelineEntryType.report_exported` therefore stays unwritten, as `brief.re
 ordinary read: it is the whole case as plain text in a file somebody can forward. The row cannot
 move the bytes, because the report renders the case and the audit log is not part of the case.
 This is the first read here that writes one, and the objection — that it hands a viewer an
-append primitive into a table with no `DELETE` grant — was checked rather than assumed: they
-already have one, because `rbac.denied` is written for every refused request. Retention is
-Milestone 6's problem, and it is one problem rather than two.
+append primitive into a table the *app role* cannot delete from — was checked rather than
+assumed: they already have one, because `rbac.denied` is written for every refused request.
+The bound arrived in Milestone 6: `aegisnet_retention` prunes `audit_log` on a period, and
+the app role still cannot (revision 0006, ADR-033).
 
 *A viewer may export.* Everything in the document is something the caller can already read
 through the JSON API, so gating the format would protect nothing and would only teach an

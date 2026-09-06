@@ -11,8 +11,10 @@ repos:
       - id: trailing-whitespace
       - id: detect-private-key
 
+  # Must track the ruff `backend/pyproject.toml` resolves, or the hook lints with different
+  # rules than `make lint` and CI do. It sat at v0.6.9 while the lockfile moved to 0.16.x.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+    rev: v0.16.6
     hooks:
       - id: ruff
         args: ["--fix", "--config", "backend/pyproject.toml"]

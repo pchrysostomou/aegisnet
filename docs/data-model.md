@@ -307,8 +307,13 @@ written are in [`SECURITY.md`](../SECURITY.md), and `brief.requested` and `brief
 `result` enum(`success`,`denied`,`error`), `detail` jsonb (non-sensitive only), `correlation_id` uuid.
 Indexes: `(occurred_at DESC)`, `(actor_user_id, occurred_at DESC)`, `(action, occurred_at DESC)`.
 
-### `rate_limit_events` (optional, Redis is primary)
-Persisted only for audit of repeated abuse: `id`, `subject_type`, `subject_id`, `endpoint`, `occurred_at`, `limit_name`.
+### `rate_limit_events` — **planned in M0 and never built**
+It would have persisted `id`, `subject_type`, `subject_id`, `endpoint`, `occurred_at`,
+`limit_name` for auditing repeated abuse. No migration creates it and no model declares it.
+Redis holds the counters, and a refusal is already recorded in `audit_log` by the route that
+refused it, which is where an auditor would look — a second table would have been a second
+place for the same fact to be wrong. Kept here as a decision rather than deleted, because the
+row above it in every earlier draft implied a table that does not exist.
 
 ---
 

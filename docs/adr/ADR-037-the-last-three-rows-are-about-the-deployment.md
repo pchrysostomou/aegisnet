@@ -54,7 +54,7 @@ Digest pinning is the clause this chunk decided *not* to write, which needs more
 than writing it would have.
 
 Pinning by digest buys reproducibility and resistance to a tampered upstream tag. It also freezes
-the image. **Nothing in this repository bumps a digest** — there is no `dependabot.yml` at all, so
+the image. **Nothing in this repository bumps a digest** — there is no `dependabot.yml` at all [*added in Chunk 32; see the note at the end of this ADR*], so
 the Dependabot that `docs/STATUS.md` mentions is alerts, not version updates. Pinning without an
 updater, on a project with one maintainer, means the images stop receiving security patches and
 nobody notices until a scan says so. That is a worse position than the one F-5 chose.
@@ -88,6 +88,25 @@ Three choices, each with a reason:
 - **It does not upload SARIF.** Code scanning is not enabled on this repository — the API answers
   `403` — so a SARIF upload would go nowhere and the finding would be lost. A report nobody can
   read is not a control.
+
+  > **Corrected 2026-09-06, and the correction is the more useful half.** The premise was false.
+  > This repository is *public*, and has been since the second it was created — `gh api
+  > repos/pchrysostomou/aegisnet` reports `"private": false` and the event stream carries a
+  > `PublicEvent` at `created_at`. The belief came from an instruction to keep it private that
+  > was written down and never checked against the API, and it then propagated into this ADR,
+  > `THREAT_MODEL.md` T-5.6, `CHANGELOG.md` and a test that asserted `"sarif" not in` the
+  > workflow. The code-scanning API answers `no analysis found`, not `403`.
+  >
+  > With the premise gone the argument reverses: a report *can* be read, and a finding in the
+  > Security tab outlives a log line that scrolled past. The two report-only scans now publish
+  > SARIF under a category each. **The gate did not move** — an image this project builds still
+  > fails the job, because a gate is stronger than a report, and a test now asserts that no
+  > built image is allowed to report instead of gating.
+  >
+  > What this cost: nothing in the code. What it should have cost earlier is a single API call.
+  > A fact about the deployment is exactly the kind of claim this project checks everywhere
+  > else, and it went unchecked for thirty-two chunks because it arrived as an instruction
+  > rather than as a measurement.
 - **It ignores unfixed findings.** A base image carrying a CVE with no upstream fix would otherwise
   turn every push red until somebody invented a fix that does not exist. A gate nobody can pass is
   a gate people learn to switch off. This is a deliberate weakening and it is written down so that

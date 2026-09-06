@@ -1,7 +1,7 @@
 """Periodic actors (ADR-020), sent by ``periodiq aegisnet.workers.main`` and run by the
 worker like any other message. The scheduler process only *sends*; if it is down, nothing
-periodic happens and nothing else breaks. Both actors read their parameters from settings
-at import time, which is when periodiq reads the cron lines too.
+periodic happens and nothing else breaks. All three actors read their parameters from
+settings at import time, which is when periodiq reads the cron lines too.
 
 The retention actor is sent nightly regardless of `RETENTION_ENABLED`; the actor itself is
 where the setting is read, so enabling the policy needs no change here (ADR-033).

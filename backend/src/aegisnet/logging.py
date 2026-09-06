@@ -12,7 +12,8 @@ Three protections live here:
 3. **No interpolation of untrusted data into messages.** Callers pass untrusted values as
    structured ``extra`` fields, never inside the format string.
 
-Full EVE field sanitisation for persistence is a separate concern and arrives in Chunk 3.
+Full EVE field sanitisation for persistence is a separate concern and lives in
+``aegisnet.domain.eve.sanitize``, which restates the rule rather than importing it.
 """
 
 from __future__ import annotations

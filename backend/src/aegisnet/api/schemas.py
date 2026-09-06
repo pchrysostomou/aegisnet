@@ -1,4 +1,5 @@
-"""Request and response DTOs for the Milestone 1 API (``docs/api-milestone-1.md``).
+"""Request and response DTOs for the v1 API (``docs/api-milestone-1.md`` through
+``api-milestone-5.md``; the sections below say which milestone each group belongs to).
 
 Every inbound body forbids unknown fields. Response models are built from the domain
 value objects by the ``from_*`` constructors, so a route never hand-assembles a dict.

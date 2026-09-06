@@ -5,7 +5,7 @@ job connects as a different role that can delete and cannot write (ADR-033), and
 should be able to see which is which.
 
 There is deliberately no `create_engine(settings)` any more, and no default statement timeout.
-Two workloads share one principal here — the API, the four actors and the CLI all connect as
+Two workloads share one principal here — the API, the actors and the CLI all connect as
 `aegisnet_app` — so a single number cannot serve both: anything loose enough for a 200 000-event
 sweep load is far too loose to bound a request (T-2.6). `create_api_engine` and
 `create_job_engine` say which budget a call site is asking for, and the keyword is required, so

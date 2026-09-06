@@ -1,10 +1,10 @@
-"""ORM models for the Milestone 1 schema.
+"""ORM models for the whole schema: the M1 baseline through the M5 brief tables.
 
 These mirror ``docs/data-model.md``. They are the *description* of the schema that the
-application code will use; the schema itself is created only by the Alembic baseline
-revision, never by ``metadata.create_all`` (repo convention: no auto-create in any
-environment). ``tests/db/test_migrations.py`` proves that the two agree by running
-Alembic's ``compare_metadata`` against a freshly migrated database.
+application code uses; the schema itself is created only by the Alembic revisions, never
+by ``metadata.create_all`` (repo convention: no auto-create in any environment).
+``tests/db/test_migrations.py`` proves that the two agree by running Alembic's
+``compare_metadata`` against a freshly migrated database.
 
 Design notes:
 
@@ -293,7 +293,8 @@ class IngestBatch(Base):
 
 
 class Event(Base):
-    """Normalised EVE records. Append-only in practice (ADR-001, ADR-005)."""
+    """Normalised EVE records. Append-only for the runtime role (ADR-001, ADR-005); the
+    retention role prunes them on a period, keeping any event an alert still cites (ADR-033)."""
 
     __tablename__ = "events"
 
@@ -809,8 +810,8 @@ APP_ROLE_READ_WRITE_TABLES: tuple[str, ...] = tuple(
     t for t in ALL_TABLES if t not in APP_ROLE_APPEND_ONLY_TABLES
 )
 """Tables on which the runtime role receives SELECT, INSERT and UPDATE. Soft-delete is the
-rule for assets and events are append-only; the retention job that will need DELETE on
-events arrives in a later milestone with its own revision."""
+rule for assets, and events are append-only *for this role*; DELETE on events belongs to
+`aegisnet_retention` (revision 0006, ADR-033), which is the whole reason that role exists."""
 
 APP_ROLE_DELETE_TABLES: tuple[str, ...] = ("asset_networks",)
 """Tables on which the runtime role also holds DELETE: an asset's networks are attributes

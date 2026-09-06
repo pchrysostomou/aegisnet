@@ -6,7 +6,10 @@
 - Login failures are generic. Wrong password, unknown user, inactive account and a locked
   account all raise :class:`InvalidCredentialsError`; the *audit* entry records which, the
   response never does. After ``login_max_failures`` failures the account locks for
-  ``login_lockout_minutes``; the lock is rechecked on every attempt.
+  ``login_lockout_minutes``; each further failure doubles the lock up to
+  ``login_lockout_max_minutes``, and an escalation nobody has touched for
+  ``login_failure_reset_hours`` is forgotten (ADR-036). The lock is rechecked on every
+  attempt.
 - Access tokens are short-lived HS256 JWTs signed with ``SECRET_KEY``, carrying ``sub``,
   ``role``, ``iss``, ``iat``, ``exp`` and a ``jti``. Logout puts the ``jti`` on a denylist
   for the token's remaining life, so a stolen access token dies with the session.

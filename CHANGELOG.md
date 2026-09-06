@@ -11,7 +11,7 @@ tag — the entry below it says "there is no Dependabot configuration", which wa
 written and is superseded by the first item here.
 
 ### Changed
-- Nine Dependabot pull requests, the first the new configuration produced. Merged: `next` 15.5.24
+- Ten Dependabot pull requests, the first the new configuration produced. Merged: `next` 15.5.24
   to **16.3.4**, `typescript` 5.9.3 to **6.0.3**, `mypy` 1.20 to **2.3**, `redis` 5.3 to 6.4,
   `argon2-cffi` 23.1 to 25.1, `pytest-cov` 5 to 7, `@types/node` 22 to 26, `@types/react-dom`
   19.2.7, `actions/checkout` v6 to v7, `hadolint-action` 3.1 to 3.5, and a five-package backend
@@ -39,6 +39,63 @@ written and is superseded by the first item here.
   volume. This is the mechanism and says plainly that it is not the measurement.
 
 ### Fixed
+- **This repository is public, and every document that reasoned from it being private.** It was
+  never private: `gh api repos/pchrysostomou/aegisnet` reports `"private": false`, and the event
+  stream carries a `PublicEvent` at the second the repository was created. The belief arrived as
+  an instruction, was written down, and was never once checked against the API — for
+  thirty-two chunks, in a project whose whole method is that a claim names the test that proves
+  it. What it cost:
+  - `THREAT_MODEL.md` T-5.6, `ADR-037` and a test all said the image scan uploads no SARIF
+    *because code scanning is not enabled on a private repository*. The code-scanning API
+    answers `no analysis found`, not `403`. With the premise gone the argument reverses, so the
+    two report-only scans now publish SARIF under a category each. **The gate did not move** —
+    an image this project builds still fails the job, and a new test asserts that no built image
+    is allowed to report instead of gating.
+  - `SECURITY.md` and `CONTRIBUTING.md` told reporters to use GitHub's private vulnerability
+    reporting. It was **disabled**. On a public repository that is a security-focused project
+    advertising a channel that does not exist; it is enabled now.
+  - New residual risk **R-12**: the detection thresholds, their guards and the threat model are
+    readable by anyone, including someone shaping traffic to stay under them. Accepted
+    deliberately — a detector whose strength depends on its numbers being secret is not one
+    anybody should trust — and it says what it does not cover. Nothing sensitive was exposed:
+    no `.env`, key, capture or log is tracked, which `make verify-ignore` and `gitleaks` assert.
+- **The premise under R-10 half-expired and four files still stated it.** `docker-compose.yml`,
+  `backend/Dockerfile`, `README.md` and `THREAT_MODEL.md` all said base images stay on tags
+  because *nothing in this repository bumps a digest — there is no `dependabot.yml` at all*.
+  There is; Chunk 32 added it, with a `docker` ecosystem. The decision stands, but it now rests
+  on inertia rather than on that reason, and each of the four says so and points at #14.
+- `.pre-commit-config.yaml` pinned `ruff-pre-commit` at **v0.6.9** while the lockfile resolved
+  **0.16.6** — ten minors apart, so the hook and `make lint` were not the same linter. The
+  comment above it now says the two must track.
+- `frontend/package.json` declared `"node": ">=20.9"`. `vitest` 5 needs `^22.12`, `eslint` 10
+  needs `^22.13`: the floor is the toolchain, not Next, and Node 20.9 cannot run the suite at
+  all. It is `>=22.13` now, and `README.md` says which package sets it.
+- A dead `T = TypeVar("T")` in `domain/ports.py`, left behind when the ruff migration turned
+  `Page(Generic[T])` into PEP 695 `class Page[T]` — which binds its own `T`. The module-level
+  one had no readers and survived because it was *assigned*, which is the shape of dead code no
+  lint rule catches.
+- Twenty-six stale comments and docstrings in the code itself, found by reading them against the
+  modules they sit in. `adapters/db/__init__.py` said "no ORM models, no migrations" with
+  `models.py` and `migrations/` beside it; `adapters/cache/__init__.py` denied the rate limiter
+  in its own package; `auth_service.py` described the flat 15-minute lockout that ADR-036
+  replaced with a doubling one; `cli.py` was still waiting for the HTTP routes that shipped in
+  Chunk 6; `health.py` said ingestion and the worker did not exist yet.
+- `docs/repo-structure.md` was still the M0 *plan*, thirty-two chunks later, listing a
+  `.github/workflows/frontend.yml` and a `frontend/tailwind.config.ts` that were never built,
+  four module names the code does not use, and PascalCase components in a kebab-case directory.
+  Rewritten as a description of the tree, with every path in it checked against disk.
+- `PLANNING.md` opened with "**no application code exists yet**"; `docs/api-milestone-1.md`,
+  which every other API contract points at for its conventions, said "**specification, not yet
+  implemented**"; `frontend/README.md` headed its feature list "**What is here today (Chunk
+  18)**" above four chunks of features. All three were markers left behind when the content
+  around them moved — the same defect as the `🟡` on Milestone 6.
+- Counts that drifted when the thing they counted grew: five load tests → seven (`README.md`,
+  `docs/STATUS.md`, `THREAT_MODEL.md`), eight residual risks → twelve (`PLANNING.md`), nine
+  Dependabot pull requests → ten, twelve CI checks → thirteen (`docs/RELEASE_CHECKLIST.md`,
+  against E-95 for the same commit). `docs/evaluation.md` §10's reproduction block omitted
+  `AEGISNET_LOAD_INGEST_TOKEN`, so following it exactly skips two of the seven tests silently.
+- `docs/data-model.md` documented a `rate_limit_events` table in the present tense. No migration
+  creates it and no model declares it; it was planned in M0 and never built, and now says so.
 - The last `[^>]*` regex SonarCloud flags as super-linear. Not in either file `docs/STATUS.md`
   named — those line numbers were stale — but in `citation-list.test.tsx`, three lines above the
   comment in that same file explaining the `[^<>]` rule. None left in the repository.

@@ -1,5 +1,5 @@
 """The rules that ship, with their default parameters. The persisted ``detection_rules``
-table (M2, later chunk) is seeded from ``spec`` and is what an alert is reproducible
+table (revision 0003) is seeded from ``spec`` and is what an alert is reproducible
 against; this module is the in-process source of truth for the code that runs."""
 
 from __future__ import annotations

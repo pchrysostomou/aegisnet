@@ -137,7 +137,7 @@ no_implicit_optional = true
 strict_equality = true
 plugins = []
 
-# Strict mode is scoped to the pure domain layer, which does not exist until Chunk 3.
+# Strict mode is scoped to the pure domain layer.
 # The contract is declared here now so it is enforced the moment that package appears.
 # periodiq ships no type information; its two entry points are wrapped in typed code.
 [[tool.mypy.overrides]]

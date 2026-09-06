@@ -17,7 +17,8 @@ the commit being tagged, not from memory.
       round trip and the statement timeouts only mean anything here.
 - [x] Frontend: `tsc --noEmit`, `eslint .`, `vitest run` (**158 passed**), `next build`.
 - [x] Coverage: **98% on `domain/`** (gate ≥85), **94% overall** (gate ≥70).
-- [x] CI green on the tagged commit — all twelve checks, including `lab`, `trivy`, `e2e` and
+- [x] CI green on the tagged commit — all thirteen checks (E-95), including `lab`, `trivy`,
+      `e2e`, `update-uv-graph` (which fired because the version bump changed `uv.lock`) and
       SonarCloud's quality gate.
 - [ ] `make load-test` — **not run for this release, and that is a decision.** It spends real
       fifteen-minute login budgets against a deployment, so it belongs to an operator with a stack

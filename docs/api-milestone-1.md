@@ -1,8 +1,10 @@
 # AegisNet — API Surface for Milestone 1
 
 Scope: **Milestone 1 only** — foundation, ingest, normalization, asset inventory, event read.
-No detectors, no incidents, no AI in M1. Status: **specification, not yet implemented.**
-Last updated: 2026-08-28
+No detectors, no incidents, no AI in M1. Status: **implemented in Chunks 3 – 6.** The later
+milestones' contracts (`api-milestone-2.md`, `-3.md`, `-5.md`) build on the conventions, error
+envelope, auth and rate limits set out here.
+Last updated: 2026-09-06
 
 Base path: `/api/v1`. All responses `application/json`. All request bodies validated with Pydantic v2
 (`model_config = ConfigDict(extra="forbid")` on every DTO).

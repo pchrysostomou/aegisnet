@@ -1,155 +1,193 @@
 # AegisNet — Monorepo Structure
 
-Status: **Planned layout. Directories are created milestone by milestone, not all at once.**
-Last updated: 2026-08-28
+Status: **the layout as it is at `v1.0.0`.** Last updated: 2026-09-06.
+
+This file used to describe a *planned* layout, written in the M0 planning package before any code
+existed, and it stayed that way through all six milestones while the tree moved underneath it. Two
+ADRs recorded it going out of date as an accepted cost ([ADR-012](adr/ADR-012-migrations-in-package-and-role-grants.md),
+[ADR-014](adr/ADR-014-ingest-entrypoints-ports-and-worker-layer.md)) and nobody came back. What it
+listed by the end was a `.github/workflows/frontend.yml` and a `frontend/tailwind.config.ts` that
+were never built, `base.py` and `auth_failure.py` and `pseudonymizer.py` and `export_service.py`
+under names the code does not use, and PascalCase component files in a directory that is entirely
+kebab-case. It is now a description rather than a plan, and the shorter map in
+[`README.md`](../README.md#repository-map) is the one to read first.
 
 ```
 aegisnet/
-├── README.md                     # quickstart, demo script, screenshots
-├── ARCHITECTURE.md
-├── THREAT_MODEL.md
-├── SECURITY.md                   # policy, RBAC matrix, secret handling, disclosure
-├── LICENSE
-├── CHANGELOG.md
-├── .env.example                  # every setting, no real values (two commented, with reasons)
-├── .gitignore
-├── .dockerignore
-├── .pre-commit-config.yaml       # ruff, ruff-format, secret scan, PII canary scan
-├── Makefile                      # up, down, seed, test, lint, typecheck, migrate, demo
-├── docker-compose.yml            # db, redis, api, worker, scheduler, web
+├── README.md                          the entry point: what it does, how to run it, the roadmap
+├── ARCHITECTURE.md                    components, layering, the data-flow diagram, ADR-001 … ADR-007
+├── THREAT_MODEL.md                    STRIDE per boundary, residual risks, and §6 — the coverage
+│                                      matrix `tests/security/test_threat_coverage.py` parses
+├── SECURITY.md                        credential model, RBAC matrix, audit actions, limits
+├── CONTRIBUTING.md                    ground rules, the local checks, how an ADR is numbered
+├── PLANNING.md                        the M0 planning index, kept for its reading order
+├── CHANGELOG.md                       Keep a Changelog; `[Unreleased]` is work after the tag
+├── LICENSE                            MIT
+├── Makefile                           every operator and developer task; `make help` lists them
+├── docker-compose.yml                 the six-service stack: db, redis, api, worker, scheduler, web
+├── docker-compose.test.yml            the hermetic test runner and its ephemeral database
 ├── docker-compose.override.yml.example
+├── .env.example                       every setting, no real values
+├── .pre-commit-config.yaml            ruff, ruff-format, secret scan, PII canary scan
+├── .hadolint.yaml  .sonarcloud.properties  .gitattributes  .gitignore  .dockerignore
+│
+├── .github/
+│   ├── dependabot.yml                 four ecosystems, grouped weekly, majors on their own
+│   ├── pull_request_template.md
+│   └── workflows/
+│       ├── ci.yml                     backend · frontend · manifests · migrations · stack · lab · e2e
+│       └── security.yml               gitleaks · pip-audit · pnpm audit · trivy (images)
 │
 ├── docs/
-│   ├── STATUS.md                 # living milestone status (source of truth for progress)
-│   ├── PRD.md
-│   ├── repo-structure.md
-│   ├── data-model.md
-│   ├── api-milestone-1.md
-│   ├── delivery-plan.md
-│   ├── detection-rules.md        # D-001..D-005 specs, params, tuning notes
-│   ├── evaluation.md             # method + labelled results per detector
-│   ├── perplexity-integration.md # packet schema, redaction, prompts, failure modes
-│   ├── RELEASE_CHECKLIST.md
-│   ├── demo-script.md
-│   ├── adr/                      # ADR-001.md ... one file per decision
-│   └── screenshots/
+│   ├── STATUS.md                      the authoritative progress record: milestones + evidence rows
+│   ├── PRD.md                         scope, out-of-scope, the v1.0 Definition of Done
+│   ├── delivery-plan.md               six milestones, acceptance criteria, commands
+│   ├── data-model.md                  the PostgreSQL schema, indexes, retention periods
+│   ├── api-milestone-1.md             the v1 conventions, error envelope, auth, rate limits
+│   ├── api-milestone-2.md             alerts, rules, runs, sweeps, baselines
+│   ├── api-milestone-3.md             incidents: list, detail, timeline, notes, transitions
+│   ├── api-milestone-5.md             briefs and the Markdown export (there is no M4 contract:
+│   │                                  M4 is the dashboard, a client of these)
+│   ├── detection-rules.md             D-001 … D-005 specs, parameters, guards, limitations
+│   ├── evaluation.md                  method, §8 labelled results, §9 the lab run, §10 the limits
+│   ├── perplexity-integration.md      what is sent, what is accepted back, how it fails
+│   ├── demo-script.md                 three minutes from a running stack to a case
+│   ├── RELEASE_CHECKLIST.md           what is checked before a tag, and why that check
+│   ├── fresh-clone-transcript.txt     the reproduction run, including the step that failed
+│   ├── milestone-1-implementation-prompt.md
+│   ├── repo-structure.md              this file
+│   ├── adr/                           ADR-009 … ADR-037, one file per decision
+│   │                                  (ADR-001 … ADR-007 are paragraphs in ARCHITECTURE.md §5,
+│   │                                  written before the directory existed)
+│   └── screenshots/                   generated by `pnpm e2e:shots`, never taken by hand
 │
 ├── backend/
-│   ├── pyproject.toml            # ruff, mypy, pytest config
-│   ├── uv.lock                   # pinned deps
-│   ├── Dockerfile                # multi-stage, non-root
-│   ├── alembic.ini               # no URL; points into the package (ADR-012)
+│   ├── pyproject.toml                 ruff, mypy, pytest, import-linter config
+│   ├── uv.lock                        pinned deps
+│   ├── Dockerfile                     multi-stage, non-root
+│   ├── alembic.ini                    no URL; points into the package (ADR-012)
+│   ├── README.md                      required by packaging; points back here
 │   ├── src/aegisnet/
-│   │   ├── main.py               # FastAPI app factory
-│   │   ├── config.py             # pydantic-settings, SecretStr for all secrets
-│   │   ├── logging.py            # structured JSON logs, secret scrubbing filter
+│   │   ├── main.py                    FastAPI app factory
+│   │   ├── config.py                  pydantic-settings, SecretStr for every secret
+│   │   ├── logging.py                 structured JSON logs, secret scrubbing filter
+│   │   ├── version.py                 the app version and the schema revision it expects
+│   │   ├── cli.py                     argparse (ADR-014): ingest, inventory, detection,
+│   │   │                              correlation, briefs, export, retention, evaluation
 │   │   │
 │   │   ├── api/
-│   │   │   ├── deps.py           # auth, RBAC, pagination, rate-limit dependencies
-│   │   │   ├── errors.py         # global handlers, correlation ids
-│   │   │   ├── schemas/          # request/response Pydantic DTOs
-│   │   │   └── v1/
-│   │   │       ├── health.py  auth.py  ingest.py  assets.py
-│   │   │       ├── events.py  alerts.py  incidents.py
-│   │   │       ├── briefs.py  reports.py  audit.py
+│   │   │   ├── deps.py                auth, RBAC, pagination, rate-limit dependencies
+│   │   │   ├── errors.py              global handlers, correlation ids
+│   │   │   ├── schemas.py             every request/response DTO, `extra="forbid"`
+│   │   │   └── v1/                    health · auth · ingest · assets · events · alerts
+│   │   │                              detections · incidents · briefs · reports · audit · meta
 │   │   │
-│   │   ├── domain/               # PURE. no I/O, no ORM, no network.
-│   │   │   ├── ports.py          # Protocols the services call and adapters implement (ADR-014)
-│   │   │   ├── models.py         # frozen dataclasses: NormalizedEvent, EventWindow, DetectionResult
-│   │   │   ├── eve/              # EVE parsing + validation (schema.py, normalizer.py, sanitize.py)
-│   │   │   ├── detectors/        # base.py, port_scan.py, auth_failure.py,
-│   │   │   │                     # dns_anomaly.py, beaconing.py, volume_anomaly.py, registry.py
-│   │   │   ├── severity.py       # severity/confidence scoring, auditable formula
-│   │   │   ├── correlation.py    # entity+time windowed grouping, timeline assembly
-│   │   │   ├── redaction/        # pseudonymizer.py, denylist.py, packet_builder.py
-│   │   │   └── reporting/        # markdown renderer (deterministic, no I/O)
+│   │   ├── domain/                    PURE. no I/O, no ORM, no clock, no network.
+│   │   │   ├── ports.py               the Protocols services call and adapters implement
+│   │   │   ├── models.py              frozen dataclasses: NormalizedEvent, EventWindow, …
+│   │   │   ├── enums.py               the schema enumerations both layers need
+│   │   │   ├── eve/                   schema · normalizer · sanitize · hashing · limits
+│   │   │   ├── detectors/             model.py (window and result bounds), severity.py,
+│   │   │   │                          baselines.py, registry.py, evaluation.py and the five
+│   │   │   │                          rules: port_scan · auth_burst · dns_anomaly ·
+│   │   │   │                          beaconing · volume_anomaly (plus addresses.py)
+│   │   │   ├── redaction/             packet.py · pseudonyms.py · scanner.py (ADR-029)
+│   │   │   ├── briefs/                schema.py and safety.py — the brief contract (ADR-030)
+│   │   │   ├── correlation.py         entity+time windowed grouping (ADR-023)
+│   │   │   ├── correlation_eval.py    pairwise scoring of the grouping (ADR-025)
+│   │   │   ├── incidents.py           the workflow as data: transitions, severity, case number
+│   │   │   ├── assets.py  auth.py  pagination.py  retention.py
+│   │   │   └── reports.py             the deterministic Markdown renderer (ADR-032)
 │   │   │
-│   │   ├── services/             # use-cases; orchestrate domain + adapters
+│   │   ├── services/                  use-cases; orchestrate domain + adapters
 │   │   │   ├── ingest_service.py  detection_service.py  correlation_service.py
-│   │   │   ├── baseline_service.py brief_service.py  export_service.py
-│   │   │   ├── auth_service.py    audit_service.py
+│   │   │   ├── baseline_service.py  brief_service.py  report_service.py
+│   │   │   ├── incident_service.py  asset_service.py  event_read_service.py
+│   │   │   ├── auth_service.py  audit_service.py  retention_service.py
+│   │   │   └── evaluation_service.py  scenario_service.py  schedule.py
 │   │   │
 │   │   ├── adapters/
-│   │   │   ├── db/               # engine, session, ORM models, ingest/asset/event stores (port impls),
-│   │   │   │                     # migrations/ (Alembic env + versions, in-package: ADR-012)
-│   │   │   ├── queue/            # dramatiq broker factory, queue/actor names, enqueuers
-│   │   │   │                     # (actors themselves live in workers/: ADR-014)
-│   │   │   ├── cache/            # redis client, rate limiter, response cache
-│   │   │   ├── perplexity/       # client.py, prompts/, response_schema.py, citations.py
-│   │   │   └── files/            # dataset registry + safe path resolution
+│   │   │   ├── db/                    engine, session, models, the SQL stores, and
+│   │   │   │                          migrations/ (Alembic in-package, ADR-012; head 0006)
+│   │   │   ├── queue/                 broker factory, queue and actor names, the enqueuers
+│   │   │   │                          (the actors themselves live in workers/: ADR-014)
+│   │   │   ├── cache/                 redis_client.py, rate_limiter.py (limiter + denylist)
+│   │   │   ├── perplexity/            client.py, budget.py, errors.py — the only outbound path
+│   │   │   └── files/                 registry · spool · ndjson · labelled · provenance
 │   │   │
-│   │   ├── workers/              # entrypoint layer: main.py (dramatiq entrypoint), actors.py
-│   │   └── cli.py                # argparse (ADR-014): datasets, import-dataset, batch, ...
+│   │   └── workers/                   main.py (the dramatiq entrypoint), actors.py, and
+│   │                                  schedule.py — the three periodic actors (ADR-020, ADR-033)
 │   │
 │   └── tests/
-│       ├── conftest.py           # testcontainers/ephemeral pg, StubBroker, factories
-│       ├── unit/
-│       │   ├── eve/  detectors/  correlation/  redaction/  severity/  reporting/
-│       ├── integration/
-│       │   ├── test_ingest_api.py  test_detection_pipeline.py
-│       │   ├── test_correlation.py test_rbac_matrix.py
-│       │   ├── test_brief_flow.py  test_audit_log.py
-│       ├── security/
-│       │   ├── test_redaction_canaries.py    # no forbidden data can reach Perplexity
-│       │   ├── test_prompt_injection.py      # briefs cannot mutate detection state
-│       │   ├── test_path_traversal.py  test_payload_limits.py
-│       └── fixtures/
-│           ├── eve/              # hand-built EVE JSON lines
-│           └── labelled/         # per-detector positive/ and negative/ cases + labels.yml
+│       ├── conftest.py  fakes.py      the app factory, the fakes the services are tested against
+│       ├── unit/                      pure logic, including unit/eve/
+│       ├── detectors/                 the five rules, the registry, the sweep, the harness
+│       ├── integration/               every route over HTTP against the fakes
+│       ├── security/                  marker `security`: RBAC, redaction canaries, payload
+│       │                              limits, path traversal, the compose and lab policies,
+│       │                              the image scan, and the THREAT_MODEL §6 parser
+│       ├── db/                        marker `db`, opt-in: a real PostgreSQL (AEGISNET_DB_TESTS=1)
+│       ├── load/                      marker `load`, opt-in: whole rate-limit budgets at once
+│       │                              against a running stack (AEGISNET_LOAD_TESTS=1)
+│       └── fixtures/                  eve/ · labelled/ (cases + labels.yml) · briefs/
 │
 ├── frontend/
-│   ├── package.json  pnpm-lock.yaml  tsconfig.json  tailwind.config.ts
-│   ├── Dockerfile                # multi-stage, non-root
+│   ├── package.json  pnpm-lock.yaml  tsconfig.json
+│   ├── next.config.mjs  eslint.config.mjs  vitest.config.ts  playwright.config.ts
+│   ├── Dockerfile                     multi-stage, non-root, no npm in the runtime image
+│   ├── README.md                      what the dashboard is, and how to run its suites
 │   ├── src/
-│   │   ├── app/
-│   │   │   ├── layout.tsx  page.tsx
-│   │   │   ├── login/            incidents/            incidents/[id]/
-│   │   │   ├── assets/           audit/
-│   │   ├── components/
-│   │   │   ├── IncidentTable.tsx  SeverityBadge.tsx  Timeline.tsx
-│   │   │   ├── EvidenceTable.tsx  AlertCard.tsx  StatusControl.tsx
-│   │   │   ├── BriefPanel.tsx     CitationList.tsx  UnverifiedTag.tsx
-│   │   │   └── SafeMarkdown.tsx   # strict allow-list renderer
-│   │   ├── lib/                  # api client, auth, zod schemas mirroring backend DTOs
-│   │   └── types/
-│   └── tests/                    # vitest unit + playwright smoke
+│   │   ├── middleware.ts              rotates an expired session before the render
+│   │   ├── app/                       login/ · incidents/ · incidents/[id]/ · assets/ · audit/
+│   │   │                              and incidents/[id]/report.md/ (the export route handler)
+│   │   ├── components/                kebab-case, display only: safe-markdown · brief-panel ·
+│   │   │                              citation-list · badges · masthead · timestamp
+│   │   └── lib/                       api/ (the one module that calls the API, and its zod
+│   │                                  schemas), session.ts, safe-path.ts, visible.ts
+│   ├── e2e/                           the Playwright suite; two auth setup projects
+│   └── playwright/                    .auth/ holds live sessions and is gitignored
 │
 ├── samples/
-│   ├── README.md                 # provenance, licence, required citations per dataset
-│   ├── registry.yml              # dataset id → file, checksum, licence, citation
-│   ├── synthetic/                # committed, generated EVE JSON (primary demo path)
-│   └── external/                 # gitignored; operator-fetched public datasets
+│   ├── README.md                      provenance, licence, required citations per dataset
+│   ├── registry.yml                   dataset id → file, checksum, licence, citation
+│   ├── synthetic/                     committed, generated EVE (the primary demo path)
+│   ├── lab/                           one sanitised capture of real Suricata output
+│   ├── scenarios/                     the multi-stage scenario and its ground truth
+│   ├── assets/                        asset inventory seed files
+│   ├── briefs/                        the offline brief served when the feature is off
+│   └── external/                      gitignored; operator-fetched public datasets
 │
 ├── infra/
-│   ├── lab/                       # OPT-IN isolated Suricata lab (ADR-021); nothing here runs by default
-│   │   ├── docker-compose.lab.yml   # three services behind the `lab` profile, internal-only network
-│   │   ├── README.md               # the runbook: what is safe about it, how to run it
-│   │   ├── suricata/               # suricata.yaml (IDS only), lab.rules (alert only), support configs
-│   │   ├── target/                 # the lab's only listener: HTTP and a minimal DNS responder
-│   │   ├── generators/             # the six traffic shapes (lab-only, one destination)
-│   │   └── out/                    # gitignored; where an exported capture lands
-│   ├── postgres/init/             # roles, least-privilege grants, audit-table grants
-│   └── scripts/                   # bootstrap_env.py (the .env generator)
+│   ├── lab/                           OPT-IN isolated Suricata lab (ADR-021); nothing runs by default
+│   │   ├── docker-compose.lab.yml     three services, `lab` profile, internal-only network
+│   │   ├── README.md                  the runbook: what is safe about it, how to run it
+│   │   ├── preflight.py               asks a running container whether it can reach anything
+│   │   ├── suricata/  target/  generators/
+│   │   └── out/                       gitignored; where an exported capture lands
+│   ├── postgres/init/                 roles and least-privilege grants (empty data dir only)
+│   └── scripts/                       bootstrap_env.py, the .env generator
 │
-├── tools/
-│   ├── gen_synthetic_eve.py       # deterministic, seeded EVE generator
-│   ├── gen_labelled_fixtures.py   # renders the labelled detector cases
-│   └── sanitize_eve.py            # makes a lab capture publishable, or refuses
-│
-└── .github/workflows/
-    ├── ci.yml                     # ruff, mypy, pytest (unit+integration+security), coverage gate
-    ├── frontend.yml               # tsc, eslint, vitest, build
-    └── security.yml               # pip-audit, npm audit, secret scan, docker image scan
+└── tools/
+    ├── gen_synthetic_eve.py           the seeded synthetic EVE generator
+    ├── gen_demo_scenario.py           the multi-stage correlation scenario
+    ├── gen_labelled_fixtures.py       renders the labelled detector cases
+    └── sanitize_eve.py                makes a lab capture publishable, or refuses
 ```
 
 ## Conventions
 
-- **Import discipline:** `domain/` may not import from `adapters/`, `services/`, or `api/`. Enforced in CI with
-  an import-linter contract. This is what keeps detectors pure and testable.
-- **Naming:** detector modules match their rule id (`D-001` → `port_scan.py`), and `docs/detection-rules.md` is
-  the single source of truth for ids, versions, and default parameters.
-- **Migrations:** every schema change ships an Alembic revision in the same PR; no auto-create in any environment.
-- **Fixtures:** every labelled fixture directory contains a `labels.yml` stating expected detections, so the
-  evaluation harness never hardcodes expectations in test bodies.
-- **Nothing real in `samples/synthetic/`:** all IPs from RFC 5737/RFC 1918 documentation ranges, all domains from
-  `example.com`/`example.test`.
+- **Import discipline:** `domain/` may not import from `adapters/`, `services/` or `api/`, and
+  `api`, `workers` and `cli` are siblings that may not import each other. Both are import-linter
+  contracts checked by `make lint` and by CI. This is what keeps detectors pure and testable.
+- **Naming:** a detector module is named after its rule (`D-001` → `port_scan.py`), and
+  [`docs/detection-rules.md`](detection-rules.md) is the single source of truth for ids, versions
+  and default parameters.
+- **Migrations:** every schema change ships an Alembic revision in the same commit; no
+  auto-create in any environment, and `tests/db/test_migrations.py` proves the models and the
+  migrated database agree.
+- **Fixtures:** every labelled fixture directory contains a `labels.yml` stating the expected
+  detections, so the evaluation harness never hardcodes expectations in test bodies.
+- **Nothing real in `samples/synthetic/`:** every address is from RFC 5737 or RFC 1918 and every
+  name is under `example.com` or `example.test`. `samples/lab/` is the one exception, and it is
+  real output from traffic this project generated against itself, put through `sanitize_eve.py`.
+- **Every operator task is a `make` target**, added by the commit that makes it work.

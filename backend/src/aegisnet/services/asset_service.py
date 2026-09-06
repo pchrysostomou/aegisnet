@@ -3,7 +3,7 @@
 Overlap and hostname checks run here, against the store's current networks, before a
 write; the store then enforces the hostname unique index as the last line. The IP
 resolution rule itself is the store's query (and, in tests, the pure ``resolve_ip``).
-Audit entries for mutations arrive with the authenticated actor in Chunk 6.
+Mutations are audited by the routes, which are where the authenticated actor is known.
 """
 
 from __future__ import annotations

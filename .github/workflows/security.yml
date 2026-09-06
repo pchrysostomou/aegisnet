@@ -73,6 +73,12 @@ jobs:
   images:
     name: trivy · what is inside the images
     runs-on: ubuntu-latest
+    # `security-events: write` is what lets the last step publish a SARIF report. It is
+    # scoped to this job rather than to the workflow, so the three lockfile audits keep the
+    # read-only token they have always had.
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v7
 
@@ -151,3 +157,58 @@ jobs:
           ignore-unfixed: true
           exit-code: "0"
           format: table
+
+      # The two scans above print and do not gate. That used to be where it ended, on the
+      # reasoning that a SARIF report nobody can open is not a control — code scanning was
+      # unavailable because the repository was believed to be private. It never was: the
+      # repository has been public since it was created, the API answers `no analysis found`
+      # rather than `403`, and a report *can* be read. So the report-only scans now land
+      # somewhere durable instead of scrolling past in a log.
+      #
+      # Only the pulled images go to SARIF, and that is the point of the split: a finding in
+      # an image this project *builds* is actionable now, so it fails the job above and
+      # nobody has to go looking. A finding in `postgres:16-alpine` is somebody else's
+      # release schedule (R-10) — worth recording, never worth blocking a push on.
+      #
+      # Trivy is run a second time rather than once with two outputs because the action takes
+      # a single `format`. The vulnerability database is already in the job's cache by now,
+      # so the second pass costs seconds.
+      - name: Re-scan the pulled images into SARIF
+        if: always()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: postgres:16-alpine
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+          format: sarif
+          output: trivy-postgres.sarif
+
+      - name: Re-scan redis into SARIF
+        if: always()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: redis:7-alpine
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+          format: sarif
+          output: trivy-redis.sarif
+
+      # A distinct `category` per image, or the second upload replaces the first and the
+      # Security tab shows one datastore instead of two.
+      - name: Publish the postgres report
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-postgres.sarif
+          category: trivy-postgres
+
+      - name: Publish the redis report
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-redis.sarif
+          category: trivy-redis

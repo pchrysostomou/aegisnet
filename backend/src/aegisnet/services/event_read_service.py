@@ -1,9 +1,9 @@
 """Read-only event queries (M1 API: ``GET /events``, ``/events/{id}``, ``/events/stats``).
 
-Validation lives here so every caller (the CLI now, the routes in Chunk 6) gets the same
+Validation lives here so every caller — the CLI and the routes alike — gets the same
 bounds: an explicit, timezone-aware window no wider than ``max_span`` (T-2.6), a page
 size of at most 200, and a cursor that decodes. ``include_payload`` is the caller's
-decision; the routes will set it from the role (``viewer`` never sees payloads).
+decision; the routes set it from the role (``viewer`` never sees payloads).
 """
 
 from __future__ import annotations

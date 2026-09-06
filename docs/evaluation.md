@@ -440,6 +440,8 @@ the same host.
 ```bash
 make up                                    # the stack the suite drives
 export AEGISNET_E2E_ANALYST=… AEGISNET_E2E_ANALYST_PASSWORD=…
+export AEGISNET_LOAD_INGEST_TOKEN=…          # make create-service-token NAME=load-probe
+                                            # without it the two ingest tests skip
 make load-test
 ```
 

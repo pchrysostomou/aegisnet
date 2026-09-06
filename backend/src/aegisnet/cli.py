@@ -1,7 +1,8 @@
 """Operator CLI: ``python -m aegisnet.cli <command>``.
 
-Until the HTTP routes ship with authentication in Chunk 6 (ADR-014), this is the
-operator's surface for ingest and the asset inventory. Inside the stack:
+The operator's surface (ADR-014), for the work that is driven from a shell rather than a
+browser: ingest, the asset inventory, detection, correlation, briefs, export, retention
+and the evaluation harnesses. Inside the stack:
 
     docker compose run --rm api python -m aegisnet.cli <command> ...
 

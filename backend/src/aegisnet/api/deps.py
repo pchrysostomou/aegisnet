@@ -90,7 +90,8 @@ def services(request: Request) -> AppServices:
 
 
 def client_ip(request: Request) -> IPAddress | None:
-    """The transport peer only. Proxy headers are not trusted in Milestone 1."""
+    """The transport peer only. Proxy headers are never trusted, so a NAT shares one
+    budget — residual risk R-9."""
     if request.client is None:
         return None
     try:

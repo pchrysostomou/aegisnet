@@ -1,9 +1,10 @@
 # AegisNet — analyst dashboard
 
-Next.js App Router, React 19, TypeScript. Milestone 4; the decisions behind it are
+Next.js App Router, React 19, TypeScript. Built in Milestone 4 and extended in Milestone 5
+(the brief panel and the Markdown export); the decision it rests on is
 [ADR-026](../docs/adr/ADR-026-the-dashboard-holds-the-session-and-the-browser-holds-nothing.md).
 
-## What is here today (Chunk 18)
+## What is here today (Chunks 18 – 20 and 24)
 
 - **Sign in and sign out.** The API's access token and refresh cookie are kept in this app's own
   `HttpOnly` cookies. The browser never holds a credential and never learns the API's address.

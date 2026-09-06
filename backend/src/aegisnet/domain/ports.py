@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Final, Protocol, TypeVar
+from typing import Any, Final, Protocol
 from uuid import UUID
 
 from aegisnet.domain.assets import AssetPatch, AssetSpec, IPAddress, IPNetwork, NetworkRecord
@@ -41,8 +41,6 @@ from aegisnet.domain.enums import (
 from aegisnet.domain.models import NormalizedEvent, Reject
 from aegisnet.domain.pagination import DEFAULT_LIMIT
 
-T = TypeVar("T")
-
 
 @dataclass(frozen=True)
 class Page[T]:
@@ -54,7 +52,7 @@ class Page[T]:
 
 @dataclass(frozen=True, slots=True)
 class BatchProvenance:
-    """Who loaded what, from where (FR-1.6, T-1.8). Actor ids arrive with Chunk 6."""
+    """Who loaded what, from where (FR-1.6, T-1.8)."""
 
     source_type: SourceType
     source_label: str
@@ -595,7 +593,10 @@ class IncidentStore(Protocol):
         self, incident_id: UUID, entry: NewTimelineEntry, *, now: datetime
     ) -> None:
         """Append one line. For things that happen *to* a case without changing it — a brief
-        being generated, a report exported — where there is no status move to carry it."""
+        being generated, an alert being linked — where there is no status move to carry it.
+
+        ``report_exported`` is deliberately never written here: an export changes nothing,
+        so it is audited and left out of the case's own story (ADR-032)."""
         ...
 
     async def list_notes(

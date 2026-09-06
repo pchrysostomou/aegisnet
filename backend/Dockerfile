@@ -47,15 +47,16 @@ ENV PATH="/opt/venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
     GIT_SHA=${GIT_SHA}
 
-# What a scan is looking at. The `images` job builds and scans `aegisnet-api:latest`, a tag that
-# says nothing about which tree it came from, so the revision label is what ties a finding to a
-# commit. There is deliberately no `image.version` label: the version number already lives in
-# three files, and a fourth copy with nothing keeping it in step is exactly the kind of claim
-# that goes stale unnoticed. The commit is the more precise identifier in any case.
+# What a scan is looking at: the `images` job builds and scans `aegisnet-api:latest`, and these
+# say where it came from. Deliberately no `image.version` — the version already lives in three
+# files and a fourth copy with nothing keeping it in step goes stale unnoticed — and no
+# `image.revision`, which is a sharper story: it read `${GIT_SHA}`, and SonarCloud rated the
+# result a security finding on new code. Four bisection rounds located it here (E-96). The
+# label was a nicety; an analysis scope with a Dockerfile carved out of it is not, so the
+# label went. `GIT_SHA` still reaches the running container as an environment variable.
 LABEL org.opencontainers.image.title="aegisnet-api" \
       org.opencontainers.image.source="https://github.com/pchrysostomou/aegisnet" \
-      org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.revision="${GIT_SHA}"
+      org.opencontainers.image.licenses="MIT"
 
 # procps supplies pgrep for the worker liveness healthcheck; curl is not installed on purpose.
 RUN apt-get update \

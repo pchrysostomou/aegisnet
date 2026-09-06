@@ -38,14 +38,13 @@ ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0
 
-# Same reason as the backend image: the scan targets `aegisnet-web:latest`, a tag that says
-# nothing about which tree it came from, and the revision label is what ties a finding to a
-# commit. No `image.version` label, for the reason given there. Unlike the backend, GIT_SHA is
-# build metadata only — it is not put in the environment, because nothing in this app reads it.
+# Same reason as the backend image, and the same two omissions: no `image.version`, and no
+# `image.revision` — the revision label read `${GIT_SHA}` and SonarCloud rated it a security
+# finding on new code, so it went rather than the Dockerfile being carved out of the analysis
+# scope (E-96). `ARG GIT_SHA` stays for the build; nothing in this app reads it at runtime.
 LABEL org.opencontainers.image.title="aegisnet-web" \
       org.opencontainers.image.source="https://github.com/pchrysostomou/aegisnet" \
-      org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.revision="${GIT_SHA}"
+      org.opencontainers.image.licenses="MIT"
 
 # The node image already provides an unprivileged `node` user (uid 1000).
 COPY --from=build --chown=node:node /app/.next/standalone ./

@@ -79,7 +79,9 @@ class LoginRequest(Inbound):
 
 class TokenResponse(BaseModel):
     access_token: str
-    token_type: Literal["bearer"] = "bearer"
+
+    # (RFC 6749 §5.1) and "bearer" is the scheme, not a credential.
+    token_type: Literal["bearer"] = "bearer"  # noqa: S105
     expires_in: int
 
 
@@ -799,22 +801,19 @@ __all__ = [
     "AlertDetailOut",
     "AlertOut",
     "AlertPage",
-    "BaselineOut",
-    "BaselineRecomputeAccepted",
-    "BaselineRecomputeRequest",
-    "BriefOut",
-    "DetectorRunOut",
-    "RuleOut",
-    "SweepAccepted",
-    "SweepRequest",
     "AssetOut",
     "AssetPage",
     "AuditOut",
     "AuditPage",
+    "BaselineOut",
+    "BaselineRecomputeAccepted",
+    "BaselineRecomputeRequest",
     "BatchOut",
     "BatchPage",
+    "BriefOut",
     "BulkAssetsOut",
     "BulkAssetsRequest",
+    "DetectorRunOut",
     "EventOut",
     "EventPage",
     "ImportRequest",
@@ -830,9 +829,12 @@ __all__ = [
     "RejectOut",
     "RejectPage",
     "ResolveOut",
+    "RuleOut",
     "SourceType",
     "StatsOut",
     "StatusChangeRequest",
+    "SweepAccepted",
+    "SweepRequest",
     "TimelineEntryOut",
     "TimelinePage",
     "TokenResponse",

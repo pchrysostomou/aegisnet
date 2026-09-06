@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Final, Generic, Protocol, TypeVar
+from typing import Any, Final, Protocol, TypeVar
 from uuid import UUID
 
 from aegisnet.domain.assets import AssetPatch, AssetSpec, IPAddress, IPNetwork, NetworkRecord
@@ -45,7 +45,7 @@ T = TypeVar("T")
 
 
 @dataclass(frozen=True)
-class Page(Generic[T]):
+class Page[T]:
     """One page of a keyset-paginated list; ``next_cursor`` is ``None`` on the last page."""
 
     items: tuple[T, ...]

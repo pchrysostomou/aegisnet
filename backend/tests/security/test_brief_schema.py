@@ -186,7 +186,7 @@ def test_ordinary_advice_is_not_mistaken_for_an_instruction() -> None:
 def test_an_unknown_field_is_a_refusal_rather_than_something_to_ignore() -> None:
     payload = document("good")
     payload["severity"] = 1
-    with pytest.raises(ValidationError, match="[Ee]xtra"):
+    with pytest.raises(ValidationError, match=r"[Ee]xtra"):
         InvestigationBrief.model_validate(payload)
 
 

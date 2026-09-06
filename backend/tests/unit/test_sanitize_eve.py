@@ -116,7 +116,7 @@ def test_a_capture_that_still_names_the_real_internet_is_refused(line: str) -> N
 def test_a_real_name_hidden_inside_a_value_is_refused(field: dict[str, Any], value: str) -> None:
     """A hostname is just as published sitting in a URL as in a hostname field, so names are
     looked for inside every string, not only in the fields that are supposed to hold them."""
-    with pytest.raises(sanitize_eve.UnpublishableCaptureError, match="outside example.test"):
+    with pytest.raises(sanitize_eve.UnpublishableCaptureError, match=r"outside example\.test"):
         sanitize_eve.sanitize([_line(**field)])
 
 

@@ -43,8 +43,8 @@ from aegisnet.domain.enums import EntityType, SampleRole
 
 __all__ = [
     "DEFAULT_CRITICALITY",
-    "INTERNAL_NETWORKS",
     "FORMULA",
+    "INTERNAL_NETWORKS",
     "MAX_EVIDENCE_CHARS",
     "MAX_EVIDENCE_ITEMS",
     "MAX_EVIDENCE_KEYS",

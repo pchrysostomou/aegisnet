@@ -143,9 +143,9 @@ def test_every_lab_service_is_opt_in_behind_the_lab_profile() -> None:
 def test_the_lab_network_is_internal_and_uses_documentation_space() -> None:
     """L-0: `internal: true` is what leaves the bridge with no route off the host."""
     network = _load(LAB_COMPOSE)["networks"]["lab"]
-    assert (
-        network["name"] == "aegisnet_lab"
-    ), "the name docs/evaluation.md §7 L-0 tells the operator to inspect"
+    assert network["name"] == "aegisnet_lab", (
+        "the name docs/evaluation.md §7 L-0 tells the operator to inspect"
+    )
     assert network["internal"] is True
     subnets = [ipaddress.ip_network(entry["subnet"]) for entry in network["ipam"]["config"]]
     assert subnets == [LAB_SUBNET]
@@ -195,9 +195,9 @@ def test_the_lab_holds_no_credential_and_reaches_no_datastore() -> None:
             else dict(item.split("=", 1) for item in environment)
         )
         for key in keys:
-            assert not re.search(
-                r"(PASSWORD|SECRET|TOKEN|API[_-]?KEY)", str(key), re.IGNORECASE
-            ), f"{name} sets {key}"
+            assert not re.search(r"(PASSWORD|SECRET|TOKEN|API[_-]?KEY)", str(key), re.IGNORECASE), (
+                f"{name} sets {key}"
+            )
             assert not str(key).startswith(("POSTGRES_", "REDIS_", "SPOOL_")), f"{name} sets {key}"
 
 
@@ -259,9 +259,9 @@ def test_no_lab_file_names_an_address_outside_documentation_space(path: Path) ->
         if not _address(literal):
             continue
         address = ipaddress.ip_address(literal)
-        assert any(
-            address in network for network in ALLOWED_NETWORKS
-        ), f"{path.name} names {literal}, which is outside documentation and private space"
+        assert any(address in network for network in ALLOWED_NETWORKS), (
+            f"{path.name} names {literal}, which is outside documentation and private space"
+        )
 
 
 @pytest.mark.parametrize("path", _lab_files(), ids=lambda p: str(p.relative_to(LAB_DIR)))
@@ -272,9 +272,9 @@ def test_no_lab_file_names_a_domain_outside_the_documentation_domains(path: Path
         lowered = literal.lower().rstrip(".")
         if not lowered.endswith(tuple(f".{tld}" for tld in CHECKED_TLDS)):
             continue
-        assert lowered.endswith(
-            ALLOWED_DOMAINS
-        ), f"{path.name} names {literal!r}, which is not a documentation domain"
+        assert lowered.endswith(ALLOWED_DOMAINS), (
+            f"{path.name} names {literal!r}, which is not a documentation domain"
+        )
 
 
 @pytest.mark.parametrize("tool", FORBIDDEN_TOOLING)
@@ -389,6 +389,6 @@ def test_a_running_lab_container_is_asked_whether_it_can_reach_anything() -> Non
     assert "suricata" not in commands
 
     teardown = [step for step in steps if "down" in str(step.get("run", ""))]
-    assert teardown and all(
-        step.get("if") == "always()" for step in teardown
-    ), "a lab left running after a failed job is a lab nobody tore down"
+    assert teardown and all(step.get("if") == "always()" for step in teardown), (
+        "a lab left running after a failed job is a lab nobody tore down"
+    )

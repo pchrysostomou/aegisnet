@@ -347,7 +347,7 @@ def _change(target: IncidentStatus, at: datetime) -> NewTimelineEntry:
 async def test_a_status_change_moves_the_case_and_writes_one_line(
     store: SqlIncidentStore, sessions
 ) -> None:  # type: ignore[no-untyped-def]
-    record, _alerts_ = await _open_one(store, sessions)
+    record, _ = await _open_one(store, sessions)
     moved = await store.set_status(
         record.id,
         expected=IncidentStatus.new,
@@ -370,7 +370,7 @@ async def test_a_status_change_moves_the_case_and_writes_one_line(
 async def test_a_change_from_a_status_the_case_no_longer_holds_writes_nothing(
     store: SqlIncidentStore, sessions
 ) -> None:  # type: ignore[no-untyped-def]
-    record, _alerts_ = await _open_one(store, sessions)
+    record, _ = await _open_one(store, sessions)
     await store.set_status(
         record.id,
         expected=IncidentStatus.new,
@@ -398,7 +398,7 @@ async def test_a_change_from_a_status_the_case_no_longer_holds_writes_nothing(
 async def test_closing_and_reopening_satisfy_the_check_constraint_in_both_directions(
     store: SqlIncidentStore, sessions
 ) -> None:  # type: ignore[no-untyped-def]
-    record, _alerts_ = await _open_one(store, sessions)
+    record, _ = await _open_one(store, sessions)
     closed = await store.set_status(
         record.id,
         expected=IncidentStatus.new,
@@ -431,7 +431,7 @@ async def test_a_case_takes_many_status_changes_because_nulls_are_distinct(
     """uq_incident_timeline_alert_entry is (incident_id, entry_type, alert_id). A status
     change carries no alert, and PostgreSQL counts NULLs as distinct, so the constraint never
     collapses a case's history into one line. This is the test that says so out loud."""
-    record, _alerts_ = await _open_one(store, sessions)
+    record, _ = await _open_one(store, sessions)
     walk = [
         (IncidentStatus.new, IncidentStatus.triaging),
         (IncidentStatus.triaging, IncidentStatus.investigating),
@@ -494,7 +494,7 @@ async def test_correlation_still_says_the_same_thing_about_an_alert_once(
 async def test_a_note_is_stored_with_its_timeline_line_and_pages_newest_first(
     store: SqlIncidentStore, sessions
 ) -> None:  # type: ignore[no-untyped-def]
-    record, _alerts_ = await _open_one(store, sessions)
+    record, _ = await _open_one(store, sessions)
     author = uuid4()
     notes = []
     for index in range(3):
@@ -551,7 +551,7 @@ async def test_a_note_on_a_case_that_does_not_exist_is_refused_not_orphaned(
 async def test_the_timeline_pages_in_the_order_things_happened(
     store: SqlIncidentStore, sessions
 ) -> None:  # type: ignore[no-untyped-def]
-    record, _alerts_ = await _open_one(store, sessions, count=2)
+    record, _ = await _open_one(store, sessions, count=2)
     await store.set_status(
         record.id,
         expected=IncidentStatus.new,
@@ -616,7 +616,7 @@ async def test_paging_across_entries_that_share_an_instant_loses_none_of_them(
     compares only the timestamp drops every entry sharing the boundary instant, and the loss is
     silent — the page simply comes back short.
     """
-    record, _alerts_ = await _open_one(store, sessions)
+    record, _ = await _open_one(store, sessions)
     tied = T0 - timedelta(hours=1)
     for index in range(3):
         await store.add_note(

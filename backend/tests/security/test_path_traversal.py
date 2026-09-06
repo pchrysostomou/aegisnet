@@ -4,7 +4,6 @@ checksum-verified, and no error message reveals where anything lives."""
 from __future__ import annotations
 
 import hashlib
-import os
 from pathlib import Path
 
 import pytest
@@ -93,7 +92,7 @@ def test_traversal_shaped_paths_are_rejected_when_the_registry_loads(
 
 def test_a_symlinked_file_is_refused(samples: Path) -> None:
     link = samples / "synthetic" / "link.ndjson"
-    os.symlink(samples.parent / "outside.ndjson", link)
+    link.symlink_to(samples.parent / "outside.ndjson")
     (samples / "registry.yml").write_text(_registry_text("synthetic/link.ndjson"))
     registry = load_registry(samples)
     with pytest.raises(UnsafeDatasetPathError, match="symbolic link"):
@@ -104,7 +103,7 @@ def test_a_symlinked_directory_component_is_refused(samples: Path) -> None:
     elsewhere = samples.parent / "elsewhere"
     elsewhere.mkdir()
     (elsewhere / "ok.ndjson").write_bytes(CONTENT)
-    os.symlink(elsewhere, samples / "linked")
+    (samples / "linked").symlink_to(elsewhere)
     (samples / "registry.yml").write_text(_registry_text("linked/ok.ndjson"))
     registry = load_registry(samples)
     with pytest.raises(UnsafeDatasetPathError, match="symbolic link"):

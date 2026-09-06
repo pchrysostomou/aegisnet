@@ -286,7 +286,7 @@ def test_every_status_has_somewhere_to_go_and_nowhere_undefined() -> None:
 def test_severity_refuses_an_empty_case_or_an_impossible_member() -> None:
     with pytest.raises(IncidentError, match="at least one alert"):
         severity_of([], [])
-    with pytest.raises(IncidentError, match="outside 1..5"):
+    with pytest.raises(IncidentError, match=r"outside 1\.\.5"):
         severity_of([6], ["D-001"])
 
 

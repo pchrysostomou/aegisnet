@@ -31,10 +31,13 @@ MAX_LABELS: Final = 200
 # An address or a hostname sitting inside a sentence. This project writes summaries like
 # "D-003 fired on src_ip 10.10.0.42", so a sentence is a place a real address leaves from
 # unless something goes looking for it (T-3.2).
+# Every quantifier here is bounded and no group repeats over a class another group can also
+# match. That is not style: this runs over text an attacker influenced, so a pattern that can
+# backtrack catastrophically is a denial of service in the redactor itself.
 _IN_TEXT: Final = re.compile(
     r"\b(?:\d{1,3}(?:\.\d{1,3}){3}"
-    r"|[0-9a-fA-F:]{2,}:[0-9a-fA-F:]+"
-    r"|(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,})\b"
+    r"|[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){2,7}"
+    r"|(?:[a-zA-Z0-9-]{1,63}\.){1,10}[a-zA-Z]{2,24})\b"
 )
 
 

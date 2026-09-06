@@ -302,3 +302,41 @@ def test_a_summary_this_project_wrote_still_has_its_addresses_taken_out() -> Non
     # The case number is this project's own and identifies nothing outside it.
     assert "AEG-2026-0009" in joined
     assert names.mapping["asset-A"] == SUBJECT
+
+
+def test_the_redactor_does_not_backtrack_on_adversarial_input() -> None:
+    """A regex that can backtrack catastrophically is a denial of service *in the redactor*,
+    which is the one component guaranteed to be handed attacker-influenced text.
+
+    These are the classic shapes: a long run that almost matches a hostname, a near-miss
+    address, and sixty of one character against the base64 rule. The bound is generous — this
+    is not a benchmark, it is a guard against the exponential case.
+    """
+    import time
+
+    from aegisnet.domain.redaction.pseudonyms import Pseudonymizer
+
+    names = Pseudonymizer(subject=SUBJECT)
+    hostile = [
+        "a" * 200 + "." * 50 + "b" * 200,
+        ("a-" * 400) + "!",
+        ".".join("a" * 60 for _ in range(40)) + "@",
+        "1." * 300 + "x",
+        "x" * 400,
+        ("Aa1" * 200),
+    ]
+    for probe in hostile:
+        started = time.perf_counter()
+        names.scrub(probe)
+        scan(probe, field="probe")
+        clean_free_text(probe, field="probe")
+        elapsed = time.perf_counter() - started
+        assert elapsed < 0.5, f"{probe[:24]!r}… took {elapsed:.2f}s"
+
+
+def test_the_base64_rule_still_knows_a_blob_from_a_long_boring_string() -> None:
+    """The variety check moved out of the regex; it must still do its job in both directions."""
+    blob = "Q0FOQVJZ" + "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xtbg=="
+    assert any(found.pattern == "base64_blob" for found in scan(blob))
+    for benign in ("x" * 200, "a" * 80 + "." + "b" * 80, "deadbeef" * 12):
+        assert not any(found.pattern == "base64_blob" for found in scan(benign)), benign

@@ -35,17 +35,13 @@ SECRET_PATTERNS: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
     ),
     ("slack_or_github_token", re.compile(r"\b(?:xox[abprs]-|ghp_|gho_|ghs_|github_pat_)\S{8,}")),
     ("private_key_body", re.compile(r"\bMII[A-Za-z0-9+/]{40,}={0,2}")),
-    # A long run of base64 is how a blob of anything travels. Length-gated, and required to
-    # look like encoded bytes — mixed case and a digit — so that a long hostname, a hex digest
-    # or a repeated character is not mistaken for one. A real blob of random bytes has all
-    # three within sixty characters with probability near one.
-    (
-        "base64_blob",
-        re.compile(
-            r"\b(?=[A-Za-z0-9+/]*[a-z])(?=[A-Za-z0-9+/]*[A-Z])(?=[A-Za-z0-9+/]*\d)"
-            r"[A-Za-z0-9+/]{60,}={0,2}\b"
-        ),
-    ),
+    # A long run of base64 is how a blob of anything travels. The pattern only finds the run;
+    # whether it *looks* like encoded bytes — mixed case and a digit, which a real blob of
+    # random bytes has within sixty characters with probability near one — is decided in
+    # Python afterwards. Expressing that with lookaheads meant three more passes over the same
+    # attacker-influenced run, and a regex that can backtrack over untrusted input is a denial
+    # of service in the very code meant to make it safe.
+    ("base64_blob", re.compile(r"\b[A-Za-z0-9+/]{60,}={0,2}\b")),
 )
 
 MAX_FREE_TEXT_CHARS: Final = 200
@@ -61,12 +57,28 @@ class SecretFound:
     field: str
 
 
+def _looks_encoded(run: str) -> bool:
+    """Mixed case and a digit: what distinguishes a blob of bytes from a long hostname, a hex
+    digest, or sixty of the same character."""
+    return (
+        any(c.islower() for c in run)
+        and any(c.isupper() for c in run)
+        and any(c.isdigit() for c in run)
+    )
+
+
+def _matches(name: str, pattern: re.Pattern[str], value: str) -> bool:
+    if name != "base64_blob":
+        return pattern.search(value) is not None
+    return any(_looks_encoded(match.group(0)) for match in pattern.finditer(value))
+
+
 def scan(value: str, *, field: str = "") -> tuple[SecretFound, ...]:
     """Every denylist rule that matches, in declaration order."""
     return tuple(
         SecretFound(pattern=name, field=field)
         for name, pattern in SECRET_PATTERNS
-        if pattern.search(value)
+        if _matches(name, pattern, value)
     )
 
 

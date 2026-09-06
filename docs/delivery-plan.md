@@ -2,7 +2,7 @@
 
 Rule: a milestone is not "done" until every acceptance criterion has **evidence** — a passing CI run, a command
 transcript, or a screenshot committed to the repo. `docs/STATUS.md` is updated at every gate.
-Last updated: 2026-08-28
+Last updated: 2026-09-06 (Chunk 31, the v1.0.0 gate). This line moves with the file: it is touched at every gate.
 
 ---
 
@@ -34,7 +34,9 @@ driven, proven entirely by the committed deterministic synthetic corpus.
 - [x] `events` row counts and `event_type` distribution match the generator's manifest exactly — E-25, E-32 (stats total 2000, per-type counts equal to the manifest).
 - [x] Malformed-line, oversized-body, deep-JSON, and path-traversal tests all pass — `tests/security/test_payload_limits.py`, `test_path_traversal.py`, `tests/integration/test_ingest_routes.py` (E-34, E-42).
 - [x] Every route has a permission dependency (enumeration test passes) — `tests/security/test_rbac.py` (E-34).
-- [x] Ruff, mypy (strict on `domain/`), and pytest green in GitHub Actions — every `ci` run since E-10; latest E-38, E-43.
+- [x] Ruff, mypy (strict on `domain/`), and pytest green in GitHub Actions — green on every `ci` run since E-10 except
+      E-83, where the `backend` job caught a real defect the chunk that pushed it had introduced (fixed in the next
+      commit, E-84, all ten checks green); latest E-95, the commit `v1.0.0` was tagged at.
 - [x] No secret appears anywhere in the repo (CI secret scan passes) — the `security` workflow's gitleaks job (E-38).
 
 **Commands.** `cp .env.example .env` → `docker compose up --build -d` → `make migrate` → `make seed` →
@@ -174,9 +176,10 @@ default and no outbound call has ever been made from this repository**: every te
 through a mock transport, and a checkout without a key is served the offline sample.
 
 - [x] **Canary redaction test passes:** every event field poisoned with canary emails, secrets, AWS-style keys, and
-      private-key blocks; none appear in the serialized request body — 36 tests in
-      `backend/tests/security/test_redaction.py`, asserting against the serialised body rather than the object
-      (Chunk 21, ADR-029, `docs/STATUS.md` E-70). The suite found a real leak on its first run.
+      private-key blocks; none appear in the serialized request body — the canary suite in
+      `backend/tests/security/test_redaction.py` (36 tests at the gate, 38 today), asserting against the serialised
+      body rather than the object (Chunk 21, ADR-029, `docs/STATUS.md` E-70). The suite found a real leak on its
+      first run.
 - [x] Serialized packet stays under the configured byte cap; truncation is flagged in `packet_truncated` — Chunk 21
       (E-70), surfaced on the brief and in the dashboard panel from Chunk 24.
 - [x] A prompt-injection corpus embedded in DNS/HTTP fields cannot alter any alert or incident field — structurally in
@@ -212,10 +215,11 @@ complete documentation, reproducible demo.
 
 **Deliverables.** Full RBAC permission matrix + parametrized matrix test · refresh-token rotation with reuse
 detection · account lockout · least-privilege Postgres roles and audit-table grants · rate-limit tuning ·
-container hardening (non-root, read-only rootfs, dropped caps, pinned digests) · `pip-audit`/`npm audit`/image
-scan in CI · retention job · `docs/evaluation.md` with per-detector precision/recall/F1 · `docs/demo-script.md`
-(≤3 minutes) · screenshots · `docs/adr/` populated · `CHANGELOG.md` · `docs/RELEASE_CHECKLIST.md` · threat-model
-review pass · tag `v1.0.0`.
+container hardening (non-root, read-only rootfs, dropped caps, base images pinned by minor tag — Chunk 30
+re-examined digest pinning and deliberately kept tags, because nothing here bumps a digest; residual risk R-10) ·
+`pip-audit`/`npm audit`/image scan in CI · retention job · `docs/evaluation.md` with per-detector
+precision/recall/F1 · `docs/demo-script.md` (≤3 minutes) · screenshots · `docs/adr/` populated ·
+`CHANGELOG.md` · `docs/RELEASE_CHECKLIST.md` · threat-model review pass · tag `v1.0.0`.
 
 **Acceptance criteria.**
 - [x] RBAC matrix test covers every route × every role, with no unexpected allows —
@@ -269,7 +273,8 @@ review pass · tag `v1.0.0`.
       login budgets and belongs to an operator with a stack they own; its numbers are in
       `docs/evaluation.md` §10). The checklist also records what it would *not* have caught.
 
-**Commands.** `make ci-local` · `make eval` · `make load-test` · `make release-check`.
+**Commands.** `make check` · `make test-db` · `make eval` · `make load-test`.
+(There is no `make release-check`; the release pass is `docs/RELEASE_CHECKLIST.md`, worked by hand.)
 
 ---
 

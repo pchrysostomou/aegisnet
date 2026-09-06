@@ -1,24 +1,25 @@
 # AegisNet — System Architecture
 
-Status: **Target design, reviewed at the Milestone 1 gate (2026-09-05).** Section 0 says what is implemented;
-the rest describes the design the milestones build towards.
-Last updated: 2026-09-05
+Status: **Target design; §0 says what of it is on `main` at `v1.0.0`.** The rest is the design the six
+milestones were built towards, which is why parts of it still read as a plan. Where the plan and the code
+differ, §0 is the row that was checked against the code, and `docs/STATUS.md` carries the evidence.
+Last updated: 2026-09-06 (Chunk 31, reconciled against the code at the release gate)
 
 ---
 
-## 0. Implementation status at the Milestone 1 gate
+## 0. Implementation status at `v1.0.0`
 
 | Part of this document | State on `main` (evidence in `docs/STATUS.md`) |
 |---|---|
 | §1 layering and `domain/` purity | Implemented and enforced by import-linter in CI (two contracts) |
-| §2 `api`, `worker`, `db`, `broker/cache`, `web` | Running: FastAPI api with auth, RBAC, audit and rate limits; Dramatiq worker with six actors (`import_dataset`, `import_upload`, `run_detectors`, `recompute_baselines`, `scheduled_sweep`, `nightly_baselines`); PostgreSQL 16; Redis 7 as broker, limiter and denylist; Next.js 15 placeholder |
-| §2 `scheduler` (periodiq) | Deferred by ADR-010; **delivered in M2 Chunk 12 (ADR-020)**: a sixth service sending the ten-minute sweep and the nightly baseline recompute |
+| §2 `api`, `worker`, `db`, `broker/cache`, `web` | Running: FastAPI api with auth, RBAC, audit and rate limits; Dramatiq worker with seven actors (`import_dataset`, `import_upload`, `run_detectors`, `recompute_baselines`, and the three periodic ones — `scheduled_sweep`, `nightly_baselines`, `nightly_retention`); PostgreSQL 16 with three roles (app, migrator, and the retention role, which holds the only `DELETE` on the four retained tables — the app role's one `DELETE` grant is on `asset_networks`, which `PATCH /assets/{id}` replaces wholesale); Redis 7 as broker, limiter and denylist; the Next.js 15 analyst dashboard |
+| §2 `scheduler` (periodiq) | Deferred by ADR-010; **delivered in M2 Chunk 12 (ADR-020)**: a sixth service sending the ten-minute sweep and the nightly baseline recompute, and since Chunk 25 the nightly retention prune (ADR-033) |
 | §2 `perplexity` client | Implemented in M5 (Chunks 21–24, ADR-029 – ADR-032): the redaction boundary, the hardened client, the brief schema and its citation and safety checks, two append-only tables and the dashboard panel. **Off by default, and no outbound call has ever been made from this repository** |
 | §3 ingest → validate → persist → enqueue | Implemented: HTTP and registry import, capped spool, per-line rejects, idempotent `event_hash`, audit per batch |
-| §3 detectors, baselines, correlation, redaction, briefs, export | Detectors, baselines and alert storage implemented (M2, Chunks 8 – 12); correlation, redaction, briefs and export not started (M3 – M5) |
-| §4 trust boundaries TB-1, TB-2, TB-5, TB-6 | Mitigations in place with named tests (`THREAT_MODEL.md`); TB-3/TB-4 have no code yet |
+| §3 detectors, baselines, correlation, redaction, briefs, export | All implemented: detectors, baselines and alert storage (M2, Chunks 8 – 12); correlation and the incident workflow (M3, Chunks 15 – 17, ADR-023 – ADR-025); the redaction boundary and briefs (M5, Chunks 21 – 23, ADR-029 – ADR-031); the deterministic `report.md` export (Chunk 24, ADR-032). Two of them run somewhere other than §2's table says: correlation is an operator command (`make correlate`, and `make demo-scenario`), not an actor, and a brief is generated in the request path rather than by the worker |
+| §4 trust boundaries | Mitigations in place with named tests for every boundary. TB-3 and TB-4 arrived with M5 and are no exception: §6's matrix is thirty-six rows, every one of them a `test` row (`THREAT_MODEL.md`) |
 | §6 topology | Six services, loopback only, samples mounted read-only, `ingest_spool` volume shared by api and worker; plus the opt-in lab on its own `internal: true` network (M2 Chunk 13, ADR-021), which the application stack never starts |
-| §7 failure modes | Redis down: login and ingest refuse (`429`), reads proceed; malformed lines become rejects; the rest awaits M2 – M5 |
+| §7 failure modes | Redis down: login, ingest and a brief request fail closed (`429`), reads proceed; malformed lines become rejects; a detector exception is isolated per rule and recorded in `detector_runs`. The two Perplexity rows are implemented and asserted against an `httpx.MockTransport` only — **no outbound call has ever been made from this repository**, so how the real API fails is unobserved |
 
 ## 1. Architectural style
 
@@ -47,7 +48,7 @@ against fixtures with no database.
 
 | Component | Tech | Responsibility |
 |---|---|---|
-| `web` | Next.js 15 (App Router), TypeScript; Tailwind planned | Analyst dashboard (M4); a health placeholder in M1 |
+| `web` | Next.js 15 (App Router), TypeScript; no CSS framework — M4 shipped on one stylesheet and declined the planned Tailwind | Analyst dashboard (M4); a health placeholder in M1 |
 | `api` | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 (async), Alembic | REST API, auth/RBAC, validation, rate limiting, audit logging, enqueue jobs |
 | `worker` | Dramatiq | Normalization, detector sweeps, correlation, baseline recompute, Perplexity brief generation |
 | `scheduler` | periodiq (Dramatiq companion) | Periodic detector sweep (every 10 min, 60 min lookback) + nightly baseline recompute — **in the stack since M2 Chunk 12 (ADR-020)**; a completed ingest batch also queues its own sweep |

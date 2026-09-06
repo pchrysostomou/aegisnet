@@ -1,8 +1,13 @@
 # syntax=docker/dockerfile:1.7
 #
-# Minimal Next.js health placeholder (decision F-9). No authentication UI, no business UI,
-# no client-side data fetching. Base image pinned by minor version; digest pinning is F-5
-# and is NOT done yet.
+# The analyst dashboard (Milestone 4), built as a Next standalone server: sign-in, the incident
+# queue, the case view with its brief panel, the asset and audit views, and the Markdown report
+# route. Still no client-side data fetching — one server-side module talks to the API, so the
+# browser never holds a token and never learns the API's address (ADR-026, T-2.4). Decision F-9
+# is what held this image to a health placeholder for Milestone 1.
+#
+# The base image is pinned by minor version and stays that way (decision F-5, residual risk
+# R-10) — the note at `apk upgrade` below says why that is a choice rather than an omission.
 
 # Node 20 reached end of life in April 2026; 22 is the active LTS line.
 ARG NODE_IMAGE=node:22-alpine
@@ -26,11 +31,21 @@ RUN pnpm build
 
 # ---------------------------------------------------------------- runtime
 FROM ${NODE_IMAGE} AS runtime
+ARG GIT_SHA=unknown
 WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
     HOSTNAME=0.0.0.0
+
+# Same reason as the backend image: the scan targets `aegisnet-web:latest`, a tag that says
+# nothing about which tree it came from, and the revision label is what ties a finding to a
+# commit. No `image.version` label, for the reason given there. Unlike the backend, GIT_SHA is
+# build metadata only — it is not put in the environment, because nothing in this app reads it.
+LABEL org.opencontainers.image.title="aegisnet-web" \
+      org.opencontainers.image.source="https://github.com/pchrysostomou/aegisnet" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.revision="${GIT_SHA}"
 
 # The node image already provides an unprivileged `node` user (uid 1000).
 COPY --from=build --chown=node:node /app/.next/standalone ./

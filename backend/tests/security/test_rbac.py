@@ -136,13 +136,32 @@ def _permission_of(route: APIRoute) -> Permission | None:
 
 
 def test_every_route_declares_a_permission_or_is_on_the_public_allowlist(app: FastAPI) -> None:
+    """Every guarded route is also *in the matrix* — which is the half a count cannot check.
+
+    This asserted `len(guarded) >= len(CASES)` until the Chunk 31 claims audit read it. A count
+    is satisfied by numbers, not by coverage: a thirty-seventh guarded route the matrix had never
+    heard of would have left the suite green, and this is the only test standing between a new
+    route and a permission nobody looked at. So the rows are matched to routes through the
+    router — the same machinery as the sibling test below, run in the other direction.
+
+    What it still does not catch: a new *parameterised* route whose template an existing row's
+    concrete path also matches, the way `/incidents/{id}/timeline` would cover a hypothetical
+    `/incidents/{id}/{section}`. Adding a route with a parameter in a new position is worth a
+    second look here rather than trust in a green run.
+    """
     public: set[tuple[str, str]] = set()
     guarded: set[tuple[str, str]] = set()
     for route in _api_routes(app):
         for method in route.methods:
             (public if _permission_of(route) is None else guarded).add((method, route.path))
+    covered = {
+        (method, route.path)
+        for method, path, *_ in CASES
+        for route in _api_routes(app)
+        if method in route.methods and route.path_regex.match(path)
+    }
     assert public == PUBLIC_ROUTES
-    assert len(guarded) >= len(CASES)
+    assert guarded <= covered, f"guarded routes with no matrix row: {sorted(guarded - covered)}"
     assert not any(path.startswith("/api/") and method == "OPTIONS" for method, path in guarded)
 
 

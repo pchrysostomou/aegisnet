@@ -115,10 +115,13 @@ services:
       retries: 6
       start_period: 20s
 
-  # Dramatiq worker. Registers two actors, `import_dataset` (Chunk 4, ADR-014) and
-  # `import_upload` (Chunk 6, ADR-016); the scheduler and periodic sweeps stay deferred
-  # (ADR-010). Its healthcheck is process-level
-  # liveness only and deliberately makes no readiness claim.
+  # Dramatiq worker. Registers four actors — `import_dataset` (Chunk 4, ADR-014),
+  # `import_upload` (Chunk 6, ADR-016), `run_detectors` (Chunk 9, ADR-018) and
+  # `recompute_baselines` (Chunk 11, ADR-019) — plus the three the scheduler below sends:
+  # `scheduled_sweep`, `nightly_baselines` (ADR-020) and `nightly_retention` (ADR-033).
+  # The periodic ones are ordinary actors; only their sending is periodic, and this is the
+  # process that runs all seven. Its healthcheck is process-level liveness only and
+  # deliberately makes no readiness claim.
   worker:
     build:
       context: ./backend
@@ -153,9 +156,12 @@ services:
       start_period: 20s
 
   scheduler:
-    # periodiq: sends the periodic actors (the ten-minute sweep, the nightly baseline
-    # recompute) to the detection queue; the worker runs them (ADR-020). It talks to
-    # Redis only, mounts nothing, and if it is down nothing periodic happens.
+    # periodiq: sends the three periodic actors (the ten-minute sweep, the nightly baseline
+    # recompute, the nightly retention prune) to the detection queue; the worker runs them
+    # (ADR-020, ADR-033). The retention message is sent every night whether or not
+    # RETENTION_ENABLED is on — the actor reads the setting, so the scheduler holds no opinion
+    # about it. It talks to Redis only, mounts nothing, and if it is down nothing periodic
+    # happens.
     build:
       context: ./backend
       target: runtime
@@ -184,6 +190,10 @@ services:
     build:
       context: ./frontend
       target: runtime
+      args:
+        # Build metadata only, for the image's revision label; the dashboard reads nothing
+        # from it. Same source as the api and worker builds so both images name one commit.
+        GIT_SHA: ${GIT_SHA:-unknown}
     <<: *hardening
     tmpfs:
       # Insurance, and said plainly: seven hours of running wrote nothing here, because

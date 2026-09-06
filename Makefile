@@ -104,7 +104,7 @@ build: require-env ## Build the api, worker and web images
 	$(COMPOSE) build
 
 # The Milestone 1 gate from ADR-011: `make bootstrap && make up`. Every service has a
-# healthcheck, so --wait returns only once all five report healthy (or fails after the
+# healthcheck, so --wait returns only once all six report healthy (or fails after the
 # timeout, printing which dependency did not come up).
 up: require-env ## Build if needed, start the stack and wait until every service is healthy
 	@# The database volume is named after the compose project, so it outlives a checkout. Its
@@ -192,6 +192,7 @@ LAB_CAPTURE := infra/lab/out/eve.json
 LAB_EXCERPT := samples/lab/lab-capture-01.ndjson
 LAB_LIMIT ?= 500
 SCENARIOS ?= benign,auth,sweep,beacon,bulk,dns
+HOURS ?= 24
 
 # L-0 is proved from inside a running container, not read off the manifest. Two checks,
 # because the first one alone is not enough: `internal: true` removes the default route,
@@ -212,6 +213,33 @@ lab-up: ## Start the lab target and the Suricata sensor (no traffic yet)
 
 lab-traffic: ## Generate the shaped lab traffic (SCENARIOS=benign,auth,sweep,beacon,bulk,dns)
 	$(LAB) run --rm generator python /lab/generate.py --scenarios $(SCENARIOS)
+
+lab-soak: require-env ## Collect a day of lab traffic so D-005 can be exercised (HOURS=24)
+	@# D-005 is the one rule that has never judged real traffic, and no single lab run can change
+	@# that however many packets it generates: the rule abstains until an asset has `min_samples`
+	@# (24) *sampled hours* behind it, so the constraint is wall-clock, not volume. That is why
+	@# `docs/evaluation.md` §9 records D-005 as correctly abstaining rather than as measured.
+	@#
+	@# This is the missing mechanism, not a measurement. It really does take a day: run it under
+	@# `nohup` or in a terminal you can leave, then `make lab-sanitize && make eval-lab`. Read §9
+	@# before believing anything it produces — one lab is not a network.
+	@#
+	@# Deliberately no `$$(MAKE)` recursion: GNU make runs a line containing `$$(MAKE)` even under
+	@# `-n`, so a recursive version could not be dry-run without starting the lab. Found the hard
+	@# way while writing this.
+	@echo "soaking the lab for $(HOURS) hours; D-005 needs 24 sampled hours before it will judge"
+	$(LAB) up -d --build --force-recreate target suricata
+	@hour=0; \
+	  while [ $$hour -lt $(HOURS) ]; do \
+	    hour=$$((hour + 1)); \
+	    echo "hour $$hour/$(HOURS): $$(date -u +%H:%M:%SZ)"; \
+	    $(LAB) run --rm generator python /lab/generate.py --scenarios $(SCENARIOS) \
+	      || echo "  traffic run failed; continuing so a day is not lost to one bad hour"; \
+	    if [ $$hour -lt $(HOURS) ]; then sleep 3600; fi; \
+	  done
+	@echo "soak done; exporting"
+	$(LAB) stop suricata
+	@echo "next: make lab-sanitize, then recompute-baselines and a sweep — see docs/evaluation.md §9"
 
 lab-capture: ## One full run: clean, pre-flight, sensor up, traffic, flush, export — writes infra/lab/out/eve.json
 	$(MAKE) lab-clean
@@ -342,7 +370,12 @@ load-test: require-env ## Drive the running stack's rate limits under concurrenc
 	@# stack is using, and cleans them up afterwards. Needs `make up` first — it joins that
 	@# stack's network rather than starting one — and the two e2e credentials in the
 	@# environment, the same ones the browser suite uses.
+	@#
+	@# AEGISNET_LOAD_INGEST_TOKEN is optional and covers the two ingest limits, which were
+	@# asserted one request at a time until Chunk 32. Without it those two skip and the other
+	@# five still run: `make create-service-token NAME=load-probe` mints one.
 	@test -n "$$AEGISNET_E2E_ANALYST" || { echo "set AEGISNET_E2E_ANALYST and AEGISNET_E2E_ANALYST_PASSWORD"; exit 1; }
+	@test -n "$$AEGISNET_LOAD_INGEST_TOKEN" || echo "note: AEGISNET_LOAD_INGEST_TOKEN unset; the two ingest limit tests will skip"
 	$(COMPOSE) -f docker-compose.test.yml --profile load run --rm loadtests
 
 db-roles: require-env ## Create any role a running database predates (restarts db; keeps data)

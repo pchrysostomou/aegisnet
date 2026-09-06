@@ -135,6 +135,8 @@ services:
       REDIS_HOST: redis
       AEGISNET_E2E_ANALYST: ${AEGISNET_E2E_ANALYST:-}
       AEGISNET_E2E_ANALYST_PASSWORD: ${AEGISNET_E2E_ANALYST_PASSWORD:-}
+      # Optional: covers the two ingest limits, which the suite skips without it.
+      AEGISNET_LOAD_INGEST_TOKEN: ${AEGISNET_LOAD_INGEST_TOKEN:-}
     volumes:
       - .:/repo
     working_dir: /repo/backend

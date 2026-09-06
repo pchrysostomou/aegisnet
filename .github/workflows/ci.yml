@@ -9,6 +9,12 @@
 # by major tag where the publisher still moves one; astral-sh/setup-uv stopped publishing
 # major tags at v8 and is pinned to an exact release tag instead. Pinning by commit digest
 # is tracked with decision F-5 alongside the container base images.
+#
+# Nothing here runs on a tag: the triggers are branch pushes and pull requests, so `git push
+# --tags` starts no workflow. A tag is therefore only as verified as the commit under it, which
+# is why `docs/RELEASE_CHECKLIST.md` requires CI to be green on the exact commit being tagged,
+# and why `docs/STATUS.md` records that it was (E-95 for v1.0.0). That is a procedure where a
+# `tags:` trigger would be an enforcement; the procedure is what exists today.
 
 name: ci
 

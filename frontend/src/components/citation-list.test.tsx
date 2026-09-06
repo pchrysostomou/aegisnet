@@ -9,7 +9,10 @@ const cite = (url: string, id = 1, title = "A source"): BriefCitation => ({ id, 
 const render = (citations: BriefCitation[]) =>
   renderToStaticMarkup(<CitationList citations={citations} />);
 
-const anchors = (html: string) => html.match(/<a\b[^>]*>/g) ?? [];
+// `[^<>]` for the same reason as `visibleText` below, which this file already explains and
+// this line had not been changed to match: a class that can swallow the opening delimiter is
+// quadratic on a run of `<` (S8786).
+const anchors = (html: string) => html.match(/<a\b[^<>]*>/g) ?? [];
 
 const ENTITIES: Record<string, string> = {
   "&lt;": "<",

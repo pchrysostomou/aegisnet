@@ -5,8 +5,11 @@
 #   dev     — deps + dev group, used by docker-compose.test.yml and CI
 #   runtime — minimal non-root image used by the api and worker services
 #
-# Base images are pinned by minor version. Digest pinning is decision F-5 and is NOT
-# applied yet; run `make pin-digests`.
+# Base images are pinned by minor version and stay that way: decision F-5, re-examined in
+# Chunk 30 and kept, because nothing in this repository bumps a digest, so pinning without an
+# updater would freeze the images and stop security patches arriving. The compensating control
+# is the `images` job in .github/workflows/security.yml and the record is residual risk R-10.
+# `make pin-digests` prints the digests for anyone who decides otherwise.
 
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 ARG PY_IMAGE=python:3.12-slim-bookworm
@@ -43,6 +46,16 @@ ENV PATH="/opt/venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     GIT_SHA=${GIT_SHA}
+
+# What a scan is looking at. The `images` job builds and scans `aegisnet-api:latest`, a tag that
+# says nothing about which tree it came from, so the revision label is what ties a finding to a
+# commit. There is deliberately no `image.version` label: the version number already lives in
+# three files, and a fourth copy with nothing keeping it in step is exactly the kind of claim
+# that goes stale unnoticed. The commit is the more precise identifier in any case.
+LABEL org.opencontainers.image.title="aegisnet-api" \
+      org.opencontainers.image.source="https://github.com/pchrysostomou/aegisnet" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.revision="${GIT_SHA}"
 
 # procps supplies pgrep for the worker liveness healthcheck; curl is not installed on purpose.
 RUN apt-get update \

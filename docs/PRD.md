@@ -1,7 +1,9 @@
 # AegisNet — Product Requirements Document (v1.0 target)
 
-Status: **Planning only. No application code written yet.**
-Owner: Makis · Last updated: 2026-08-28
+Status: **Delivered at `v1.0.0`.** §8's ten acceptance criteria are ticked against the same evidence
+rows `docs/STATUS.md` carries. §3's non-goals are permanent, and the lab suite enforces the
+offensive-tooling one directly (`test_the_lab_contains_no_offensive_tooling`).
+Owner: Makis · Last updated: 2026-09-06 (Chunk 31, the release gate)
 
 ---
 

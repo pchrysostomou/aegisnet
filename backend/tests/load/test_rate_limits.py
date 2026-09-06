@@ -24,6 +24,7 @@ This suite spends real budgets and cleans them up afterwards (see `conftest.py`)
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 
 import httpx
@@ -183,3 +184,87 @@ async def test_login_fails_closed_when_its_budget_is_spent(
         # the operator out of their own stack.
         async for key in redis.scan_iter(match="aegisnet:rl:login*"):
             await redis.delete(key)
+
+
+# ---------------------------------------------------------------- ingest, fired at once
+
+INGEST = "/api/v1/ingest/eve"
+ONE_LINE = b'{"timestamp":"2026-09-01T10:00:00.000000+0000","event_type":"dns"}\n'
+
+
+@pytest.fixture
+async def ingest_token() -> str:
+    """A service token, which is what a sensor actually holds. Read from the environment rather
+    than minted here: this suite talks to a deployment over HTTP and has no CLI access to it."""
+    token = os.environ.get("AEGISNET_LOAD_INGEST_TOKEN", "")
+    if not token:
+        pytest.skip("set AEGISNET_LOAD_INGEST_TOKEN to a service token with ingest.write")
+    return token
+
+
+@pytest.fixture
+async def clean_ingest_limits(redis: Redis) -> None:
+    for name in ("aegisnet:rl:ingest:*", "aegisnet:rl:ingest_bytes:*"):
+        async for key in redis.scan_iter(match=name):
+            await redis.delete(key)
+
+
+async def _post(api: httpx.AsyncClient, token: str, body: bytes) -> httpx.Response:
+    return await api.post(
+        INGEST,
+        params={"source_label": "load-probe", "mode": "async"},
+        content=body,
+        headers={"X-Ingest-Token": token, "content-type": "application/x-ndjson"},
+    )
+
+
+async def test_the_ingest_request_limit_holds_when_the_budget_arrives_at_once(
+    api: httpx.AsyncClient,
+    ingest_token: str,
+    load_settings: Settings,
+    clean_ingest_limits: None,
+) -> None:
+    """`SECURITY.md` published this limit from Milestone 1 and it was only ever asserted one
+    request at a time — the same gap this suite was written to close for reads, left open for
+    ingest because ingest costs more to fire.
+
+    It is the shape that matters: a sensor reconnecting after an outage sends its backlog in
+    parallel, which is precisely the burst a read-modify-write counter would let through.
+    """
+    limit = load_settings.rate_limit_ingest_per_min
+    responses = await asyncio.gather(
+        *(_post(api, ingest_token, ONE_LINE) for _ in range(int(limit * 1.5)))
+    )
+
+    accepted = [r for r in responses if r.status_code == 202]
+    refused = [r for r in responses if r.status_code == 429]
+
+    assert len(accepted) + len(refused) == len(responses), "every request was one or the other"
+    assert len(accepted) <= limit, f"{len(accepted)} accepted against a limit of {limit}"
+    assert refused, "the budget was never exhausted"
+    body = refused[0].json()["error"]
+    assert body["code"] == "rate_limited" and body["correlation_id"]
+    assert int(refused[0].headers["Retry-After"]) >= 1
+
+
+async def test_a_refused_ingest_leaves_nothing_spooled_behind(
+    api: httpx.AsyncClient,
+    ingest_token: str,
+    load_settings: Settings,
+    clean_ingest_limits: None,
+) -> None:
+    """A refusal that left its partial upload on disk would turn a rate limit into a way to fill
+    the spool volume — the byte cap bounds one request, not a thousand refused ones.
+
+    Asserted through the batch list rather than the filesystem, which this suite cannot see: a
+    refused upload must not have opened a batch either.
+    """
+    limit = load_settings.rate_limit_ingest_per_min
+    responses = await asyncio.gather(
+        *(_post(api, ingest_token, ONE_LINE) for _ in range(limit + 10))
+    )
+    refused = [r for r in responses if r.status_code == 429]
+    assert refused, "the budget was never exhausted"
+
+    for response in refused[:5]:
+        assert "batch_id" not in response.text, "a refused upload still opened a batch"

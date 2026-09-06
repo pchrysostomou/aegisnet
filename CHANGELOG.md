@@ -23,10 +23,11 @@ integration is off by default: **no outbound API call has ever been made from th
   only symptom was `password authentication failed` several steps later.
 
 ### Added
-- **Read-only root filesystems on every service** (T-5.1), with sized `tmpfs` mounts for exactly
-  what each one writes. Those paths were measured, not guessed: `docker diff` against a stack that
-  had been up seven hours said db writes only its socket directory, api/worker/scheduler write only
-  dramatiq's Prometheus directory, and redis and web write nothing at all. Verified by rebuilding
+- **Chunk 30 (Milestone 6) — read-only root filesystems on every service** (T-5.1, ADR-037), with
+  sized `tmpfs` mounts for exactly what each one writes. Those paths were measured, not guessed:
+  `docker diff` against a stack that had been up seven hours said db writes only its socket
+  directory, api/worker/scheduler write only dramatiq's Prometheus directory, and redis and web
+  write nothing at all. Verified by rebuilding
   and starting the stack — six healthy containers, `touch /app/probe` refused, a 1.9 MB multipart
   upload accepted through the api's tmpfs, and no rootfs writes afterwards.
 - **A container image scan** (T-5.6). `pip-audit` and `pnpm audit` read lockfiles, and a lockfile
@@ -77,13 +78,14 @@ integration is off by default: **no outbound API call has ever been made from th
   in the open that the mitigation as first worded was wrong for a single-node lab (R-10, R-11).
 
 ### Added
-- **A lockout that lengthens** (T-2.1). Each failure past the threshold doubles the lock — 15, 30,
-  60, 60 minutes — so a batch of guesses costs more than the last instead of a flat fifteen
-  minutes. A lock nobody has touched for a day is forgotten, or the escalation would be permanent
-  for an account that never manages a successful login; the anchor is `locked_until` and
-  deliberately not `updated_at`, which a role change also touches. The ceiling is an hour rather
-  than a day because there is no unlock command, so it is also the longest an operator can be shut
-  out of their own deployment. Nothing about the escalation is visible to the caller.
+- **Chunk 29 (Milestone 6) — a lockout that lengthens** (T-2.1, ADR-036). Each failure past the
+  threshold doubles the lock — 15, 30, 60, 60 minutes — so a batch of guesses costs more than the
+  last instead of a flat fifteen minutes. A lock nobody has touched for a day is forgotten, or the
+  escalation would be permanent for an account that never manages a successful login; the anchor
+  is `locked_until` and deliberately not `updated_at`, which a role change also touches. The
+  ceiling is an hour rather than a day because there is no unlock command, so it is also the
+  longest an operator can be shut out of their own deployment. Nothing about the escalation is
+  visible to the caller.
 - **Statement timeouts, in two budgets** (T-2.6). Rate limits bound what a caller may ask for and
   nothing bounded what the database then spent. `DB_STATEMENT_TIMEOUT_MS` (5 s) holds the request
   path; `DB_JOB_STATEMENT_TIMEOUT_MS` (5 min) holds the worker, the CLI and the retention prune,
@@ -101,11 +103,12 @@ integration is off by default: **no outbound API call has ever been made from th
   values stay out of the string form of any driver error.
 
 ### Added
-- **A deadline on an upload, because no size cap is reached by a body that simply stops** (T-1.4).
-  `INGEST_UPLOAD_TIMEOUT_SECONDS` (120 s) bounds the body read itself, including the multipart
-  parse, which is where a multipart body is actually read. The partial spool entry is discarded and
-  the refusal is `408 request_timeout`, audited as `ingest.refused` — deliberately not `413`, which
-  would make a stall indistinguishable from an oversized body in the audit trail.
+- **Chunk 28 (Milestone 6) — a deadline on an upload, because no size cap is reached by a body
+  that simply stops** (T-1.4, ADR-035). `INGEST_UPLOAD_TIMEOUT_SECONDS` (120 s) bounds the body
+  read itself, including the multipart parse, which is where a multipart body is actually read.
+  The partial spool entry is discarded and the refusal is `408 request_timeout`, audited as
+  `ingest.refused` — deliberately not `413`, which would make a stall indistinguishable from an
+  oversized body in the audit trail.
 - **Per-analyst and per-case daily limits on asking for a brief** (T-3.4).
   `THREAT_MODEL.md` had claimed both since the planning phase and neither existed: one
   deployment-wide budget is not a limit on anybody in particular. The case's share is spent before
@@ -234,6 +237,30 @@ integration is off by default: **no outbound API call has ever been made from th
   EVE DNS shapes so T1 and T2 exercise the one that broke D-003.
 
 ### Added
+- **Chunk 27 (Milestone 6) — the threat model, checked by the suite (ADR-034).** `THREAT_MODEL.md`
+  §6 is thirty-six rows, one for every threat §3 declares, each naming the tests that hold its
+  mitigation up — pytest node ids, vitest and Playwright titles, CI job names — and
+  `backend/tests/security/test_threat_coverage.py` parses them. It fails on a threat with no row or
+  a row with no threat, a status the document does not define, evidence that does not support the
+  status claimed, a residual-risk id §4 has not defined, and a named test or CI job that no longer
+  resolves — so a renamed test breaks the document instead of quietly leaving it wrong. What it
+  deliberately does not assert is that those tests pass: that is the suites' job, and a checker
+  that ran them would be a slower copy of the suite rather than a check on the prose.
+- **Writing the matrix found three places the model claimed more than the code did.** T-3.4
+  promised per-user and per-incident brief limits and neither existed, T-5.6 promised an image scan
+  and there was none, and T-4.4's renderer showed bidirectional overrides as themselves while the
+  exported report wrote them out. Eight rows came out `partial`, and those eight became the whole
+  of what Milestone 6 still owed.
+- `adapters/files/provenance.py`, and with it the fourth thing `docs/evaluation.md` §6 has always
+  asked a published number to carry: §8 now names the commit the corpus was last changed in
+  alongside the seed and the rule versions. A content hash says *these are the right bytes*; a
+  commit says *here is where to get them*, which is the question a reader actually has. It refuses
+  rather than improvises — on uncommitted changes to those paths, on a directory that is not a
+  checkout, and on a shallow clone, which is the subtle one: git names the graft point as the
+  commit that introduced every file it can see, so a one-commit checkout answers with a confident
+  lie. It is the only module under `src/` that starts a process, and
+  `tests/security/test_runtime_dependencies.py` pins it to being the only one.
+
 - **Chunk 26 (Milestone 6) — the rate limits, measured under concurrency.** `SECURITY.md`
   publishes four limits and two failure modes, and every one of them was asserted one request at a
   time. That is the wrong shape for the question: a fixed-window counter is only correct if its
@@ -566,6 +593,31 @@ integration is off by default: **no outbound API call has ever been made from th
   client never keeps its own copy of the workflow.
 - [`docs/api-milestone-3.md`](docs/api-milestone-3.md) documents the workflow table, every route
   and every audit action a transition writes.
+
+- **Chunk 15 (Milestone 3) — the correlation engine and the incident schema (ADR-023).** Revision
+  `0004_incident_tables` adds `incidents`, `incident_alerts`, `incident_timeline` and
+  `incident_notes`. A case number comes from the `incident_case_seq` sequence rather than from a
+  count, because two runs asking for "the next one" in the same moment must not both get it; the
+  sequence does not reset, so `AEG-2026-0001` stays unique for the life of the deployment. The
+  runtime role gets `SELECT, INSERT, UPDATE` on the four tables and `USAGE` on the sequence, and no
+  `DELETE` anywhere.
+- `domain/correlation.py` groups alerts about **the same entity** that happened close enough
+  together in time, and does nothing else — it is not a graph and not a model, and it does not try
+  to notice that a scan of one host and an upload from another are the same actor, because a rule
+  that guesses is a rule an analyst has to check. The join gap (an hour) is measured from the end
+  of what the group holds so far, so a case grows while the activity continues, and a case cannot
+  run past 24 hours however slow the drip. The grouping is a pure function of the alerts it gets —
+  no clock, no database, no configuration — which is what makes the delivery plan's "correlation is
+  idempotent" a property rather than a hope.
+- A case's severity is the highest of its members, raised by one when three or more distinct rules
+  fired, with the arithmetic stored beside the number rather than left to be re-derived.
+- **A closed case never absorbs a new alert.** A closed case is a judgement somebody made, so a
+  story that continues into a recently closed one opens a new case whose first timeline line names
+  the case it was opened beside. The pure module only proposes; `services/correlation_service.py`
+  decides whether a proposal joins an open case, opens a new one, or is cross-referenced against a
+  closed one, because those decisions need state `domain/correlation.py` deliberately does not have.
+- CLI `correlate`, `incidents` and `incident`, with `make correlate FROM= TO=`, `make incidents`
+  and `make incident REF=AEG-2026-0001`.
 
 - **Chunk 13 (Milestone 2, the last) — the isolated Suricata lab, and what it found.**
   `infra/lab/` is an opt-in stack of three containers behind the `lab` profile on a Docker
@@ -1009,7 +1061,11 @@ integration is off by default: **no outbound API call has ever been made from th
 - CRLF checkouts on Windows made `infra/postgres/init/01_roles.sh` unusable when
   bind-mounted into the database container; fixed by `.gitattributes`.
 
-### Not yet present
+### Not yet present at Chunk 1
+Kept as written, because it records where this started rather than where it ended. At the first
+chunk the repository held the scaffolding above and none of the following; every one of them
+arrived in a later chunk, documented earlier in this section.
+
 Database migrations, ORM models, Suricata EVE schemas and normalisation, ingestion
 endpoints, dataset registry, background actors, asset and event APIs, authentication, RBAC,
 audit logging, rate limiting, detectors, correlation, Perplexity integration, reports,

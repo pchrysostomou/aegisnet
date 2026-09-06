@@ -1,0 +1,60 @@
+# Dependency update pull requests.
+#
+# `docs/STATUS.md` has said "Dependabot" since Milestone 1 and meant *alerts* — the repository
+# setting that surfaces advisories. Alerts tell you a dependency is vulnerable; they do not open a
+# pull request that fixes it. This file is what does that, and it was missing until Chunk 32.
+#
+# It also settles half of R-10. That risk records base images pinned by minor tag rather than by
+# digest, on the reasoning that nothing here bumps a digest, so pinning without an updater would
+# freeze the images and stop security patches arriving. The `docker` ecosystem below is the updater
+# that reasoning said did not exist — so a future decision to pin digests now has one, though the
+# decision itself stays as it is until somebody makes it deliberately.
+#
+# Grouped on purpose: this is a one-maintainer project, and twenty separate pull requests a week is
+# how a repository learns to ignore Dependabot. One grouped PR per ecosystem per week is a thing a
+# person actually reads.
+
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Actions are the highest-value ecosystem here, and not for vulnerabilities: a pinned action
+    # whose runtime is deprecated breaks CI on a date GitHub chooses. That has bitten this project
+    # twice — `actions/upload-artifact@v4` on Node 20 was found ten days before it would have
+    # broken, and only because an unrelated failure prompted an audit.
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directories:
+      - /backend
+      - /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      base-images:
+        patterns: ["*"]
+
+  - package-ecosystem: uv
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      backend:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      frontend:
+        patterns: ["*"]

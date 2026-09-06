@@ -1,18 +1,21 @@
 # Security
 
-AegisNet is a local, single-tenant security-analytics stack for a lab. Nothing is
-released yet and no deployment beyond a developer's machine is supported. This document
-records what the code enforces today (Milestone 1, Chunk 6), how to verify it, and what
-is deliberately still missing. `THREAT_MODEL.md` carries the threat catalogue this maps
-to; `docs/api-milestone-1.md` is the API contract.
+AegisNet is a local, single-tenant security-analytics stack for a lab. It runs on one
+machine under `docker compose` and binds to loopback; no deployment beyond that is supported.
+This document records what the code enforces at v1.0.0 (Milestone 6, Chunk 31), how to verify
+it, and what is deliberately still missing. `THREAT_MODEL.md` carries the threat catalogue this
+maps to. The API contract is `docs/api-milestone-1.md` together with the additions in
+`docs/api-milestone-2.md` (detections), `docs/api-milestone-3.md` (incidents) and
+`docs/api-milestone-5.md` (briefs and the Markdown export); Milestone 4 is the dashboard and
+added no routes.
 
 ## Reporting a vulnerability
 
 Use GitHub's private vulnerability reporting on this repository (**Security → Report a
 vulnerability**). Please do not open a public issue for anything exploitable. Include the
 commit, the steps, and what you observed; a proof of concept against the committed
-synthetic corpus is welcome. Because there is no release yet there is no supported-version
-table: fixes land on `main`.
+synthetic corpus is welcome. There is one release and one supported version, `v1.0.0`: fixes
+land on `main` and go out in the next tag, and nothing is back-ported to an older one.
 
 ## Authentication
 
@@ -52,7 +55,7 @@ table: fixes land on `main`.
   `make revoke-service-token`) and printed exactly once.
 - **Users** are created only from the operator CLI (`make create-user`). The password is
   read from stdin, never from argv, so it stays out of shell history and process lists.
-  There is no self-registration and no password reset in Milestone 1.
+  There is no self-registration and no password reset.
 
 `SECRET_KEY` must be at least 32 bytes; the application refuses to start otherwise.
 `make bootstrap` generates one. Every secret is redacted from the JSON logs by value.
@@ -73,19 +76,19 @@ never downgraded to anonymous. A denial is `403 forbidden` and is audited as
 | `assets.read` — list, get, resolve | ✓ | ✓ | ✓ | |
 | `events.read` — list, stats (no payload) | ✓ | ✓ | ✓ | |
 | `alerts.read` — alerts, alert detail, the rule registry | ✓ | ✓ | ✓ | |
-| `incidents.read` — cases, their alerts, timeline and notes | ✓ | ✓ | ✓ | |
+| `incidents.read` — cases, their alerts, timeline, notes and the Markdown export | ✓ | ✓ | ✓ | |
 | `briefs.read` — investigation briefs on a case | ✓ | ✓ | ✓ | |
 | `assets.write` — create, patch | | ✓ | ✓ | |
 | `events.payload` — payload in lists, `GET /events/{id}` | | ✓ | ✓ | |
 | `ingest.read` — batches, rejects | | ✓ | ✓ | |
-| `detections.read` — detector runs | | ✓ | ✓ | |
+| `detections.read` — detector runs and baselines | | ✓ | ✓ | |
 | `incidents.write` — status transitions, notes | | ✓ | ✓ | |
 | `briefs.generate` — ask for a brief (spends budget, sends a packet outward) | | ✓ | ✓ | |
 | `assets.admin` — bulk create, deactivate | | | ✓ | |
 | `ingest.write` — `POST /ingest/eve` | | | ✓ | ✓ |
 | `ingest.import` — `POST /ingest/import` | | | ✓ | |
 | `audit.read` — `GET /audit` | | | ✓ | |
-| `detections.run` — `POST /detections/sweeps` | | | ✓ | |
+| `detections.run` — `POST /detections/sweeps`, `POST /detections/baselines/recompute` | | | ✓ | |
 
 Roles nest (viewer ⊂ analyst ⊂ admin) and a service token is not a user: it cannot read
 its own batches. The matrix is `ROLE_PERMISSIONS` in `backend/src/aegisnet/domain/auth.py`
@@ -103,12 +106,11 @@ at 512 characters, at most 32 keys and one level of nesting are kept.
 
 Actions written today: `auth.login_success`, `auth.login_failed`, `auth.refresh`,
 `auth.refresh_reuse_detected`, `auth.logout`, `rbac.denied`, `ingest.batch_created`,
-`ingest.import_requested`, `ingest.refused`, `asset.created`, `asset.updated`,
-`asset.deactivated`, `user.created`, `service_token.created`, `service_token.revoked`,
-`detection.sweep_requested`, `detection.baselines_requested`,
+`ingest.import_requested`, `ingest.refused`, `asset.created`, `asset.bulk_created`,
+`asset.updated`, `asset.deactivated`, `user.created`, `service_token.created`,
+`service_token.revoked`, `detection.sweep_requested`, `detection.baselines_requested`,
 `incident.status_changed`, `incident.status_change_refused`, `incident.note_added`,
-`brief.generated`, `report.exported`,
-`retention.pruned`.
+`brief.generated`, `report.exported`, `retention.pruned`.
 Admins read the trail at `GET /api/v1/audit` (newest first, filters, keyset cursors).
 
 An incident transition writes `incident.status_changed` on success and
@@ -188,8 +190,9 @@ Fail-closed for the routes an attacker would push on, fail-open for reads so an 
 is not locked out by a cache outage. The brief budget is the exception to "per principal": it is
 one number for the deployment, counted in Redis rather than in each process, because the API, the
 worker and the CLI each hold their own client and three private counters are three caps. An
-attempt past it is not a `429` — it is a stored brief with `failure_reason: budget_exhausted`. The client address is the transport peer; proxy
-headers are not trusted in Milestone 1 because nothing terminates TLS in front of the API.
+attempt past it is not a `429` — it is a stored brief with `failure_reason: budget_exhausted`.
+The client address is the transport peer; proxy headers are not trusted, because nothing
+terminates TLS in front of the API.
 
 ## Ingest hardening
 
@@ -262,7 +265,9 @@ and §9 records what the first run found.
 `backend/tests/security/test_rbac.py` (route enumeration and the matrix);
 `backend/tests/integration/test_auth_routes.py`, `test_ingest_routes.py`,
 `test_asset_routes.py`, `test_event_routes.py`, `test_audit_routes.py`;
-`backend/tests/db/test_auth_store.py`, `test_audit_store.py`, `test_grants.py`. The
-`stack` CI job creates a user and a service token through the CLI, proves the version
-route answers `401` without a credential, ingests the synthetic corpus over HTTP with a
-service token, and reads the finished batch and the audit trail as the user.
+`backend/tests/db/test_auth_store.py`, `test_audit_store.py`, `test_grants.py`,
+`test_statement_timeout.py` (the two statement budgets above, and the migrator's absence of
+one, against real PostgreSQL). The `stack` CI job creates a user and a service token through
+the CLI, proves the version route answers `401` without a credential, ingests the synthetic
+corpus over HTTP with a service token, and reads the finished batch and the audit trail as the
+user.

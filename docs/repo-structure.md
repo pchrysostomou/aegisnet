@@ -11,7 +11,7 @@ aegisnet/
 ├── SECURITY.md                   # policy, RBAC matrix, secret handling, disclosure
 ├── LICENSE
 ├── CHANGELOG.md
-├── .env.example                  # every variable, no real values
+├── .env.example                  # every setting, no real values (two commented, with reasons)
 ├── .gitignore
 ├── .dockerignore
 ├── .pre-commit-config.yaml       # ruff, ruff-format, secret scan, PII canary scan

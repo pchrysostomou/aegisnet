@@ -13,12 +13,19 @@ Guarantees:
     secrets for their placeholders, and changes no line that is already there. That is what an
     operator wants after pulling a release that added a variable — the alternative is a stack
     that starts and quietly lacks a role.
+  * **Takes no path.** Both files are resolved from the checkout this script is in:
+    ``<root>/.env.example`` and ``<root>/.env``. There used to be ``--example`` and ``--out``,
+    and SonarCloud rated the change that added a second read and an append through them as a
+    security finding on new code — a path from ``argv`` reaching file I/O, the same taint this
+    project removed from both generators, ``eval-detectors`` and the capture sanitiser. The
+    flags had no user beyond the tests, so the honest fix was to stop accepting them rather
+    than to argue about whether this particular argv is trustworthy.
   * Never prints a generated secret to stdout.
   * Generates development-only credentials. These are NOT suitable for any
     production deployment; see SECURITY.md.
 
 Usage:
-    python infra/scripts/bootstrap_env.py [--force | --add-missing] [--example PATH] [--out PATH]
+    python infra/scripts/bootstrap_env.py [--force | --add-missing]
 """
 
 from __future__ import annotations
@@ -89,27 +96,29 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="append keys the template has and .env does not; never edits an existing line",
     )
-    parser.add_argument("--example", type=Path, default=root / ".env.example")
-    parser.add_argument("--out", type=Path, default=root / ".env")
     args = parser.parse_args(argv)
 
-    if not args.example.is_file():
-        print(f"error: template not found: {args.example}", file=sys.stderr)
+    # Fixed names under the checkout this file is in. Nothing here is taken from a caller.
+    example = root / ".env.example"
+    out = root / ".env"
+
+    if not example.is_file():
+        print(f"error: template not found: {example}", file=sys.stderr)
         return 2
 
-    if args.out.exists() and args.add_missing:
-        return _add_missing(args.example, args.out)
+    if out.exists() and args.add_missing:
+        return _add_missing(example, out)
 
-    if args.out.exists() and not args.force:
+    if out.exists() and not args.force:
         print(
-            f"{args.out.name} already exists — leaving it untouched. "
+            f"{out.name} already exists — leaving it untouched. "
             "Use --add-missing to append new keys, or --force to regenerate."
         )
         return 0
 
     generated = 0
     out_lines: list[str] = []
-    for line in args.example.read_text(encoding="utf-8").splitlines(keepends=True):
+    for line in example.read_text(encoding="utf-8").splitlines(keepends=True):
         if PLACEHOLDER in line and _is_assignment(line):
             generated += line.count(PLACEHOLDER)
             line = _generate(line)
@@ -129,14 +138,14 @@ def main(argv: list[str] | None = None) -> int:
 
     # Create with restrictive permissions from the outset where possible, so there is no
     # window in which the file is world-readable.
-    fd = os.open(args.out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.writelines(out_lines)
     except Exception:  # pragma: no cover - surfaced to the operator
         raise
 
-    print(f"wrote {args.out.name} with {generated} generated development-only secret(s)")
+    print(f"wrote {out.name} with {generated} generated development-only secret(s)")
     if os.name != "posix":
         print(
             "warning: file permissions are not enforced on this platform — "

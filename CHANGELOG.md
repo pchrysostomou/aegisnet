@@ -114,6 +114,13 @@ Nothing is released yet. There is no tagged version.
   EVE DNS shapes so T1 and T2 exercise the one that broke D-003.
 
 ### Added
+- `bootstrap_env.py` takes no path any more. `--example` and `--out` are gone; both files are
+  resolved from the checkout the script lives in. SonarCloud rated the change that added a second
+  read and an append through those arguments as a security finding on new code — a path from
+  `argv` reaching file I/O, the same taint already removed from both generators,
+  `eval-detectors` and the capture sanitiser. The flags had no user outside the tests, which now
+  build a fake checkout in `tmp_path` and point `_repo_root` at it, so they cannot touch the real
+  `.env` either.
 - **Chunk 25 (Milestone 6) — the retention policy, and a third role to carry it out (ADR-033).**
   `docs/data-model.md` has described a retention table since Milestone 0 and three places in the
   code said the job "arrives in a later milestone". The reason it kept being deferred is that it

@@ -1,4 +1,10 @@
-"""`make bootstrap` guarantees from ADR-011, exercised against a temporary copy."""
+"""`make bootstrap` guarantees from ADR-011, exercised against a temporary checkout.
+
+The script takes no path — both files are resolved from the checkout it lives in, because a
+path from `argv` reaching file I/O is the taint finding this project has removed four times.
+So the tests build a fake checkout in `tmp_path` and point `_repo_root` at it, which also means
+they can never touch the real `.env`.
+"""
 
 from __future__ import annotations
 
@@ -20,6 +26,7 @@ GENERATED_KEYS = {
     "POSTGRES_SUPERUSER_PASSWORD",
     "POSTGRES_APP_PASSWORD",
     "POSTGRES_MIGRATOR_PASSWORD",
+    "POSTGRES_RETENTION_PASSWORD",
     "REDIS_PASSWORD",
 }
 
@@ -35,8 +42,16 @@ def bootstrap() -> ModuleType:
     return module
 
 
-def _run(bootstrap: ModuleType, out: Path, *extra: str) -> int:
-    return int(bootstrap.main(["--example", str(EXAMPLE), "--out", str(out), *extra]))
+@pytest.fixture
+def checkout(bootstrap: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A directory that looks like a checkout: the real template, no .env yet."""
+    (tmp_path / ".env.example").write_text(EXAMPLE.read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setattr(bootstrap, "_repo_root", lambda: tmp_path)
+    return tmp_path
+
+
+def _run(bootstrap: ModuleType, *extra: str) -> int:
+    return int(bootstrap.main([*extra]))
 
 
 def _assignments(path: Path) -> dict[str, str]:
@@ -49,10 +64,10 @@ def _assignments(path: Path) -> dict[str, str]:
 
 
 def test_every_placeholder_is_replaced_with_a_distinct_secret(
-    bootstrap: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    bootstrap: ModuleType, checkout: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    out = tmp_path / ".env"
-    assert _run(bootstrap, out) == 0
+    out = checkout / ".env"
+    assert _run(bootstrap) == 0
     values = _assignments(out)
     assert not any(bootstrap.PLACEHOLDER in value for value in values.values())
     generated = [values[key] for key in GENERATED_KEYS]
@@ -64,9 +79,9 @@ def test_every_placeholder_is_replaced_with_a_distinct_secret(
         assert value not in captured.err
 
 
-def test_comment_lines_keep_their_placeholder_text(bootstrap: ModuleType, tmp_path: Path) -> None:
-    out = tmp_path / ".env"
-    _run(bootstrap, out)
+def test_comment_lines_keep_their_placeholder_text(bootstrap: ModuleType, checkout: Path) -> None:
+    out = checkout / ".env"
+    _run(bootstrap)
     comments = [
         line for line in out.read_text(encoding="utf-8").splitlines() if line.startswith("#")
     ]
@@ -74,29 +89,61 @@ def test_comment_lines_keep_their_placeholder_text(bootstrap: ModuleType, tmp_pa
 
 
 def test_existing_env_is_never_overwritten_without_force(
-    bootstrap: ModuleType, tmp_path: Path
+    bootstrap: ModuleType, checkout: Path
 ) -> None:
-    out = tmp_path / ".env"
+    out = checkout / ".env"
     out.write_text("KEEP=me\n", encoding="utf-8")
-    assert _run(bootstrap, out) == 0
+    assert _run(bootstrap) == 0
     assert out.read_text(encoding="utf-8") == "KEEP=me\n"
-    assert _run(bootstrap, out, "--force") == 0
+    assert _run(bootstrap, "--force") == 0
     assert "KEEP=me" not in out.read_text(encoding="utf-8")
 
 
-def test_missing_template_is_an_error(bootstrap: ModuleType, tmp_path: Path) -> None:
-    code = bootstrap.main(["--example", str(tmp_path / "nope"), "--out", str(tmp_path / ".env")])
-    assert code == 2
+def test_add_missing_appends_only_what_is_absent(bootstrap: ModuleType, checkout: Path) -> None:
+    """The upgrade path: a release adds a variable, and an existing .env must gain it without
+    a single existing line changing — losing a password here would cost a database."""
+    out = checkout / ".env"
+    out.write_text("POSTGRES_APP_PASSWORD=keep-this-one\nUNKNOWN=mine\n", encoding="utf-8")
+
+    assert _run(bootstrap, "--add-missing") == 0
+    values = _assignments(out)
+
+    assert values["POSTGRES_APP_PASSWORD"] == "keep-this-one", "an existing value is never touched"
+    assert values["UNKNOWN"] == "mine", "and neither is a key the template has never heard of"
+    assert values["POSTGRES_RETENTION_USER"] == "aegisnet_retention"
+    assert bootstrap.PLACEHOLDER not in values["POSTGRES_RETENTION_PASSWORD"]
+    assert len(values["POSTGRES_RETENTION_PASSWORD"]) >= 32
+
+
+def test_add_missing_on_a_complete_file_changes_nothing(
+    bootstrap: ModuleType, checkout: Path
+) -> None:
+    out = checkout / ".env"
+    _run(bootstrap)
+    before = out.read_text(encoding="utf-8")
+    assert _run(bootstrap, "--add-missing") == 0
+    assert out.read_text(encoding="utf-8") == before
+
+
+def test_missing_template_is_an_error(
+    bootstrap: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(bootstrap, "_repo_root", lambda: tmp_path)  # no .env.example in it
+    assert bootstrap.main([]) == 2
 
 
 def test_generated_secrets_are_safe_for_the_postgres_init_script(
-    bootstrap: ModuleType, tmp_path: Path
+    bootstrap: ModuleType, checkout: Path
 ) -> None:
     """01_roles.sh interpolates secrets into SQL and allows only the URL-safe alphabet."""
-    out = tmp_path / ".env"
-    _run(bootstrap, out)
+    out = checkout / ".env"
+    _run(bootstrap)
     allowed = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-=+/.")
     values = _assignments(out)
-    for key in ("POSTGRES_APP_PASSWORD", "POSTGRES_MIGRATOR_PASSWORD"):
+    for key in (
+        "POSTGRES_APP_PASSWORD",
+        "POSTGRES_MIGRATOR_PASSWORD",
+        "POSTGRES_RETENTION_PASSWORD",
+    ):
         assert set(values[key]) <= allowed
         assert len(values[key]) >= 16

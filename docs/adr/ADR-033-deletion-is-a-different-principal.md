@@ -32,10 +32,17 @@ from revision `0006_retention_role`:
 
 ```
 GRANT SELECT, DELETE ON events, ingest_rejects, detector_runs, audit_log
+GRANT SELECT          ON alert_events
 ```
 
-and nothing else, anywhere. It cannot `INSERT`. It cannot `UPDATE`. It cannot read or touch a
-case, an alert, a brief, an asset or a user.
+and nothing else, anywhere. It cannot `INSERT`. It cannot `UPDATE`. It cannot touch a case, a
+brief, an asset or a user.
+
+The read on `alert_events` was not in the first version of this and the database suite is why
+it is: the rule below keeps any event an alert still points at, and a role that cannot see the
+links cannot express that. The prune failed outright rather than quietly running without the
+exclusion — which is the right way round for a mistake that would otherwise have deleted
+evidence, and is the reason the grant is written down with its justification next to it.
 
 The alternative was granting `DELETE` on `audit_log` to the app role, which would have ended the
 append-only property in exchange for a nightly job — a bad trade, and one that would have made
@@ -95,9 +102,15 @@ deployment's own decision.
 directory, so a deployment that predates this release will never see the new role — the
 variable will be in `.env` and the role will not exist. The script is idempotent (every
 `CREATE ROLE` is guarded), so `make db-roles` re-runs it against a live database, and
-`make bootstrap --add-missing` appends the two new variables to an existing `.env` without
+`bootstrap_env.py --add-missing` appends the two new variables to an existing `.env` without
 touching a line already in it. Both are documented in the README rather than left for somebody
 to discover from a connection error.
+
+Adding that second mode is also what finally removed `--example` and `--out` from the script:
+the new read and append went through argv-derived paths, SonarCloud rated it a security finding
+on new code, and one bisection round located it. The flags had no user outside the tests, so the
+answer was to stop taking a path rather than to argue about this particular one — the same
+answer both generators, `eval-detectors` and the capture sanitiser reached before it.
 
 ## Consequences
 

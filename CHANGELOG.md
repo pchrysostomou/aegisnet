@@ -114,6 +114,32 @@ Nothing is released yet. There is no tagged version.
   EVE DNS shapes so T1 and T2 exercise the one that broke D-003.
 
 ### Added
+- **Chunk 25 (Milestone 6) — the retention policy, and a third role to carry it out (ADR-033).**
+  `docs/data-model.md` has described a retention table since Milestone 0 and three places in the
+  code said the job "arrives in a later milestone". The reason it kept being deferred is that it
+  collides with a property three decision records rest on: the runtime role cannot delete
+  anything, because an audit trail the application can edit is not evidence.
+- So **deletion is a different principal**. `aegisnet_retention` holds `SELECT, DELETE` on
+  `events`, `ingest_rejects`, `detector_runs` and `audit_log`, plus `SELECT` on `alert_events`,
+  and can write nothing anywhere. `audit_log` and the brief tables stay append-only for the
+  application. The record of a prune is written by the app role, which cannot delete, so getting
+  a deletion into this database without a trace takes two credentials.
+- **Nothing a case rests on is ever old enough.** `alert_events.event_id` is `ON DELETE CASCADE`,
+  so deleting a sampled event does not fail — it strips an alert of its evidence and leaves the
+  alert standing, and the exported report's provenance appendix would go blank with nothing
+  saying why. Any event an alert still points at is kept regardless of age.
+- Every statement is a literal chosen from a fixed map — no table or column name reaches SQL from
+  a variable — and deletes are batched, each pass its own transaction, with a per-run ceiling so a
+  first prune of a neglected table finishes and leaves the rest for tomorrow rather than holding
+  locks. A run that stopped short says so instead of reporting success.
+- **Off by default.** `RETENTION_ENABLED` is false, `make retention` prints what would go and
+  removes nothing, and `APPLY=1` refuses when the setting is off: a flag on one invocation should
+  not overrule the deployment's decision. `nightly_retention` is sent every night regardless and
+  reads the setting itself, so turning the policy on is one variable and a worker restart.
+- `make db-roles` and `bootstrap_env.py --add-missing`, because the role is created by an init
+  script that only runs on an empty data directory and the variables are appended to an existing
+  `.env` by nothing. Without both, an existing deployment would have the setting and not the role.
+
 - **Chunk 24 (Milestone 5) — the case as a document, and the brief on the screen (ADR-032).**
   `GET /api/v1/incidents/{id}/report.md` and `make export REF=AEG-2026-0001` render one case as
   Markdown, and **the same case renders to the same bytes**: every collection sorted to a key

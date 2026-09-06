@@ -102,7 +102,8 @@ Actions written today: `auth.login_success`, `auth.login_failed`, `auth.refresh`
 `asset.deactivated`, `user.created`, `service_token.created`, `service_token.revoked`,
 `detection.sweep_requested`, `detection.baselines_requested`,
 `incident.status_changed`, `incident.status_change_refused`, `incident.note_added`,
-`brief.generated`, `report.exported`.
+`brief.generated`, `report.exported`,
+`retention.pruned`.
 Admins read the trail at `GET /api/v1/audit` (newest first, filters, keyset cursors).
 
 An incident transition writes `incident.status_changed` on success and
@@ -113,6 +114,13 @@ length. **No analyst free text reaches this table**: the 512-character cap and t
 control-character strip would make an audited copy differ from the note it claims to be, and the
 credential-key filter cannot see into prose. The text lives in `incident_notes`, and a closure
 reason lives on the case and in its timeline (ADR-024).
+
+The retention job writes `retention.pruned` — how many rows went from each table and the oldest
+cutoff it used, never a row it removed. It is written by the **app** role, which cannot delete;
+the deleting is done by `aegisnet_retention`, a third role holding `SELECT, DELETE` on the four
+tables with a period and no ability to write anywhere. That split is what lets `audit_log` stay
+append-only for the application while still having a bound, and it means a deletion with no
+trace would need two credentials (ADR-033).
 
 Exporting a case as Markdown writes `report.exported` with the case number and the document's
 size in bytes — never the document. It is the only **read** in this API that writes an audit

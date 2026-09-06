@@ -49,6 +49,7 @@ from aegisnet.services.asset_service import AssetService
 from aegisnet.services.baseline_service import BaselineService
 from aegisnet.services.detection_service import DetectionService, describe
 from aegisnet.services.ingest_service import IngestService, limits_from_settings
+from aegisnet.services.retention_service import RetentionRun, build_retention
 from aegisnet.services.schedule import sweep_batch
 
 logger = get_logger(__name__)
@@ -223,3 +224,24 @@ async def run_baselines(window_days: int) -> None:
 )
 def recompute_baselines(window_days: int) -> None:
     asyncio.run(run_baselines(int(window_days)))
+
+
+async def run_retention() -> RetentionRun | None:
+    """Apply the retention policy. Returns ``None`` when the policy is turned off, which is the
+    default: deletion is the one thing here that cannot be undone (ADR-033)."""
+    settings = get_settings()
+    if not settings.retention_enabled:
+        logger.info("retention_disabled")
+        return None
+
+    service, pruning, writing = build_retention(settings)
+    try:
+        run = await service.run()
+        logger.info(
+            "retention_done",
+            extra={"removed": run.removed, "complete": run.complete},
+        )
+        return run
+    finally:
+        await db_engine.dispose(pruning)
+        await db_engine.dispose(writing)

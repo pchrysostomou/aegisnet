@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     postgres_app_password: SecretStr = SecretStr(f"__{PLACEHOLDER_MARKER}__")
     postgres_migrator_user: str = "aegisnet_migrator"
     postgres_migrator_password: SecretStr = SecretStr(f"__{PLACEHOLDER_MARKER}__")
+    # The only role in this deployment that can delete a row. It exists so the runtime role
+    # does not have to: `audit_log` and the brief tables are append-only for the app, and a
+    # retention job is not a reason to give that up (ADR-033).
+    postgres_retention_user: str = "aegisnet_retention"
+    postgres_retention_password: SecretStr = SecretStr(f"__{PLACEHOLDER_MARKER}__")
 
     # ---- redis
     redis_host: str = "redis"
@@ -97,6 +102,22 @@ class Settings(BaseSettings):
     sweep_lookback_minutes: Annotated[int, Field(ge=10, le=1440)] = 60
     # The nightly baseline recompute: hour on the scheduler's clock (UTC in the image).
     baseline_recompute_hour: Annotated[int, Field(ge=0, le=23)] = 2
+
+    # ---- retention (docs/data-model.md; ADR-033). Off by default, because it is the only
+    # thing this project does that cannot be undone: a lab that has been running a while
+    # should not lose its history because somebody started the stack.
+    retention_enabled: bool = False
+    retention_hour: Annotated[int, Field(ge=0, le=23)] = 3
+    retention_events_days: Annotated[int, Field(ge=1)] = 90
+    retention_rejects_days: Annotated[int, Field(ge=1)] = 30
+    retention_detector_runs_days: Annotated[int, Field(ge=1)] = 30
+    retention_audit_days: Annotated[int, Field(ge=30)] = 365
+    """Never below thirty days: an audit trail shorter than a month cannot answer the question
+    it exists for, and a retention setting is exactly where somebody would shorten it."""
+    retention_batch_rows: Annotated[int, Field(ge=100, le=50_000)] = 5_000
+    retention_max_batches: Annotated[int, Field(ge=1, le=10_000)] = 200
+    """One run's ceiling, so a first prune of a long-neglected table finishes and leaves the
+    rest for tomorrow rather than holding locks until somebody notices."""
     baseline_window_days: Annotated[int, Field(ge=1, le=90)] = 7
     # A scheduled message older than this when a worker picks it up is skipped, so a
     # worker that was down does not replay a backlog of stale ticks.
@@ -153,6 +174,7 @@ class Settings(BaseSettings):
                 ("SECRET_KEY", self.secret_key),
                 ("POSTGRES_APP_PASSWORD", self.postgres_app_password),
                 ("POSTGRES_MIGRATOR_PASSWORD", self.postgres_migrator_password),
+                ("POSTGRES_RETENTION_PASSWORD", self.postgres_retention_password),
                 ("REDIS_PASSWORD", self.redis_password),
             )
             if PLACEHOLDER_MARKER in value.get_secret_value()
@@ -208,6 +230,19 @@ class Settings(BaseSettings):
         )
 
     @property
+    def retention_url(self) -> URL:
+        """Async SQLAlchemy URL for the retention role — the one principal that may DELETE, and
+        only from the four tables with a period (ADR-033)."""
+        return URL.create(
+            drivername="postgresql+asyncpg",
+            username=self.postgres_retention_user,
+            password=self.postgres_retention_password.get_secret_value(),
+            host=self.postgres_host,
+            port=self.postgres_port,
+            database=self.postgres_db,
+        )
+
+    @property
     def redis_url(self) -> str:
         return f"redis://{self.redis_host}:{self.redis_port}/0"
 
@@ -217,6 +252,7 @@ class Settings(BaseSettings):
             self.secret_key.get_secret_value(),
             self.postgres_app_password.get_secret_value(),
             self.postgres_migrator_password.get_secret_value(),
+            self.postgres_retention_password.get_secret_value(),
             self.redis_password.get_secret_value(),
         }
         # The Perplexity key is the one secret that is also sent somewhere, so it is the one

@@ -47,6 +47,7 @@ def alembic_config(settings: Settings) -> Config:
     config = Config()
     config.set_main_option("script_location", str(MIGRATIONS_DIR))
     config.attributes["app_role"] = settings.postgres_app_user
+    config.attributes["retention_role"] = settings.postgres_retention_user
     return config
 
 
@@ -79,6 +80,17 @@ async def migrator_engine(db_settings: Settings, migrated: Config) -> AsyncItera
 async def app_engine(db_settings: Settings, migrated: Config) -> AsyncIterator[AsyncEngine]:
     """Connects as the runtime role, the one whose privileges T-5.3 constrains."""
     engine = create_async_engine(db_settings.database_url, poolclass=NullPool)
+    try:
+        yield engine
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture
+async def retention_engine(db_settings: Settings, migrated: Config) -> AsyncIterator[AsyncEngine]:
+    """Connects as the retention role — the only one that may DELETE, and only from the four
+    tables with a period (ADR-033)."""
+    engine = create_async_engine(db_settings.retention_url, poolclass=NullPool)
     try:
         yield engine
     finally:

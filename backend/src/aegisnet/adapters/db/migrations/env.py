@@ -11,8 +11,8 @@ Two ways in:
 - Tests: ``config.attributes["connection"]`` holds an already-open synchronous connection
   (obtained via ``AsyncConnection.run_sync``), and the revision runs on it.
 
-The app role name is handed to revisions through ``config.attributes["app_role"]`` so that
-the GRANT statements never hard-code a role name.
+Role names are handed to revisions through ``config.attributes`` — ``app_role`` and, since
+revision 0006, ``retention_role`` — so that the GRANT statements never hard-code one.
 """
 
 from __future__ import annotations
@@ -47,6 +47,7 @@ def run_migrations_offline() -> None:
     """Emit SQL to stdout without connecting (``alembic upgrade head --sql``)."""
     settings = get_settings()
     config.attributes.setdefault("app_role", settings.postgres_app_user)
+    config.attributes.setdefault("retention_role", settings.postgres_retention_user)
     _configure_context(
         url=settings.migration_url.render_as_string(hide_password=True),
         literal_binds=True,
@@ -66,6 +67,7 @@ async def _run_async() -> None:
     settings = get_settings()
     configure_logging(level=settings.log_level, secrets=settings.secret_values())
     config.attributes.setdefault("app_role", settings.postgres_app_user)
+    config.attributes.setdefault("retention_role", settings.postgres_retention_user)
     engine = create_async_engine(settings.migration_url, poolclass=NullPool)
     try:
         async with engine.connect() as connection:
@@ -77,7 +79,9 @@ async def _run_async() -> None:
 def run_migrations_online() -> None:
     connection = config.attributes.get("connection")
     if connection is not None:
-        config.attributes.setdefault("app_role", get_settings().postgres_app_user)
+        settings = get_settings()
+        config.attributes.setdefault("app_role", settings.postgres_app_user)
+        config.attributes.setdefault("retention_role", settings.postgres_retention_user)
         _run_on_connection(connection)
         return
     asyncio.run(_run_async())

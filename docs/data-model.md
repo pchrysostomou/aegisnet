@@ -1,6 +1,6 @@
 # AegisNet — PostgreSQL Data Model
 
-Target: PostgreSQL 16. All migrations via Alembic. Status: **head is `0005_brief_tables`.**
+Target: PostgreSQL 16. All migrations via Alembic. Status: **head is `0006_retention_role`.**
 `0001_m1_baseline` (`ingest_batches`, `events`, `ingest_rejects`, `assets`, `asset_networks`,
 `users`, `service_tokens`, `refresh_tokens`, `audit_log`), `0002_asset_network_delete_grant`,
 `0003_detection_tables` (`detection_rules`, `detector_runs`, `alerts`, `alert_events`,
@@ -314,6 +314,27 @@ Persisted only for audit of repeated abuse: `id`, `subject_type`, `subject_id`, 
 
 ## Retention
 
-Configurable, defaults: `events` 90 days, `ingest_rejects` 30 days, `detector_runs` 30 days,
-`audit_log` 365 days, `incidents`/`alerts`/`investigation_briefs` indefinite. Implemented as a scheduled job in a later
-milestone; documented here so the schema does not need changes later.
+Implemented in Chunk 25 ([ADR-033](adr/ADR-033-deletion-is-a-different-principal.md)) and **off
+by default**: `RETENTION_ENABLED` is false, because this is the only thing the project does that
+cannot be undone.
+
+| Table | Period | Column |
+|---|---|---|
+| `events` | 90 days | `event_time` — **except any event an alert still points at**, kept regardless |
+| `ingest_rejects` | 30 days | `created_at` |
+| `detector_runs` | 30 days | `created_at` |
+| `audit_log` | 365 days (never below 30) | `occurred_at` |
+
+Everything else is kept indefinitely, and the list is written out in `domain/retention.py`
+rather than implied: a table in neither list is a table nobody decided about, and a unit test
+fails on one.
+
+**Deletion is a different principal.** `aegisnet_retention` is a third role holding
+`SELECT, DELETE` on exactly those four tables, plus `SELECT` on `alert_events` so the evidence
+exclusion can be expressed. It cannot `INSERT` and cannot `UPDATE` anything, anywhere — which is
+what lets `audit_log` and the brief tables stay append-only *for the application* while still
+having a bound. The run's own record is written by the app role, which cannot delete, so putting
+a deletion into this database without a trace would take two credentials.
+
+`events.event_time` is the sensor's clock, not the ingest clock: a batch imported today carrying
+week-old traffic is already a week into its ninety days.

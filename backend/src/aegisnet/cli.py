@@ -135,6 +135,7 @@ from aegisnet.services.ingest_service import (
     provenance_for,
 )
 from aegisnet.services.report_service import ReportIncidentNotFoundError, ReportService
+from aegisnet.services.retention_service import RetentionPlan, build_retention
 from aegisnet.services.scenario_service import (
     MANIFEST_FILE,
     SCENARIO_FILE,
@@ -425,6 +426,15 @@ def build_parser() -> argparse.ArgumentParser:
         "export", help="write one case out as Markdown, the same bytes every time"
     )
     export.add_argument("reference", help="AEG-2026-0001 or a uuid")
+
+    retention = commands.add_parser(
+        "retention", help="what the retention policy would remove; --apply removes it"
+    )
+    retention.add_argument(
+        "--apply",
+        action="store_true",
+        help="actually delete (needs RETENTION_ENABLED=true); without it this only counts",
+    )
 
     commands.add_parser("baselines", help="list the stored baselines")
 
@@ -845,6 +855,52 @@ def cmd_export(settings: Settings, reference: str, stream: TextIO | None = None)
     return EXIT_OK
 
 
+def cmd_retention(settings: Settings, apply: bool) -> int:
+    """Show what the retention policy would remove, or remove it.
+
+    A dry run is the default and `--apply` is the only way past it, because this is the one
+    command in the project that destroys something. `--apply` also refuses when
+    `RETENTION_ENABLED` is false: the setting is the deployment's decision and a flag on one
+    invocation should not be able to overrule it (ADR-033).
+    """
+
+    async def action(_services: Services) -> object:
+        service, pruning, writing = build_retention(settings)
+        try:
+            if not apply:
+                return await service.plan()
+            return await service.run()
+        finally:
+            await db_engine.dispose(pruning)
+            await db_engine.dispose(writing)
+
+    if apply and not settings.retention_enabled:
+        _emit({"error": "retention is disabled; set RETENTION_ENABLED=true to apply it"})
+        return EXIT_FAILED
+
+    outcome = _run(settings, action)
+    if isinstance(outcome, RetentionPlan):
+        _emit(
+            {
+                "mode": "dry-run",
+                "would_remove": outcome.total,
+                "by_table": outcome.counts,
+                "policy": outcome.lines(),
+            }
+        )
+        return EXIT_OK
+    _emit(
+        {
+            "mode": "applied",
+            "removed": outcome.removed,
+            "complete": outcome.complete,
+            "by_table": {o.table: o.removed for o in outcome.outcomes},
+            "remaining": {o.table: o.remaining for o in outcome.outcomes if o.remaining},
+        }
+    )
+    return EXIT_OK
+
+
 def cmd_alerts(settings: Settings, args: argparse.Namespace) -> int:
     query = AlertFilter(
         severity_min=args.severity_min, rule_id=args.rule, limit=args.limit, cursor=args.cursor
@@ -1021,6 +1077,8 @@ def dispatch(settings: Settings, samples_dir: Path, args: argparse.Namespace) ->
             return cmd_brief(settings, args.reference)
         case "export":
             return cmd_export(settings, args.reference)
+        case "retention":
+            return cmd_retention(settings, bool(args.apply))
         case "incident":
             return cmd_incident(settings, args.reference)
         case "baselines":

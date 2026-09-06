@@ -6,7 +6,8 @@ authenticated Redis broker as the process-wide default, and only then imports th
 modules so every actor binds to that broker. Nothing else imports this module.
 
 Actors registered: the ingest imports, the detection sweep and the baseline recompute
-(``actors``), plus the two periodic ones the scheduler sends (``schedule``, ADR-020).
+(``actors``), plus the three periodic ones the scheduler sends (``schedule``, ADR-020,
+ADR-033).
 """
 
 from __future__ import annotations
@@ -34,5 +35,6 @@ logger.info(
         "queues": [INGEST_QUEUE, DETECTION_QUEUE],
         "sweep_cron": schedule.SWEEP_CRON,
         "baseline_cron": schedule.BASELINE_CRON,
+        "retention_cron": schedule.RETENTION_CRON,
     },
 )

@@ -15,6 +15,7 @@ SECRET_NAMES = (
     "SECRET_KEY",
     "POSTGRES_APP_PASSWORD",
     "POSTGRES_MIGRATOR_PASSWORD",
+    "POSTGRES_RETENTION_PASSWORD",
     "REDIS_PASSWORD",
 )
 
@@ -38,6 +39,7 @@ def test_refusal_names_only_the_offending_variables() -> None:
             secret_key=REAL,
             postgres_app_password=REAL,
             postgres_migrator_password=REAL,
+            postgres_retention_password=REAL,
         )
     message = str(excinfo.value)
     assert "REDIS_PASSWORD" in message
@@ -57,6 +59,7 @@ def test_real_secrets_are_accepted_outside_test() -> None:
         secret_key=REAL,
         postgres_app_password=REAL,
         postgres_migrator_password=REAL,
+        postgres_retention_password=REAL,
         redis_password=REAL,
     )
     assert settings.env is Environment.development
@@ -72,6 +75,7 @@ def test_debug_is_forbidden_in_production() -> None:
             secret_key=REAL,
             postgres_app_password=REAL,
             postgres_migrator_password=REAL,
+            postgres_retention_password=REAL,
             redis_password=REAL,
         )
 

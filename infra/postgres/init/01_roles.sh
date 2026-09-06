@@ -8,6 +8,12 @@
 #   aegisnet_app      — the runtime role used by the API and worker. It receives table
 #                       privileges from the migrations, never DDL rights, and holds
 #                       INSERT/SELECT only on audit_log (THREAT_MODEL T-2.5, T-5.3).
+#   aegisnet_retention — the only role in this deployment that may DELETE a row, and only from
+#                       the four tables with a retention period. It cannot INSERT and cannot
+#                       UPDATE anything, anywhere. It exists so that the runtime role does not
+#                       need DELETE on audit_log to prune it: append-only is a property three
+#                       decision records rest on, and a retention job is not a reason to give
+#                       it up (ADR-033).
 #
 # This script does NOT create tables. The schema is created only by `alembic upgrade head`
 # (`make migrate`), under the migrator role.
@@ -54,8 +60,10 @@ require_identifier POSTGRES_USER
 require_identifier POSTGRES_DB
 require_identifier AEGISNET_MIGRATOR_USER
 require_identifier AEGISNET_APP_USER
+require_identifier AEGISNET_RETENTION_USER
 require_secret AEGISNET_MIGRATOR_PASSWORD
 require_secret AEGISNET_APP_PASSWORD
+require_secret AEGISNET_RETENTION_PASSWORD
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<SQL
 DO \$\$
@@ -68,15 +76,19 @@ BEGIN
     CREATE ROLE ${AEGISNET_APP_USER} LOGIN PASSWORD '${AEGISNET_APP_PASSWORD}'
       NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${AEGISNET_RETENTION_USER}') THEN
+    CREATE ROLE ${AEGISNET_RETENTION_USER} LOGIN PASSWORD '${AEGISNET_RETENTION_PASSWORD}'
+      NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
+  END IF;
 END
 \$\$;
 
 -- Nobody creates objects in public except the migrator.
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-GRANT USAGE ON SCHEMA public TO ${AEGISNET_APP_USER}, ${AEGISNET_MIGRATOR_USER};
+GRANT USAGE ON SCHEMA public TO ${AEGISNET_APP_USER}, ${AEGISNET_MIGRATOR_USER}, ${AEGISNET_RETENTION_USER};
 GRANT CREATE ON SCHEMA public TO ${AEGISNET_MIGRATOR_USER};
 
-GRANT CONNECT ON DATABASE ${POSTGRES_DB} TO ${AEGISNET_APP_USER}, ${AEGISNET_MIGRATOR_USER};
+GRANT CONNECT ON DATABASE ${POSTGRES_DB} TO ${AEGISNET_APP_USER}, ${AEGISNET_MIGRATOR_USER}, ${AEGISNET_RETENTION_USER};
 -- Trusted extensions (citext) require CREATE on the database; the app role never gets it.
 GRANT CREATE ON DATABASE ${POSTGRES_DB} TO ${AEGISNET_MIGRATOR_USER};
 
@@ -85,4 +97,4 @@ GRANT CREATE ON DATABASE ${POSTGRES_DB} TO ${AEGISNET_MIGRATOR_USER};
 ALTER DATABASE ${POSTGRES_DB} SET search_path TO public;
 SQL
 
-echo "[init] least-privilege roles ensured: ${AEGISNET_MIGRATOR_USER}, ${AEGISNET_APP_USER}"
+echo "[init] least-privilege roles ensured: ${AEGISNET_MIGRATOR_USER}, ${AEGISNET_APP_USER}, ${AEGISNET_RETENTION_USER}"

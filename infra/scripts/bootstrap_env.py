@@ -9,12 +9,16 @@ tighten that mode, never loosen it, which is why no ``chmod`` follows.
 Guarantees:
   * Idempotent: running it again when .env already exists is a no-op unless --force.
   * Never overwrites an existing .env without an explicit --force.
+  * ``--add-missing`` appends keys the template has and the existing file does not, generating
+    secrets for their placeholders, and changes no line that is already there. That is what an
+    operator wants after pulling a release that added a variable — the alternative is a stack
+    that starts and quietly lacks a role.
   * Never prints a generated secret to stdout.
   * Generates development-only credentials. These are NOT suitable for any
     production deployment; see SECURITY.md.
 
 Usage:
-    python infra/scripts/bootstrap_env.py [--force] [--example PATH] [--out PATH]
+    python infra/scripts/bootstrap_env.py [--force | --add-missing] [--example PATH] [--out PATH]
 """
 
 from __future__ import annotations
@@ -51,10 +55,40 @@ def _generate(line: str) -> str:
     return line
 
 
+def _key(line: str) -> str:
+    return line.split("=", 1)[0].strip()
+
+
+def _add_missing(example: Path, out: Path) -> int:
+    """Append only what is absent. Existing values are never read, rewritten or reordered."""
+    existing = {
+        _key(line) for line in out.read_text(encoding="utf-8").splitlines() if _is_assignment(line)
+    }
+    added: list[str] = []
+    for line in example.read_text(encoding="utf-8").splitlines(keepends=True):
+        if _is_assignment(line) and _key(line) not in existing:
+            added.append(_generate(line) if PLACEHOLDER in line else line)
+
+    if not added:
+        print(f"{out.name} already has every key in the template")
+        return 0
+
+    with out.open("a", encoding="utf-8") as handle:
+        handle.write("\n# --- appended by bootstrap_env.py --add-missing ---\n")
+        handle.writelines(line if line.endswith("\n") else line + "\n" for line in added)
+    print(f"added {len(added)} missing key(s) to {out.name}: " + ", ".join(_key(a) for a in added))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     root = _repo_root()
     parser = argparse.ArgumentParser(description="Bootstrap a local .env for AegisNet.")
     parser.add_argument("--force", action="store_true", help="overwrite an existing .env")
+    parser.add_argument(
+        "--add-missing",
+        action="store_true",
+        help="append keys the template has and .env does not; never edits an existing line",
+    )
     parser.add_argument("--example", type=Path, default=root / ".env.example")
     parser.add_argument("--out", type=Path, default=root / ".env")
     args = parser.parse_args(argv)
@@ -63,8 +97,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: template not found: {args.example}", file=sys.stderr)
         return 2
 
+    if args.out.exists() and args.add_missing:
+        return _add_missing(args.example, args.out)
+
     if args.out.exists() and not args.force:
-        print(f"{args.out.name} already exists — leaving it untouched. Use --force to regenerate.")
+        print(
+            f"{args.out.name} already exists — leaving it untouched. "
+            "Use --add-missing to append new keys, or --force to regenerate."
+        )
         return 0
 
     generated = 0

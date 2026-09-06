@@ -79,7 +79,7 @@ async def test_the_revisions_create_exactly_the_fifteen_tables(
 async def test_alembic_version_matches_the_packaged_head(migrator_engine: AsyncEngine) -> None:
     async with migrator_engine.connect() as connection:
         applied = (await connection.execute(text("SELECT version_num FROM alembic_version"))).all()
-    assert [row[0] for row in applied] == [schema_revision()] == ["0005_brief_tables"]
+    assert [row[0] for row in applied] == [schema_revision()] == ["0006_retention_role"]
 
 
 async def test_orm_metadata_matches_the_migrated_schema(migrator_engine: AsyncEngine) -> None:
@@ -221,6 +221,6 @@ def test_downgrade_to_base_leaves_nothing_behind(db_settings: Settings, migrated
 
     tables, enum_names, citext, versions = asyncio.run(snapshot())
     assert tables == set(ALL_TABLES) | {"alembic_version"}
-    assert versions == ["0005_brief_tables"]
+    assert versions == ["0006_retention_role"]
     assert enum_names == set(EXPECTED_ENUMS)
     assert citext is True

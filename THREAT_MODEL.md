@@ -198,6 +198,20 @@ named passing test or an explicit accepted-risk entry.
   third party, and this document is for the operator who can already read all of it (TB-1, not
   TB-3). The export writes no timeline entry — one would change the case the next export renders —
   but does write `report.exported`, which the report does not render (FR-10.3, T-2.5).
+- Chunk 25 gave the database a retention policy without weakening the property three earlier
+  records rest on (ADR-033). `audit_log`, `investigation_briefs` and `brief_citations` are still
+  `SELECT, INSERT` for the runtime role (T-2.5, T-5.3); deletion belongs to a **third role** that
+  holds `SELECT, DELETE` on the four tables with a period, `SELECT` on `alert_events`, and no
+  ability to write a row anywhere. The run's own audit entry is written by the app role, which
+  cannot delete — so a deletion that left no trace would need two credentials. Two things the
+  database suite proved rather than assumed: the retention role is refused on `incidents`,
+  `alerts` and both brief tables, and the runtime role is still refused `DELETE` and `UPDATE` on
+  `audit_log`. The suite also **found a real gap**: the rule that keeps any event an alert still
+  points at could not be expressed, because the role had no read on `alert_events` — the prune
+  failed rather than silently dropping the exclusion, which is the right way round. T-2.6 gains a
+  bound it did not have: the audit log now has a maximum age, which matters more since Chunk 24
+  added a read that writes to it. The policy is **off by default** and the CLI defaults to a dry
+  run, because this is the only irreversible thing in the project.
 - Milestone 1 rows whose mitigation has no named test yet: the
   query-timeout and load-test parts of T-2.6 (evaluation plan), and the read-only root filesystem and digest
   pinning parts of T-5.1 (M6). Rows outside Milestone 1's scope keep their planning-phase wording: T-1.3

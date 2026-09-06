@@ -179,6 +179,7 @@ omit = [
   "*/adapters/db/event_read_store.py",
   "*/adapters/db/incident_store.py",
   "*/adapters/db/ingest_store.py",
+  "*/adapters/db/retention_store.py",
   "*/workers/*",
 ]
 

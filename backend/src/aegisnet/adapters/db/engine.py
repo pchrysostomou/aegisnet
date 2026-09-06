@@ -1,12 +1,14 @@
 """Thin async SQLAlchemy engine wiring.
 
-Chunk 1 scope: create an engine and answer "can we reach PostgreSQL". No ORM models,
-no sessions in request handlers, no migrations. Those arrive in Chunk 2.
+One engine per credential. `create_engine` is the runtime role, which everything uses;
+`create_engine_for` exists because the retention job connects as a different role that can
+delete and cannot write (ADR-033), and a reader should be able to see which is which.
 """
 
 from __future__ import annotations
 
 from sqlalchemy import text
+from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from aegisnet.config import Settings
@@ -16,8 +18,16 @@ logger = get_logger(__name__)
 
 
 def create_engine(settings: Settings) -> AsyncEngine:
+    """The runtime role's engine — everything the API and the worker do."""
+    return create_engine_for(settings.database_url)
+
+
+def create_engine_for(url: URL) -> AsyncEngine:
+    """One engine, one credential. The retention job holds a second one whose role can delete
+    and cannot write, so which URL an engine was built from is a meaningful thing to see at
+    the call site (ADR-033)."""
     return create_async_engine(
-        settings.database_url,
+        url,
         pool_pre_ping=True,
         pool_size=5,
         max_overflow=5,

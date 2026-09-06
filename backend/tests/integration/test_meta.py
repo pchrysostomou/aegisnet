@@ -25,6 +25,7 @@ def production_wiring(tmp_path: object) -> FakeWiring:
         secret_key=REAL,
         postgres_app_password=REAL,
         postgres_migrator_password=REAL,
+        postgres_retention_password=REAL,
         redis_password=REAL,
     )
     return FakeWiring(settings, settings.spool_dir)
@@ -56,7 +57,7 @@ def test_version_reports_build_metadata(
         "git_sha": "abc1234",
         "schema_revision": schema_revision(),
     }
-    assert body["schema_revision"] == "0005_brief_tables"
+    assert body["schema_revision"] == "0006_retention_role"
 
 
 async def test_git_sha_is_withheld_in_production(

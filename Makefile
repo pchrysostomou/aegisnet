@@ -11,11 +11,11 @@ BACKEND := backend
 
 .PHONY: correlate incidents incident test-correlation \
         lab-preflight lab-up lab-traffic lab-capture lab-export lab-sanitize lab-down lab-clean eval-lab test-security \
-        test-detectors gen-fixtures eval gen-scenario demo-scenario run-detectors alerts recompute-baselines baselines brief export create-user users create-service-token revoke-service-token service-tokens \
+        test-detectors gen-fixtures eval gen-scenario demo-scenario run-detectors alerts recompute-baselines baselines brief export retention create-user users create-service-token revoke-service-token service-tokens \
         help bootstrap bootstrap-force verify-ignore require-env compose-config \
         build up down compose-ps compose-logs compose-down compose-test pin-digests clean \
         backend-install lint format format-check typecheck test test-cov check \
-        migrate migrate-status test-db gen-synthetic demo-ingest batch seed
+        migrate migrate-status test-db db-roles gen-synthetic demo-ingest batch seed
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort | \
@@ -323,6 +323,23 @@ brief: require-env ## Ask for an investigation brief on one case (REF=AEG-2026-0
 
 incident: require-env ## Show one incident by case number or id (REF=AEG-2026-0001)
 	$(COMPOSE) run --rm api python -m aegisnet.cli incident $(REF)
+
+db-roles: require-env ## Create any role a running database predates (restarts db; keeps data)
+	@# `infra/postgres/init/01_roles.sh` runs only when PostgreSQL initialises an empty data
+	@# directory, so a deployment that predates a new role never gets one — the variable is in
+	@# .env and the role does not exist. The script is idempotent (every CREATE ROLE is
+	@# guarded), so re-running it is the documented upgrade step (ADR-033).
+	@#
+	@# `up -d db` first: a container started before the variable existed does not have it in
+	@# its environment, and `exec` reads the running container's. This recreates the container
+	@# against the same volume, so no data moves.
+	$(COMPOSE) up -d db
+	$(COMPOSE) exec db /docker-entrypoint-initdb.d/01_roles.sh
+
+retention: require-env ## Show what the retention policy would remove (APPLY=1 removes it)
+	@# A dry run unless APPLY=1, and even then only when RETENTION_ENABLED=true in .env:
+	@# this is the one command here that destroys something (ADR-033).
+	$(COMPOSE) run --rm api python -m aegisnet.cli retention $(if $(APPLY),--apply,)
 
 export: require-env ## Write one case out as Markdown (REF=AEG-2026-0001, > case.md)
 	@# Deterministic: the same case produces the same bytes, so two exports can be diffed.

@@ -541,6 +541,21 @@ reporting, as described in [`SECURITY.md`](SECURITY.md).
 
 ---
 
+## Where to help
+
+Everything the project knows it has not closed is an open issue, each with the evidence and — where
+something was tried and rejected — why not to try it again. The two worth reading first:
+
+- **[#12](https://github.com/pchrysostomou/aegisnet/issues/12) — measure D-005 against real
+  traffic.** The one detector that has never judged any, because it abstains until an asset has 24
+  sampled hours behind it. This is the only open item that changes what this project *is*; the rest
+  is maintenance.
+- **[#15](https://github.com/pchrysostomou/aegisnet/issues/15) — an `unlock-user` command**, marked
+  a good first issue. Small, self-contained, and it turns a workaround into a decision: the lockout
+  ceiling is an hour precisely because nothing can clear a lock today.
+
+`docs/STATUS.md` lists all six with what is blocking each. `CONTRIBUTING.md` has the workflow.
+
 ## Roadmap
 
 | Milestone | Scope | State |

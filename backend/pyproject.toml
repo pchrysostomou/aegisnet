@@ -53,7 +53,7 @@ dev = [
   # would actually build rather than on substrings the document does not contain.
   "markdown-it-py>=3.0,<5.0",
   "ruff>=0.6.9,<0.7",
-  "mypy>=1.11,<2.0",
+  "mypy>=1.11,<3.0",
   "types-pyyaml>=6.0,<7.0",
   "import-linter>=2.0,<3.0",
   "fakeredis>=2.26,<3.0",

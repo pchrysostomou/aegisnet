@@ -51,6 +51,33 @@ Nothing is released yet. There is no tagged version.
   EVE DNS shapes so T1 and T2 exercise the one that broke D-003.
 
 ### Added
+- **Chunk 21 (Milestone 5) — the outbound boundary, and nothing else (ADR-029).**
+  `domain/redaction/` turns a case into a `CaseEvidencePacket`: derived numbers, stable tokens
+  and timestamps. **No client, no configuration and no API key ship in this chunk** — there is
+  nothing here that can perform I/O. TB-3 is the threat model's highest-consequence boundary,
+  so it is proven before anything exists that could cross it.
+- The packet is an **allow-list**. Every evidence key is classified as numeric, address-shaped,
+  a closed vocabulary, a timestamp, or explicitly dropped; anything unclassified is dropped and
+  recorded in `dropped_fields` with the reason. A new detector's evidence sends nothing new
+  until somebody reviews it, visibly rather than silently.
+- Addresses and hostnames leave only as stable per-case tokens (`asset-A`, `int-1`, `ext-1`,
+  `domain-1`), carrying which side of the perimeter they are on and no topology. The mapping
+  stays local. Tokens are deterministic, so the same case serialises to the same bytes.
+- Because what goes out is arithmetic rather than prose, indirect prompt injection (T-4.1) has
+  a structural answer: an attacker's text never reaches the model at all.
+- A denylist sits behind the allow-list for emails, AWS key ids, private keys, JWTs, bearer
+  tokens, credential assignments, provider tokens and base64 blobs. It records which rule
+  matched and never the matched text.
+- Everything is bounded — 24 kB, twelve alerts, eight items a list — and truncation is explicit.
+
+### Fixed
+- **A leak the canary suite found on its first run.** `correlation_service` writes timeline
+  summaries like `D-001 fired on src_ip 10.10.0.42`. They are written by this project rather
+  than by a sensor, so the credential denylist had no objection to them — and they quote the
+  entity, so a real address would have left inside an ordinary English sentence while every
+  structured field around it was carefully tokenised. The pseudonymiser now reads sentences
+  too: `D-001 fired on src_ip asset-A` is as useful to a model and says nothing about a network.
+
 - **Chunk 20 (Milestone 4, the last) — the asset inventory, the audit viewer, and the browser
   suite (ADR-028).** `/assets` lists what the detectors attribute traffic to; `/audit` is the
   admin-only view of the append-only trail, and is not drawn for anybody else because the API

@@ -151,6 +151,14 @@ named passing test or an explicit accepted-risk entry.
   is asserted in the same suite, including the API's `403` to a forged request. The admin-only
   audit viewer is drawn for nobody else, though the API is what enforces that.
 - New egress: none. No Perplexity call exists; TB-3 and TB-4 remain planning-phase rows until M5.
+- Chunk 21 built TB-3's outbound half **without a client**: `domain/redaction/` is pure and nothing in
+  the repository can make a request. T-3.1 (allow-list serialisation, default-deny recorded), T-3.2
+  (stable pseudonyms, no topology), T-3.5 (byte and collection caps, explicit truncation) and the
+  structural half of T-4.1 (what is sent is arithmetic, not prose, so an attacker's text never reaches
+  the model) all have named tests in `tests/security/test_redaction.py` (ADR-029). T-3.3, T-3.4, T-3.6
+  and the rest of TB-4 arrive with the client in Chunk 22. The suite found a real leak on its first
+  run: a timeline summary this project writes quotes the entity, so addresses are now substituted
+  inside sentences and not merely scanned for.
 - New rendered fields: none (the web app is still a health placeholder).
 - Milestone 1 rows whose mitigation has no named test yet: the
   query-timeout and load-test parts of T-2.6 (evaluation plan), and the read-only root filesystem and digest

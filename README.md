@@ -132,7 +132,7 @@ flowchart LR
     sensor(["Sensor or CI<br/>X-Ingest-Token"])
     subgraph host["Developer machine — docker compose, loopback only"]
         direction LR
-        web["web<br/>Next.js 15<br/>127.0.0.1:3000"]
+        web["web<br/>Next.js 16<br/>127.0.0.1:3000"]
         api["api<br/>FastAPI · uvicorn<br/>127.0.0.1:8000"]
         worker["worker<br/>Dramatiq<br/>import_dataset · import_upload<br/>run_detectors · recompute_baselines"]
         scheduler["scheduler<br/>periodiq<br/>scheduled_sweep · nightly_baselines"]

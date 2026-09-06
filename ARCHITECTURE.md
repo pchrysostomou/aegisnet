@@ -12,7 +12,7 @@ Last updated: 2026-09-06 (Chunk 31, reconciled against the code at the release g
 | Part of this document | State on `main` (evidence in `docs/STATUS.md`) |
 |---|---|
 | §1 layering and `domain/` purity | Implemented and enforced by import-linter in CI (two contracts) |
-| §2 `api`, `worker`, `db`, `broker/cache`, `web` | Running: FastAPI api with auth, RBAC, audit and rate limits; Dramatiq worker with seven actors (`import_dataset`, `import_upload`, `run_detectors`, `recompute_baselines`, and the three periodic ones — `scheduled_sweep`, `nightly_baselines`, `nightly_retention`); PostgreSQL 16 with three roles (app, migrator, and the retention role, which holds the only `DELETE` on the four retained tables — the app role's one `DELETE` grant is on `asset_networks`, which `PATCH /assets/{id}` replaces wholesale); Redis 7 as broker, limiter and denylist; the Next.js 15 analyst dashboard |
+| §2 `api`, `worker`, `db`, `broker/cache`, `web` | Running: FastAPI api with auth, RBAC, audit and rate limits; Dramatiq worker with seven actors (`import_dataset`, `import_upload`, `run_detectors`, `recompute_baselines`, and the three periodic ones — `scheduled_sweep`, `nightly_baselines`, `nightly_retention`); PostgreSQL 16 with three roles (app, migrator, and the retention role, which holds the only `DELETE` on the four retained tables — the app role's one `DELETE` grant is on `asset_networks`, which `PATCH /assets/{id}` replaces wholesale); Redis 7 as broker, limiter and denylist; the Next.js 16 analyst dashboard |
 | §2 `scheduler` (periodiq) | Deferred by ADR-010; **delivered in M2 Chunk 12 (ADR-020)**: a sixth service sending the ten-minute sweep and the nightly baseline recompute, and since Chunk 25 the nightly retention prune (ADR-033) |
 | §2 `perplexity` client | Implemented in M5 (Chunks 21–24, ADR-029 – ADR-032): the redaction boundary, the hardened client, the brief schema and its citation and safety checks, two append-only tables and the dashboard panel. **Off by default, and no outbound call has ever been made from this repository** |
 | §3 ingest → validate → persist → enqueue | Implemented: HTTP and registry import, capped spool, per-line rejects, idempotent `event_hash`, audit per batch |
@@ -48,7 +48,7 @@ against fixtures with no database.
 
 | Component | Tech | Responsibility |
 |---|---|---|
-| `web` | Next.js 15 (App Router), TypeScript; no CSS framework — M4 shipped on one stylesheet and declined the planned Tailwind | Analyst dashboard (M4); a health placeholder in M1 |
+| `web` | Next.js 16 (App Router), TypeScript; no CSS framework — M4 shipped on one stylesheet and declined the planned Tailwind | Analyst dashboard (M4); a health placeholder in M1 |
 | `api` | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 (async), Alembic | REST API, auth/RBAC, validation, rate limiting, audit logging, enqueue jobs |
 | `worker` | Dramatiq | Normalization, detector sweeps, correlation, baseline recompute, Perplexity brief generation |
 | `scheduler` | periodiq (Dramatiq companion) | Periodic detector sweep (every 10 min, 60 min lookback) + nightly baseline recompute — **in the stack since M2 Chunk 12 (ADR-020)**; a completed ingest batch also queues its own sweep |

@@ -10,6 +10,21 @@ Work after the `v1.0.0` tag. It is here rather than under 1.0.0 because none of 
 tag — the entry below it says "there is no Dependabot configuration", which was true when it was
 written and is superseded by the first item here.
 
+### Changed
+- Nine Dependabot pull requests, the first the new configuration produced. Merged: `next` 15.5.24
+  to **16.3.4**, `typescript` 5.9.3 to **6.0.3**, `mypy` 1.20 to **2.3**, `redis` 5.3 to 6.4,
+  `argon2-cffi` 23.1 to 25.1, `pytest-cov` 5 to 7, `@types/node` 22 to 26, `@types/react-dom`
+  19.2.7, `actions/checkout` v6 to v7, `hadolint-action` 3.1 to 3.5, and a five-package backend
+  group. Two needed work rather than a click, which is the argument for reading them:
+  - The backend group bumps `ruff`, and a newer ruff found twenty-one things. Three were real:
+    four `pytest.raises(match=…)` patterns were being read as regexes, so `"0..23"` and
+    `"outside example.test"` matched more loosely than they appeared; `Page(Generic[T])` became
+    `Page[T]`; and two `os.symlink` calls became `Path.symlink_to`, where the argument order
+    inverts. `token_type` is a false positive and now says so.
+  - The TypeScript 6 bump failed on `TS2882` for the side-effect import of `globals.css` — until
+    it was rebased onto Next 16, which supplies the declaration. The failure was an artefact of
+    the order the two majors arrived in, not of either upgrade.
+
 ### Added
 - `.github/dependabot.yml`. The project has claimed Dependabot since Milestone 1 and meant
   *alerts*, which surface an advisory and never open a pull request that fixes it. Four

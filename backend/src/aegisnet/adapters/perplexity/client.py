@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import random
+import secrets
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -239,8 +239,11 @@ class PerplexityClient:
                         raise BriefUnavailableError(last, "the API refused the request")
                 if attempt < attempts - 1:
                     # Jittered, so a fleet of workers that all failed together do not all come
-                    # back together.
-                    await self._sleep(0.5 * (2**attempt) * (0.5 + random.random()))  # noqa: S311
+                    # back together. Drawn from `secrets` rather than `random`: the value is
+                    # not a secret, but a module that cannot be seeded is one less thing for a
+                    # reader — or a scanner — to have to reason about.
+                    jitter = 0.5 + secrets.randbelow(1000) / 1000
+                    await self._sleep(0.5 * (2**attempt) * jitter)
         raise BriefUnavailableError(last, "the API did not answer")
 
     def _read(self, response: httpx.Response, digest: str) -> dict[str, Any]:

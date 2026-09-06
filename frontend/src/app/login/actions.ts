@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { ApiError } from "@/lib/api/client";
+import { safeNext } from "@/lib/safe-path";
 import { ACCESS_COOKIE, SESSION_COOKIE, cookieOptions, login } from "@/lib/session";
 
 export interface LoginState {
@@ -15,12 +16,6 @@ export interface LoginState {
 function text(form: FormData, name: string): string {
   const value = form.get(name);
   return typeof value === "string" ? value : "";
-}
-
-/** Only relative paths, and only within this app: a `next` parameter is attacker-controlled
- * and an open redirect is how a convincing phishing page gets its URL bar. */
-function safeNext(raw: string): string {
-  return raw.startsWith("/") && !raw.startsWith("//") ? raw : "/incidents";
 }
 
 export async function signIn(_previous: LoginState, form: FormData): Promise<LoginState> {

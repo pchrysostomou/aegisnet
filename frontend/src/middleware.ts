@@ -13,13 +13,22 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { refresh } from "@/lib/session";
+import { isWorthRemembering, safeNext } from "@/lib/safe-path";
 import { ACCESS_COOKIE, SESSION_COOKIE, cookieOptions } from "@/lib/session";
 
 /** Reachable without a session. Everything else redirects to the login form. */
 const PUBLIC_PATHS = ["/login", "/api/health"];
 
+/** `/login`, carrying where the analyst was going — rebuilt by `safeNext` rather than copied,
+ * so the parameter this app writes is one it would also accept back. */
+function loginUrl(request: NextRequest, pathname: string): URL {
+  const login = new URL("/login", request.url);
+  if (isWorthRemembering(pathname)) login.searchParams.set("next", safeNext(pathname));
+  return login;
+}
+
 export async function middleware(request: NextRequest) {
-  const { pathname, search } = request.nextUrl;
+  const { pathname } = request.nextUrl;
   if (PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))) {
     return NextResponse.next();
   }
@@ -29,9 +38,7 @@ export async function middleware(request: NextRequest) {
   if (access) return NextResponse.next();
 
   if (!session) {
-    const login = new URL("/login", request.url);
-    if (pathname !== "/") login.searchParams.set("next", `${pathname}${search}`);
-    return NextResponse.redirect(login);
+    return NextResponse.redirect(loginUrl(request, pathname));
   }
 
   try {
@@ -49,9 +56,8 @@ export async function middleware(request: NextRequest) {
   } catch {
     // A refresh token the API will not honour is a session that is over — including the case
     // where it was replayed and the API revoked the whole chain on purpose.
-    const login = new URL("/login", request.url);
+    const login = loginUrl(request, pathname);
     login.searchParams.set("expired", "1");
-    if (pathname !== "/") login.searchParams.set("next", `${pathname}${search}`);
     const response = NextResponse.redirect(login);
     response.cookies.delete(ACCESS_COOKIE);
     response.cookies.delete(SESSION_COOKIE);

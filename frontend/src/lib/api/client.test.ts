@@ -20,10 +20,23 @@ afterEach(() => {
 });
 
 describe("apiBaseUrl", () => {
-  it("falls back to the local API and never keeps a trailing slash", () => {
+  it("falls back to the local API and rebuilds the origin it was given", () => {
     expect(apiBaseUrl()).toBe("http://localhost:8000");
     process.env.AEGISNET_API_URL = "http://api:8000/";
     expect(apiBaseUrl()).toBe("http://api:8000");
+    process.env.AEGISNET_API_URL = "https://aegis.example.test";
+    expect(apiBaseUrl()).toBe("https://aegis.example.test");
+  });
+
+  it.each([
+    ["not-a-url", "not a URL"],
+    ["file:///etc/passwd", "a scheme that is not http"],
+    ["http://user:pass@api:8000", "embedded credentials"],
+    ["http://api:8000/v1", "a path"],
+    ["http://api:8000/?x=1", "a query"],
+  ])("refuses %s (%s)", (value) => {
+    process.env.AEGISNET_API_URL = value;
+    expect(() => apiBaseUrl()).toThrow();
   });
 });
 

@@ -17,10 +17,32 @@ import { errorEnvelope } from "./schemas";
 export const DEFAULT_TIMEOUT_MS = 10_000;
 
 /** Where the API lives, from the server environment. Never `NEXT_PUBLIC_`: the browser has no
- * business knowing, and a public variable is baked into the bundle at build time. */
+ * business knowing, and a public variable is baked into the bundle at build time.
+ *
+ * The value is parsed and the origin rebuilt from its parts, so what reaches `fetch` is a
+ * scheme, a host and a port this function assembled. A configured URL carrying a path, a
+ * query, or embedded credentials is a misconfiguration worth failing on at the first request
+ * rather than quietly prefixing every call with somebody's typo.
+ */
 export function apiBaseUrl(): string {
   const raw = process.env.AEGISNET_API_URL ?? "http://localhost:8000";
-  return raw.replace(/\/+$/, "");
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error("AEGISNET_API_URL is not a URL");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("AEGISNET_API_URL must be http or https");
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("AEGISNET_API_URL must not carry credentials");
+  }
+  if (parsed.search || parsed.hash || (parsed.pathname !== "/" && parsed.pathname !== "")) {
+    throw new Error("AEGISNET_API_URL must be an origin, with no path or query");
+  }
+  const port = parsed.port ? `:${parsed.port}` : "";
+  return `${parsed.protocol}//${parsed.hostname}${port}`;
 }
 
 export class ApiError extends Error {

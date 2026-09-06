@@ -70,8 +70,13 @@ Nothing is released yet. There is no tagged version.
   names T-1.3 in its message. The ban was proven by writing a component that trips it before
   being relied on.
 - Frontend tooling: ESLint 10 flat config with `typescript-eslint` type-aware rules, vitest,
-  and 22 unit tests over the schemas, the client and the session. CI's frontend job now runs
-  `typecheck`, `lint`, `test` and `build`.
+  and 32 unit tests over the schemas, the client, the session and the redirect allow-list.
+  CI's frontend job now runs `typecheck`, `lint`, `test` and `build`.
+- Where a sign-in may land is an allow-list that *rebuilds* the destination from what a
+  pattern captured, rather than checking a prefix and passing the string through. `//evil.test`
+  and `/\\evil.test` defeat the prefix check in some parsers; there is no path from the
+  parameter's bytes to the redirect's here. `AEGISNET_API_URL` is parsed and its origin rebuilt
+  the same way, so a configured value carrying credentials, a path or a query fails loudly.
 
 - **Chunk 17 (Milestone 3, the last) — the multi-stage scenario and the correlation metrics
   (ADR-025).** `samples/scenarios/multi-stage-01.ndjson` is 303 committed EVE records: a week

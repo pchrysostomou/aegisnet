@@ -76,9 +76,18 @@ builds and scans it with Trivy, alongside the two images the stack pulls rather 
 
 Three choices, each with a reason:
 
-- **It fails the job; it does not upload SARIF.** Code scanning is not enabled on this repository —
-  the API answers `403` — so a SARIF upload would go nowhere and the finding would be lost. A
-  report nobody can read is not a control.
+- **It gates on what this project builds and reports on what it pulls**, and that split was
+  decided *after* the first runs rather than before. The original design gated on all four images.
+  Then the scan ran: `postgres:16-alpine` carried twenty-seven HIGH findings in util-linux and the
+  Go standard library on one architecture and a different set on another, none of them reachable
+  from anything in this repository and all of them fixable only by the image's publisher. Gating
+  there would have made CI a coin flip on an upstream release schedule. An ignore file listing CVE
+  ids with expiries was written, tested, and then deleted, because for a third-party image that is
+  a treadmill that reads like diligence. Reporting without gating says the same thing honestly and
+  does not rot. Both halves are asserted, and R-10 records what the weaker half does not cover.
+- **It does not upload SARIF.** Code scanning is not enabled on this repository — the API answers
+  `403` — so a SARIF upload would go nowhere and the finding would be lost. A report nobody can
+  read is not a control.
 - **It ignores unfixed findings.** A base image carrying a CVE with no upstream fix would otherwise
   turn every push red until somebody invented a fix that does not exist. A gate nobody can pass is
   a gate people learn to switch off. This is a deliberate weakening and it is written down so that
@@ -109,6 +118,21 @@ routes: none`, `answered … : nothing`, one attached container, clean teardown.
 L-3 — the operator's attestation that the systems are theirs — is **R-11**. No test can confirm a
 statement about the world outside the process, and writing a check that looks like one would be
 worse than saying so.
+
+### What the scan found on its first working run
+
+Worth recording, because it is the argument for having it. The api image was clean. The dashboard
+image carried a CRITICAL in `tar` and HIGH findings in `sigstore`, `pacote`, `picomatch` and
+`ip-address` — every one of them inside npm's own bundled tree in the base image, none of them in
+this app's lockfile, which is exactly why `pnpm audit --prod` passes on the same commit. The fix
+was to stop shipping npm: a Next standalone server runs `node server.js` and uses neither npm nor
+corepack, so the whole subtree goes rather than this month's versions of it.
+
+The next run found `libcrypto3` at 3.5.7-r0 against a fix published as 3.5.8-r0 — the gap between
+alpine shipping a patch and the node image being rebuilt, which is precisely the cost R-10 accepts
+by following tags. `apk upgrade --no-cache` in the runtime stage closes it, and that is the answer
+to the obvious objection to F-5: tag-following delivers patches when upstream rebuilds, and for the
+images this project builds it no longer has to wait for that.
 
 ## Consequences
 

@@ -75,14 +75,55 @@ def test_the_image_scan_covers_every_image_the_stack_runs() -> None:
     assert {"aegisnet-api:latest", "aegisnet-web:latest"} <= scanned
 
 
-def test_the_scan_fails_the_job_rather_than_filing_a_report_nobody_reads() -> None:
-    """Code scanning is not enabled on this repository — the API answers `403` — so a SARIF
-    upload would go nowhere and the finding would be lost. The job has to be the gate."""
-    for step in _scan_steps():
-        options = step["with"]
-        assert str(options.get("exit-code")) == "1", f"{step.get('name')} does not fail the job"
-        assert options.get("severity") == "HIGH,CRITICAL"
+BUILT_HERE = "aegisnet-"
+
+
+def test_a_finding_in_an_image_this_project_builds_fails_the_job() -> None:
+    """Where the gate belongs: on the images where a finding is actionable.
+
+    Code scanning is not enabled on this repository — the API answers `403` — so a SARIF upload
+    would go nowhere and the finding would be lost. For the api and the dashboard the job has to
+    be the gate, and Chunk 30 proved the gate is worth having: it found npm's bundled `tar` and
+    an openssl a release behind, and both were fixed rather than suppressed.
+    """
+    ours = [s for s in _scan_steps() if str(s["with"]["image-ref"]).startswith(BUILT_HERE)]
+    assert ours, "nothing this project builds is scanned"
+    for step in ours:
+        assert str(step["with"].get("exit-code")) == "1", f"{step.get('name')} does not gate"
+        assert step["with"].get("severity") == "HIGH,CRITICAL"
     assert "sarif" not in SECURITY_WORKFLOW.read_text(encoding="utf-8").lower()
+
+
+def test_an_image_this_project_only_pulls_is_reported_and_not_gated_on() -> None:
+    """The decision this chunk changed its mind about, and why (R-10).
+
+    The first version gated on every image. Then the scan ran: `postgres:16-alpine` carried
+    twenty-seven HIGH findings in util-linux and the Go standard library on one architecture and
+    a different set on another, none of them reachable from anything in this repository, and all
+    of them fixable only by the image's publisher. The available responses were to wait or to
+    stop using PostgreSQL. Gating on that would have made CI a coin flip on an upstream release
+    schedule, which is how a gate becomes something people switch off — and enumerating CVE ids
+    in an ignore file would have been the same thing, slower and harder to notice.
+
+    So they are scanned, printed and re-scanned weekly, and they do not block a push. That is a
+    weaker property than gating and it is written down rather than implied.
+    """
+    theirs = [s for s in _scan_steps() if not str(s["with"]["image-ref"]).startswith(BUILT_HERE)]
+    assert theirs, "the images this project pulls are not scanned at all"
+    for step in theirs:
+        assert (
+            str(step["with"].get("exit-code")) == "0"
+        ), f"{step.get('name')} gates on an image nobody here can fix"
+        assert step["with"].get("severity") == "HIGH,CRITICAL", "it must still look"
+
+
+def test_nothing_is_suppressed_by_an_ignore_file() -> None:
+    """An ignore file was written for the datastore findings and then deleted, because listing
+    CVE ids for an image somebody else builds is a treadmill that reads like diligence. Reporting
+    without gating says the same thing honestly and does not rot."""
+    assert not (REPO_ROOT / "infra" / "trivy").exists(), "the ignore file is back"
+    for step in _scan_steps():
+        assert not step["with"].get("trivyignores"), f"{step.get('name')} suppresses findings"
 
 
 def test_unfixed_findings_do_not_turn_every_push_red() -> None:

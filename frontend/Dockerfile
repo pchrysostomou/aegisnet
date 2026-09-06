@@ -42,6 +42,13 @@ COPY --from=build --chown=node:node /app/public ./public
 # layer, which `read_only: true` forbids (T-5.1). Nothing has been observed writing here — every
 # page is force-dynamic and every fetch no-store — but Next's file cache lives at this path and
 # the case actions call revalidatePath, so it is mounted rather than gambled on.
+# Alpine publishes package fixes faster than the base image tag is rebuilt, and following a tag
+# (decision F-5, R-10) only delivers a patch once upstream republishes. The scan found exactly
+# that gap on its first run: libcrypto3 3.5.7-r0 against a fix already published as 3.5.8-r0
+# (CVE-2026-14456). Upgrading here closes the window between alpine shipping a fix and the node
+# image being rebuilt, which is the whole reason tags were kept over digests.
+RUN apk upgrade --no-cache
+
 # The base image ships npm and corepack; a Next standalone server runs `node server.js` and
 # uses neither. They are removed rather than left in place because npm carries its own bundled
 # dependency tree — tar, sigstore, pacote, @npmcli — which `pnpm audit` structurally cannot see:

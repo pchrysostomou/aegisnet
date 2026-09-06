@@ -25,6 +25,16 @@ Nothing is released yet. There is no tagged version.
   Makefile recipe is a check nobody runs.
 
 ### Fixed
+- **`apk upgrade` in the images this project builds.** Following a tag only delivers a patch
+  once upstream rebuilds, and the scan found the gap: `libcrypto3` 3.5.7-r0 against a fix
+  alpine had already published as 3.5.8-r0. Upgrading at build time closes it, which is also
+  the answer to the obvious objection to keeping tags over digests.
+- **The image scan gates on what this project builds and reports on what it pulls.** The
+  first design gated on all four images; then the scan ran, and `postgres:16-alpine` showed
+  twenty-seven HIGH findings that only its publisher can fix — a different set per
+  architecture. Gating there would make CI a coin flip on somebody else's release schedule.
+  An ignore file listing CVE ids was written, tested and deleted: for a third-party image
+  that is a treadmill that reads like diligence. R-10 records what the weaker half misses.
 - **npm is no longer shipped in the dashboard runtime image.** The image scan's first working
   run found a CRITICAL in `tar` and HIGH findings in `sigstore`, `pacote`, `picomatch` and
   `ip-address` — all inside npm's own bundled tree in the base image, none of them in this

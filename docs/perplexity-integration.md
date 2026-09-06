@@ -68,6 +68,8 @@ PERPLEXITY_API_KEY=pplx-...
 | `PERPLEXITY_MAX_TOKENS` | `1200` | the answer's size, and its cost |
 | `PERPLEXITY_MAX_RESPONSE_BYTES` | `262144` | checked before anything parses it |
 | `BRIEF_DAILY_BUDGET` | `50` | calls per UTC day across the whole deployment — the counter lives in Redis, so the API, the worker and the CLI spend from one number |
+| `BRIEF_USER_DAILY_LIMIT` | `20` | asks per UTC day by one analyst. The budget above is one number for the deployment and therefore not a limit on anybody in particular; this is (T-3.4) |
+| `BRIEF_INCIDENT_DAILY_LIMIT` | `10` | asks per UTC day about one case. Spent *before* the per-analyst one, so a loop on a single case cannot cost that analyst every other case they are working |
 
 There is no setting that disables certificate verification, and there will not be.
 

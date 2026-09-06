@@ -403,7 +403,7 @@ Three things in particular a reader should not conclude from any table above:
 
 ## 10. Rate limits under concurrency (2026-09-06, Chunk 26)
 
-`SECURITY.md` publishes four limits and two failure modes. Until this chunk every one of them
+`SECURITY.md` publishes four counted limits and two failure modes (Chunk 28 added three more — an upload deadline and two daily brief limits — none of which belongs in a suite that fires whole budgets at once; §10 covers the four that do). Until this chunk every one of them
 was asserted one request at a time, which is the wrong shape for the question: a fixed-window
 counter is only correct if its increment is atomic, and a serial test cannot tell an atomic
 `INCR` from a read-modify-write that has not raced yet.

@@ -91,6 +91,7 @@ def test_http_exception_headers_are_preserved(client: TestClient) -> None:
     [
         (401, "unauthenticated"),
         (403, "forbidden"),
+        (408, "request_timeout"),
         (409, "conflict"),
         (413, "payload_too_large"),
         (429, "rate_limited"),

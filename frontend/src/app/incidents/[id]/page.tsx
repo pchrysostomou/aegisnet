@@ -14,6 +14,7 @@ import { canWrite, currentUserOrNull } from "@/lib/session";
 import { BriefForm } from "./brief-form";
 import { NoteForm } from "./note-form";
 import { StatusControl } from "./status-control";
+import { visible } from "@/lib/visible";
 
 export const metadata: Metadata = { title: "Case — AegisNet" };
 export const dynamic = "force-dynamic";
@@ -30,7 +31,8 @@ function entryDetail(entry: TimelineEntry): string | null {
       parts.push(`${key}: ${String(value)}`);
     }
   }
-  return parts.length > 0 ? parts.join(" · ") : null;
+  // One chokepoint for every value a timeline entry carries (T-4.4).
+  return parts.length > 0 ? visible(parts.join(" · ")) : null;
 }
 
 export default async function IncidentPage({ params }: { params: Promise<{ id: string }> }) {
@@ -71,7 +73,7 @@ export default async function IncidentPage({ params }: { params: Promise<{ id: s
         <p className="badges">
           <SeverityBadge value={incident.severity} />
           <StatusBadge value={incident.status} />
-          <span className="badge status mono">{incident.correlation_key}</span>
+          <span className="badge status mono">{visible(incident.correlation_key)}</span>
         </p>
         <dl className="facts">
           <div>
@@ -107,7 +109,7 @@ export default async function IncidentPage({ params }: { params: Promise<{ id: s
         </p>
         {incident.closure_reason ? (
           <p className="closure">
-            <strong>Closed because:</strong> {incident.closure_reason}
+            <strong>Closed because:</strong> {visible(incident.closure_reason)}
           </p>
         ) : null}
       </header>

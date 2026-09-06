@@ -15,6 +15,7 @@ no HTML and no table that this project did not put there itself.
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from ipaddress import ip_network
@@ -23,6 +24,7 @@ from uuid import UUID, uuid4
 import pytest
 from markdown_it import MarkdownIt
 
+from aegisnet.domain import reports
 from aegisnet.domain.enums import (
     AlertStatus,
     AssetEnvironment,
@@ -45,7 +47,14 @@ from aegisnet.domain.ports import (
     NoteRecord,
     TimelineEntryRecord,
 )
-from aegisnet.domain.reports import ASCII_PUNCTUATION, code, escape, fenced, render_report
+from aegisnet.domain.reports import (
+    ASCII_PUNCTUATION,
+    code,
+    escape,
+    fenced,
+    render_report,
+)
+from tests.conftest import REPO_ROOT
 
 pytestmark = pytest.mark.security
 
@@ -380,3 +389,45 @@ def test_a_control_character_never_reaches_the_document() -> None:
     document = _poisoned_case()
     forbidden = {chr(c) for c in range(0x20) if c not in (0x09, 0x0A)} | {"\x7f", "\r"}
     assert not (forbidden & set(document))
+
+
+# ---------------------------------------------------------------- the other renderer
+
+DASHBOARD_VISIBLE = REPO_ROOT / "frontend" / "src" / "lib" / "visible.ts"
+_TS_CLASS = re.compile(r"^const INVISIBLE = /(\[[^/]+\])/gu;$", re.MULTILINE)
+
+
+def test_the_dashboard_and_the_report_write_out_the_same_characters() -> None:
+    """The same note is read on the screen and in the exported document (T-4.4, ADR-035).
+
+    Two lists in two languages will drift, and the drift is silent: nobody notices that a
+    character the report writes out is still invisible on the screen until somebody uses it.
+    So the dashboard's class is read here, compiled with Python's own engine — which accepts
+    the same ``\\uXXXX`` escapes — and compared to `reports._INVISIBLE` code point by code point
+    over the whole basic plane. A character added to one list and not the other fails here.
+
+    It is deliberately the *sets* that are compared and not the two source strings: the two are
+    allowed to be spelled differently, and only allowed to mean the same thing.
+    """
+    source = DASHBOARD_VISIBLE.read_text(encoding="utf-8")
+    found = _TS_CLASS.search(source)
+    assert found, "frontend/src/lib/visible.ts no longer declares INVISIBLE as a character class"
+    dashboard = re.compile(found.group(1))
+
+    theirs = {point for point in range(0x110000) if dashboard.fullmatch(chr(point))}
+    ours = {point for point in range(0x110000) if reports._INVISIBLE.fullmatch(chr(point))}
+
+    assert theirs == ours, (
+        "the dashboard and the report disagree about which characters are invisible; "
+        f"only the report: {sorted(hex(p) for p in ours - theirs)}, "
+        f"only the dashboard: {sorted(hex(p) for p in theirs - ours)}"
+    )
+    assert len(ours) == 20, f"the list changed size: {sorted(hex(p) for p in ours)}"
+
+
+def test_the_dashboard_writes_them_out_in_the_report_s_notation() -> None:
+    """`<U+202E>` on both sides. A screen that said `[bidi]` and a document that said
+    `<U+202E>` would be two descriptions of one case."""
+    source = DASHBOARD_VISIBLE.read_text(encoding="utf-8")
+    assert '`<U+${character.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")}>`' in source
+    assert reports._visible("\u202e") == "<U+202E>"

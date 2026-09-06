@@ -8,6 +8,34 @@ Nothing is released yet. There is no tagged version.
 
 ## [Unreleased]
 
+### Added
+- **A deadline on an upload, because no size cap is reached by a body that simply stops** (T-1.4).
+  `INGEST_UPLOAD_TIMEOUT_SECONDS` (120 s) bounds the body read itself, including the multipart
+  parse, which is where a multipart body is actually read. The partial spool entry is discarded and
+  the refusal is `408 request_timeout`, audited as `ingest.refused` — deliberately not `413`, which
+  would make a stall indistinguishable from an oversized body in the audit trail.
+- **Per-analyst and per-case daily limits on asking for a brief** (T-3.4).
+  `THREAT_MODEL.md` had claimed both since the planning phase and neither existed: one
+  deployment-wide budget is not a limit on anybody in particular. The case's share is spent before
+  the analyst's, so a loop on one case cannot cost that analyst every other case they are working,
+  and both fail closed — a test breaks one at a time so each is proven on its own.
+- **The dashboard writes out the characters that change what text says** (T-4.4).
+  `U+202E` and nineteen others render as `<U+202E>`, from the same list and in the same notation the
+  exported report has used since Chunk 24 — so the screen and the document stop telling different
+  stories about the same note. A Python test compiles both lists and fails if they ever diverge,
+  and a renderer test fails if any text node forgets the call.
+
+### Fixed
+- **The renderer's block grammar swallowed the characters it was meant to show.** Its markers
+  matched `\s`, and JavaScript's `\s` and `String.trim()` both include `U+FEFF`, so a line
+  beginning with one was read as a quote and the character was consumed by the marker — gone from
+  the screen and absent from it, while the report wrote it out. Every marker now matches `[ \t]`,
+  which is what the grammar always meant. Python's `str.strip()` does not strip format characters,
+  which is why the backend never had this.
+- The two `[^>]*` patterns in the renderer's test file, which SonarCloud's `S8786` flags as
+  super-linear. Not new code, but this chunk touched the file, and the rule fires on a file the
+  moment it is next changed.
+
 ### Fixed
 - Two assertions that could not fail, both found by SonarCloud's reliability gate.
   `assert render_report(**case) == render_report(**case)` reads as a tautology and the analyser

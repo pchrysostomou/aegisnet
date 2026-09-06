@@ -149,11 +149,22 @@ Fixed windows in Redis, one counter per limit, subject and window; `429` with
 | Reads | 120 / min | principal | allow, log an error |
 | Everything else | 60 / min | principal | allow, log an error |
 | Outbound briefs | `BRIEF_DAILY_BUDGET` / UTC day | the whole deployment | refuse — the counter is the cap |
+| Brief asks, per analyst | `BRIEF_USER_DAILY_LIMIT` / UTC day | the user | refuse |
+| Brief asks, per case | `BRIEF_INCIDENT_DAILY_LIMIT` / UTC day | the incident | refuse |
 
-These are measured, not just declared: `make load-test` fires whole budgets at once against a
-running stack and `docs/evaluation.md` §10 records what came back — 120 of 180 concurrent reads
-allowed, `429` with a usable `Retry-After` for the rest, login refused after five wrong passwords,
-and the fixed-window edge costing exactly one extra budget and never more.
+The first five are measured, not just declared: `make load-test` fires whole budgets at once
+against a running stack and `docs/evaluation.md` §10 records what came back — 120 of 180
+concurrent reads allowed, `429` with a usable `Retry-After` for the rest, login refused after five
+wrong passwords, and the fixed-window edge costing exactly one extra budget and never more. The
+three brief limits are not in that suite and are not measured under concurrency: their window is
+a day, so firing a budget at once would leave the deployment unable to ask for a brief until
+midnight. They are held instead by `tests/security/test_brief_limits.py`, which exhausts each one
+over HTTP and proves each fails closed on its own.
+
+**One limit is not a counter.** `INGEST_UPLOAD_TIMEOUT_SECONDS` (120 s) bounds how long a request
+body may take to arrive. Every other ingest limit bounds a *size*, and no size cap is ever reached
+by a body delivered one byte at a time; past the deadline the partial upload is discarded, the
+refusal is `408 request_timeout`, and it is audited as `ingest.refused` like any other (T-1.4).
 
 Fail-closed for the routes an attacker would push on, fail-open for reads so an analyst
 is not locked out by a cache outage. The brief budget is the exception to "per principal": it is

@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     ingest_timestamp_max_past_days: Annotated[int, Field(ge=1)] = 3650
     ingest_timestamp_max_future_hours: Annotated[int, Field(ge=0)] = 24
     ingest_sync_max_lines: Annotated[int, Field(ge=1)] = 1000
+    # Every other ingest limit bounds a size; this one bounds time. It is the only thing that
+    # can refuse a body delivered one byte at a time, which no byte cap ever reaches (T-1.4).
+    # Read together with INGEST_MAX_BODY_BYTES it states the slowest upload this deployment is
+    # prepared to wait for.
+    ingest_upload_timeout_seconds: Annotated[float, Field(gt=0, le=3600)] = 120.0
     spool_dir: Path = Path("spool")
 
     # ---- authentication and rate limits (docs/api-milestone-1.md; T-2.1, T-2.4; ADR-016)
@@ -139,6 +144,14 @@ class Settings(BaseSettings):
     perplexity_max_response_bytes: Annotated[int, Field(ge=1024)] = 256 * 1024
     # A hard stop on spend and on exposure: past this many calls in a day, the answer is no.
     brief_daily_budget: Annotated[int, Field(ge=0, le=10_000)] = 50
+    # The budget above is one number for the whole deployment, which is not a limit on anybody
+    # in particular: one analyst could spend the day, and a loop on one case could spend it in
+    # a minute. These two bound *asking* — per analyst and per case, over the same UTC day the
+    # budget uses (T-3.4). An ask that is answered from cache or from the committed offline
+    # sample still writes an append-only brief row and a timeline line, and a loop that writes
+    # rows nobody can delete is the same denial of service as a loop that spends money.
+    brief_user_daily_limit: Annotated[int, Field(ge=1, le=10_000)] = 20
+    brief_incident_daily_limit: Annotated[int, Field(ge=1, le=10_000)] = 10
 
     @field_validator("perplexity_base_url")
     @classmethod

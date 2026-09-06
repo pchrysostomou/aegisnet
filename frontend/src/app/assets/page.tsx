@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Timestamp } from "@/components/timestamp";
 import { ApiError } from "@/lib/api/client";
 import { listAssets } from "@/lib/api/inventory";
+import { visible } from "@/lib/visible";
 
 export const metadata: Metadata = { title: "Assets — AegisNet" };
 export const dynamic = "force-dynamic";
@@ -88,7 +89,7 @@ export default async function AssetsPage({ searchParams }: { searchParams: Promi
                 <td className="mono">{row.hostname ?? "—"}</td>
                 <td>{row.environment}</td>
                 <td className="numeric">{row.criticality}</td>
-                <td>{row.owner ?? "—"}</td>
+                <td>{visible(row.owner ?? "—")}</td>
                 <td className="mono">
                   {row.networks.map((network) => network.cidr).join(", ") || "—"}
                 </td>

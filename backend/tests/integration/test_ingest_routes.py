@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import asyncio
+from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -307,3 +308,85 @@ def test_batches_and_rejects_are_readable_by_analysts(
     assert client.get(BATCHES, headers=service_headers).status_code == 403
     assert client.get(BATCHES, params={"limit": 0}, headers=analyst_headers).status_code == 422
     assert client.get(BATCHES, params={"cursor": "x"}, headers=analyst_headers).status_code == 422
+
+
+BOUNDARY = "aegisnetboundary"
+_UPLOAD_BODIES = {
+    "ndjson": ("application/x-ndjson", b'{"timestamp":"2026-09-01T10:00:00.000000+0000"'),
+    "multipart": (
+        f"multipart/form-data; boundary={BOUNDARY}",
+        f'--{BOUNDARY}\r\nContent-Disposition: form-data; name="file"; '
+        f'filename="a.ndjson"\r\n\r\n'.encode(),
+    ),
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("shape", sorted(_UPLOAD_BODIES))
+async def test_a_body_that_stops_arriving_is_refused_when_the_deadline_passes(
+    tmp_path: Path, shape: str
+) -> None:
+    """T-1.4: every other ingest limit bounds a size, and a size cap is never reached by a body
+    that simply stops. This one bounds time.
+
+    It cannot flake. The body yields its first chunk and then waits on an event nothing ever
+    sets, so the request has exactly one way to end — the deadline — and a loaded runner delays
+    the refusal without changing it. There is no race between the work and the clock because
+    the work can never win. The outer `asyncio.timeout` turns a regression from a hung CI job
+    into a fast failure.
+
+    Driven through `ASGITransport` rather than `TestClient`: the latter reads the body
+    synchronously inside `receive()`, so a stalling generator would block the event loop
+    instead of yielding it and nothing would ever fire.
+    """
+    content_type, first_chunk = _UPLOAD_BODIES[shape]
+    settings = make_settings(
+        cookie_secure=False,
+        spool_dir=tmp_path / "spool",
+        secret_key=TEST_SECRET_KEY,
+        ingest_upload_timeout_seconds=0.05,
+    )
+    wiring = FakeWiring(settings, settings.spool_dir)
+    headers = await wiring.service_token_headers()
+    app = create_app(settings, services_factory=wiring.factory())  # type: ignore[arg-type]
+
+    forever = asyncio.Event()
+
+    async def stalls() -> AsyncIterator[bytes]:
+        yield first_chunk
+        await forever.wait()  # never set: the deadline is the only way out
+        yield b"never sent"
+
+    transport = httpx.ASGITransport(app=app)
+    # `TestClient` runs the lifespan for us; driving the app directly means entering it here,
+    # which is what puts the wiring on `app.state`.
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(transport=transport, base_url="http://ingest.test") as client,
+    ):
+        async with asyncio.timeout(5):
+            response = await client.post(
+                EVE,
+                params={"source_label": "sensor-a"},
+                content=stalls(),
+                headers={
+                    **headers,
+                    "content-type": content_type,
+                    # Multipart is refused without one, and a declared length under the byte
+                    # cap proves the refusal is the clock rather than the size.
+                    "content-length": str(len(first_chunk) + 9),
+                },
+            )
+
+    assert response.status_code == 408, response.text
+    body = response.json()["error"]
+    assert body["code"] == "request_timeout"
+    assert body["correlation_id"], "a refusal is still traceable"
+
+    assert _spooled(wiring) == [], "a partial upload was left behind"
+    assert wiring.enqueued == [] and wiring.ingest_store.batches == {}, "no batch was opened"
+
+    refusals = [e for e in wiring.audit_store.entries if e.action == "ingest.refused"]
+    assert [e.detail["reason"] for e in refusals] == ["upload_timeout"]
+    assert refusals[0].detail["seconds"] == 0.05
+    assert refusals[0].actor_token_id, "the refusal names who was uploading"

@@ -26,6 +26,7 @@
  * - **`target="_blank"`**, so following a source never loses the case the analyst was reading.
  */
 import type { BriefCitation } from "@/lib/api/schemas";
+import { visible } from "@/lib/visible";
 
 /** Parsed rather than pattern-matched: `new URL` is what the browser will do with the value,
  * and a prefix test can be fooled by things a parser cannot (`https:/\evil`, whitespace, a
@@ -53,18 +54,18 @@ export function CitationList({ citations }: { citations: readonly BriefCitation[
           <span className="citation-id mono">[{citation.id}]</span>{" "}
           {isFollowable(citation.url) ? (
             <a href={citation.url} target="_blank" rel="noopener noreferrer nofollow">
-              {citation.title || citation.url}
+              {visible(citation.title || citation.url)}
             </a>
           ) : (
             <>
-              <span>{citation.title || "Untitled source"}</span>{" "}
+              <span>{visible(citation.title || "Untitled source")}</span>{" "}
               <span className="notice-inline">
                 not linked: a source must be <code className="mono">https</code>
               </span>
             </>
           )}
           <br />
-          <code className="mono citation-url">{citation.url}</code>
+          <code className="mono citation-url">{visible(citation.url)}</code>
         </li>
       ))}
     </ol>

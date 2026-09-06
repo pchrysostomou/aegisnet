@@ -56,6 +56,14 @@ logger = get_logger(__name__)
 GENERIC_SERVER_MESSAGE = "An internal error occurred. Quote the correlation id when reporting it."
 
 
+class UploadTimeoutError(Exception):
+    """A request body did not finish arriving inside the deadline (T-1.4).
+
+    Distinct from `PayloadTooLargeError` on purpose: the byte cap was never reached, and a
+    stall and an oversized body are different things to an operator reading the audit trail.
+    """
+
+
 class PayloadTooLargeError(Exception):
     """A body, line count or batch exceeds a documented cap (T-1.4)."""
 
@@ -87,6 +95,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
         status.HTTP_401_UNAUTHORIZED: "unauthenticated",
         status.HTTP_403_FORBIDDEN: "forbidden",
         status.HTTP_404_NOT_FOUND: "not_found",
+        status.HTTP_408_REQUEST_TIMEOUT: "request_timeout",
         status.HTTP_409_CONFLICT: "conflict",
         status.HTTP_413_CONTENT_TOO_LARGE: "payload_too_large",
         status.HTTP_429_TOO_MANY_REQUESTS: "rate_limited",
@@ -228,6 +237,13 @@ async def dataset_unavailable_handler(request: Request, exc: Exception) -> JSONR
     return _respond(status.HTTP_409_CONFLICT, "dataset_unavailable", str(exc))
 
 
+async def upload_timeout_handler(request: Request, exc: Exception) -> JSONResponse:
+    """RFC 9110 §15.5.9: the server did not receive a complete request message within the time
+    it was prepared to wait. Not 413, which would say the body was too big when it was not, and
+    not 422, whose envelope names a field at fault when no field is."""
+    return _respond(status.HTTP_408_REQUEST_TIMEOUT, "request_timeout", str(exc))
+
+
 async def payload_too_large_handler(request: Request, exc: Exception) -> JSONResponse:
     return _respond(status.HTTP_413_CONTENT_TOO_LARGE, "payload_too_large", str(exc))
 
@@ -274,6 +290,7 @@ def register_error_handlers(app: FastAPI) -> None:
         BulkTooLargeError,
     ):
         app.add_exception_handler(too_large, payload_too_large_handler)
+    app.add_exception_handler(UploadTimeoutError, upload_timeout_handler)
     for invalid in (
         ValidationFailedError,
         EventQueryError,

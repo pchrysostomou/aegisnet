@@ -8,6 +8,7 @@ import { listIncidents, type IncidentFilters } from "@/lib/api/incidents";
 import { incidentStatus, type IncidentStatus } from "@/lib/api/schemas";
 
 import { Filters } from "./filters";
+import { visible } from "@/lib/visible";
 
 export const metadata: Metadata = { title: "Incidents — AegisNet" };
 // The queue is a live view of what the API holds; nothing here may be pre-rendered.
@@ -106,7 +107,7 @@ export default async function IncidentsPage({ searchParams }: { searchParams: Pr
                   <StatusBadge value={incident.status} />
                 </td>
                 <td>{incident.title}</td>
-                <td className="mono">{incident.correlation_key}</td>
+                <td className="mono">{visible(incident.correlation_key)}</td>
                 <td className="numeric">{incident.distinct_rule_count}</td>
                 <td>
                   <Timestamp value={incident.window_end} />

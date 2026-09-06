@@ -11,7 +11,7 @@ without a brief, and "the API was down" is worth recording rather than losing in
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Final
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Path, Request, status
@@ -20,6 +20,7 @@ from aegisnet.api.deps import (
     AppServices,
     client_ip,
     correlation_id,
+    enforce_limit,
     rate_limit,
     require,
     services,
@@ -28,6 +29,10 @@ from aegisnet.api.schemas import BriefOut
 from aegisnet.domain.auth import Permission, Principal, PrincipalKind
 from aegisnet.domain.enums import AuditResult, BriefStatus
 from aegisnet.services.brief_service import BriefIncidentNotFoundError
+
+DAY_SECONDS: Final = 24 * 60 * 60
+"""The limiter's window index is `int(now // window_seconds)`, so at a day it *is* the UTC
+day number — the same midnight `aegisnet:brief:budget:<date>` turns over on. One clock."""
 
 router = APIRouter(prefix="/api/v1/incidents", tags=["briefs"])
 
@@ -80,6 +85,32 @@ async def generate_brief(
     svc: Annotated[AppServices, Depends(services)],
     principal: Annotated[Principal, Depends(require(Permission.briefs_generate))],
 ) -> BriefOut:
+    # The narrower limit first, deliberately: `hit` increments whether or not it allows, so
+    # checking the analyst first would let one stuck tab on one case spend that analyst's whole
+    # day and lock them out of every other case. This way a loop costs the case its share and
+    # costs the analyst part of theirs. Both are spent before the case is looked up, so probing
+    # for case ids costs exactly what asking about a real case costs.
+    #
+    # Fail closed, like login and ingest and unlike a read: the budget these sit under is a
+    # spending cap and an exposure cap, and an unreachable Redis is not a reason to send more
+    # to a third party than the deployment agreed to (T-3.4).
+    await enforce_limit(
+        svc.limiter,
+        "brief_incident",
+        str(incident_id),
+        limit=svc.settings.brief_incident_daily_limit,
+        window_seconds=DAY_SECONDS,
+        fail_open=False,
+    )
+    await enforce_limit(
+        svc.limiter,
+        "brief_user",
+        principal.subject,
+        limit=svc.settings.brief_user_daily_limit,
+        window_seconds=DAY_SECONDS,
+        fail_open=False,
+    )
+
     actor = principal.id if principal.kind is PrincipalKind.user else None
     record = await svc.briefs.generate(incident_id, actor=actor)
     await svc.audit.record(

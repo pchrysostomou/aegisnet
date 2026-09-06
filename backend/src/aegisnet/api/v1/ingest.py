@@ -9,6 +9,7 @@ by bytes per hour, and every batch creation is audited (T-1.8).
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Annotated, Literal
@@ -28,7 +29,11 @@ from aegisnet.api.deps import (
     require,
     services,
 )
-from aegisnet.api.errors import PayloadTooLargeError, ValidationFailedError
+from aegisnet.api.errors import (
+    PayloadTooLargeError,
+    UploadTimeoutError,
+    ValidationFailedError,
+)
 from aegisnet.api.schemas import (
     SOURCE_LABEL,
     BatchOut,
@@ -105,22 +110,36 @@ async def ingest_eve(
     content_type = request.headers.get("content-type", "")
     name = svc.spool.new_name()  # minted before the body is read: never derived from it
     cap_bytes = settings.ingest_max_body_bytes
+    deadline = settings.ingest_upload_timeout_seconds
     try:
-        if content_type.startswith("multipart/form-data"):
-            if not declared.isdigit():
-                raise ValidationFailedError("content-length", "required for multipart uploads")
-            form = await request.form(max_files=1, max_fields=4)
-            upload = form.get("file")
-            if not isinstance(upload, UploadFile):
-                raise ValidationFailedError("file", "a multipart part named 'file' is required")
-            method = IngestMethod.api_file
-            size = await svc.spool.write(name, _file_chunks(upload), max_bytes=cap_bytes)
-        else:
-            method = IngestMethod.api_ndjson
-            size = await svc.spool.write(name, request.stream(), max_bytes=cap_bytes)
+        # The caps above say how large a body may be; this says how long it may take to
+        # arrive, which is the only bound a body delivered one byte at a time ever meets
+        # (T-1.4). It covers the multipart parse as well, because that is where a multipart
+        # body is actually read.
+        async with asyncio.timeout(deadline):
+            if content_type.startswith("multipart/form-data"):
+                if not declared.isdigit():
+                    raise ValidationFailedError("content-length", "required for multipart uploads")
+                form = await request.form(max_files=1, max_fields=4)
+                upload = form.get("file")
+                if not isinstance(upload, UploadFile):
+                    raise ValidationFailedError("file", "a multipart part named 'file' is required")
+                method = IngestMethod.api_file
+                size = await svc.spool.write(name, _file_chunks(upload), max_bytes=cap_bytes)
+            else:
+                method = IngestMethod.api_ndjson
+                size = await svc.spool.write(name, request.stream(), max_bytes=cap_bytes)
     except SpoolTooLargeError:
         await _audit_refusal(svc, principal, request, "body_too_large")
         raise
+    except TimeoutError as error:
+        # `Spool.write` unlinks its partial file on any exception, including the cancellation
+        # `asyncio.timeout` raises, so the ndjson branch has already cleaned up. `remove` is
+        # idempotent and covers the multipart branch, where the deadline can pass before the
+        # writer is even reached.
+        svc.spool.remove(name)
+        await _audit_refusal(svc, principal, request, "upload_timeout", seconds=deadline)
+        raise UploadTimeoutError(f"body was not delivered within {deadline} seconds") from error
 
     try:
         await enforce_limit(

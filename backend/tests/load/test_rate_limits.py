@@ -1,7 +1,7 @@
 """Rate limits under concurrency, against a running stack (Milestone 6, Chunk 26).
 
-`SECURITY.md` publishes four limits and two failure modes, and until now every one of them was
-asserted one request at a time. That is the wrong shape for the question: a fixed-window counter
+`SECURITY.md` publishes four counted limits and two failure modes, and until now every one of them
+was asserted one request at a time. That is the wrong shape for the question: a fixed-window counter
 is only correct if the increment is atomic, and a serial test cannot tell an atomic `INCR` from a
 read-modify-write that happens not to have raced yet.
 

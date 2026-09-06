@@ -234,9 +234,9 @@ review pass · tag `v1.0.0`.
 - [ ] A fresh-clone reproduction run by following only the README succeeds; transcript committed.
 - [ ] Coverage gates met (≥85% on `domain/`, ≥70% overall).
 - [ ] Every `THREAT_MODEL.md` mitigation maps to a named passing test or an accepted-risk entry — the
-      mapping exists and is machine-checked (§6, Chunk 27, ADR-034), and it says twenty-eight rows are
-      verified and eight are `partial`. The criterion is met when no `partial` remains; each one names
-      what is missing.
+      mapping exists and is machine-checked (§6, Chunk 27, ADR-034), and it says thirty-one rows are
+      verified and five are `partial` — Chunk 28 closed three of the original eight (ADR-035). The
+      criterion is met when no `partial` remains; each one names what is missing.
 - [ ] Release checklist fully ticked, then `v1.0.0` tagged.
 
 **Commands.** `make ci-local` · `make eval` · `make load-test` · `make release-check`.

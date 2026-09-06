@@ -30,6 +30,8 @@
  */
 import type { ReactNode } from "react";
 
+import { visible } from "@/lib/visible";
+
 export const MAX_BLOCKS = 200;
 export const MAX_INLINE_TOKENS = 400;
 
@@ -59,10 +61,14 @@ export function parseInline(text: string): Inline[] {
 function Inlines({ text }: { text: string }): ReactNode {
   return parseInline(text).map((token, index) => {
     const key = `${String(index)}:${token.kind}`;
-    if (token.kind === "code") return <code key={key}>{token.value}</code>;
-    if (token.kind === "strong") return <strong key={key}>{token.value}</strong>;
-    if (token.kind === "em") return <em key={key}>{token.value}</em>;
-    return <span key={key}>{token.value}</span>;
+    // Once, above the branches: a fifth kind added below cannot forget to do it, and the
+    // substitution happens after the grammar has finished, so the marker it writes can never
+    // be parsed as anything (T-4.4).
+    const shown = visible(token.value);
+    if (token.kind === "code") return <code key={key}>{shown}</code>;
+    if (token.kind === "strong") return <strong key={key}>{shown}</strong>;
+    if (token.kind === "em") return <em key={key}>{shown}</em>;
+    return <span key={key}>{shown}</span>;
   });
 }
 
@@ -73,7 +79,14 @@ type Block =
   | { kind: "code"; lines: string[] };
 
 /** Line-oriented on purpose: a grammar small enough to read in one sitting is a grammar whose
- * failure modes can be reasoned about. */
+ * failure modes can be reasoned about.
+ *
+ * Every marker below matches `[ \t]` rather than `\s`, which is not a detail: JavaScript's `\s`
+ * and `String.trim()` both include U+FEFF and friends, so `\uFEFF> quoted` used to be read as a
+ * quote and the character was eaten by the marker — invisible in the output and absent from it,
+ * while the exported report wrote it out. Python's `str.strip()` does not strip format
+ * characters, so the backend never had the bug; narrowing the class here is what makes the two
+ * renderers agree (T-4.4). */
 export function parseBlocks(source: string): Block[] {
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
   const blocks: Block[] = [];
@@ -82,7 +95,7 @@ export function parseBlocks(source: string): Block[] {
   for (const line of lines) {
     if (blocks.length >= MAX_BLOCKS) break;
 
-    if (line.trimStart().startsWith("```")) {
+    if (/^[ \t]*```/.test(line)) {
       if (fence) {
         blocks.push(fence);
         fence = null;
@@ -97,16 +110,16 @@ export function parseBlocks(source: string): Block[] {
     }
 
     const last = blocks[blocks.length - 1];
-    if (line.trim() === "") continue;
+    if (/^[ \t]*$/.test(line)) continue;
 
-    if (/^\s*[-*]\s+/.test(line)) {
-      const item = line.replace(/^\s*[-*]\s+/, "");
+    if (/^[ \t]*[-*][ \t]+/.test(line)) {
+      const item = line.replace(/^[ \t]*[-*][ \t]+/, "");
       if (last?.kind === "list") last.items.push(item);
       else blocks.push({ kind: "list", items: [item] });
       continue;
     }
-    if (/^\s*>\s?/.test(line)) {
-      const quoted = line.replace(/^\s*>\s?/, "");
+    if (/^[ \t]*>[ \t]?/.test(line)) {
+      const quoted = line.replace(/^[ \t]*>[ \t]?/, "");
       if (last?.kind === "quote") last.lines.push(quoted);
       else blocks.push({ kind: "quote", lines: [quoted] });
       continue;
@@ -138,7 +151,7 @@ export function SafeMarkdown({ source, className }: { source: string; className?
           // No inline parsing inside a fence: what is in a code block is what was typed.
           return (
             <pre key={key}>
-              <code>{block.lines.join("\n")}</code>
+              <code>{visible(block.lines.join("\n"))}</code>
             </pre>
           );
         }

@@ -1,0 +1,67 @@
+{
+  "dataset_id": "demo-scenario-multi-stage-01",
+  "generator": "tools/gen_demo_scenario.py",
+  "generator_version": 1,
+  "seed": 20260906,
+  "events": 303,
+  "event_types": {
+    "alert": 12,
+    "flow": 291
+  },
+  "sha256": "d0e8ef0987d2c182fc4d4c907760c8bcff4ebcb00f98cb3ec64a308827f5405e",
+  "history": {
+    "from": "2026-08-29T09:00:00Z",
+    "hours": 168,
+    "asset": "10.10.0.42"
+  },
+  "baseline_until": "2026-09-05T09:00:00Z",
+  "sweep_window": {
+    "from": "2026-09-05T09:00:00Z",
+    "to": "2026-09-05T16:00:00Z"
+  },
+  "ground_truth": {
+    "scenarios": [
+      {
+        "id": "multi-stage-compromise",
+        "entity": "src_ip=10.10.0.42",
+        "window": {
+          "from": "2026-09-05T09:00:00Z",
+          "to": "2026-09-05T10:00:00Z"
+        },
+        "expected_rules": [
+          "D-001",
+          "D-002",
+          "D-004",
+          "D-005"
+        ],
+        "narrative": "One host scans a neighbour, fails to authenticate twelve times in ninety seconds, beacons to an external address every minute, and uploads 400 MiB - all inside one hour."
+      },
+      {
+        "id": "unrelated-scan",
+        "entity": "src_ip=10.10.0.77",
+        "window": {
+          "from": "2026-09-05T09:00:00Z",
+          "to": "2026-09-05T10:00:00Z"
+        },
+        "expected_rules": [
+          "D-001"
+        ],
+        "narrative": "A second host scans the same neighbour in the same hour and has nothing to do with the first. It must get its own case."
+      },
+      {
+        "id": "later-unrelated-scan",
+        "entity": "src_ip=10.10.0.42",
+        "window": {
+          "from": "2026-09-05T15:00:00Z",
+          "to": "2026-09-05T16:00:00Z"
+        },
+        "expected_rules": [
+          "D-001"
+        ],
+        "narrative": "The suspect host scans again six hours later. Same entity, different story: correlation's join gap is an hour, so folding this into the morning's case would be wrong and is what the contamination measure exists to catch."
+      }
+    ],
+    "expected_incidents": 3
+  },
+  "safety": "Synthetic. RFC 1918 sources, RFC 5737 destinations, .test names only. No real host, address or credential appears here."
+}

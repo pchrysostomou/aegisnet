@@ -1,0 +1,26 @@
+# Asset inventory for the multi-stage correlation scenario (ADR-025).
+#
+# `make demo-scenario` upserts these by hostname before it ingests, because two of the four
+# rules the scenario is built to trip need an asset to exist: D-005 reads the asset's
+# baseline, and every rule reads its criticality when it scores severity.
+#
+# The bystander is here on purpose. It is a real asset having a bad day of its own, and the
+# scenario's point is that correlation gives it its own case rather than folding it into the
+# compromise next door.
+assets:
+  - hostname: ws-42.lab.example.test
+    environment: lab
+    owner: platform-team
+    criticality: 4
+    tags: [lab, workstation, scenario]
+    description: The host the multi-stage scenario compromises; a week of quiet history behind it
+    networks:
+      - {cidr: 10.10.0.42/32, is_primary: true}
+  - hostname: ws-77.lab.example.test
+    environment: lab
+    owner: platform-team
+    criticality: 2
+    tags: [lab, workstation, scenario]
+    description: The unrelated host that scans in the same hour and must get its own case
+    networks:
+      - {cidr: 10.10.0.77/32, is_primary: true}

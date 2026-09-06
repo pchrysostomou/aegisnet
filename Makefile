@@ -11,7 +11,7 @@ BACKEND := backend
 
 .PHONY: correlate incidents incident test-correlation \
         lab-preflight lab-up lab-traffic lab-capture lab-export lab-sanitize lab-down lab-clean eval-lab test-security \
-        test-detectors gen-fixtures eval run-detectors alerts recompute-baselines baselines create-user users create-service-token revoke-service-token service-tokens \
+        test-detectors gen-fixtures eval gen-scenario demo-scenario run-detectors alerts recompute-baselines baselines create-user users create-service-token revoke-service-token service-tokens \
         help bootstrap bootstrap-force verify-ignore require-env compose-config \
         build up down compose-ps compose-logs compose-down compose-test pin-digests clean \
         backend-install lint format format-check typecheck test test-cov check \
@@ -233,8 +233,8 @@ eval-lab: require-env ## T3 qualitative run: ingest the sanitised lab capture an
 	@# hour the lab ran. Kept in a shell variable rather than a file: nothing here needs to
 	@# write to a fixed path outside the repository.
 	@window=$$(python3 -c "import json; w=json.load(open('samples/lab/lab-capture-01.manifest.json'))['sweep_window']; print(w['from'], w['to'])"); \
-	  set -- $$window; \
-	  echo "sweeping $$1 .. $$2"; \
+	  set -- $$window && \
+	  echo "sweeping $$1 .. $$2" && \
 	  $(COMPOSE) run --rm api python -m aegisnet.cli run-detectors --from $$1 --to $$2
 	$(COMPOSE) run --rm api python -m aegisnet.cli alerts --limit 20
 
@@ -291,6 +291,25 @@ WINDOW_DAYS ?= 7
 recompute-baselines: require-env ## Summarise each asset's outbound history into asset_baselines (WINDOW_DAYS=7, MODE=sync|async)
 	$(COMPOSE) run --rm api python -m aegisnet.cli recompute-baselines --window-days $(WINDOW_DAYS) --mode $(MODE)
 
+gen-scenario: ## Regenerate samples/scenarios/multi-stage-01 from its fixed seed
+	python3 tools/gen_demo_scenario.py
+	@echo "update the sha256 in samples/registry.yml, then run: make eval"
+
+demo-scenario: require-env ## The M3 story end to end: one host, four rules, one escalated case
+	@# Everything the acceptance criterion asks for, in the order an operator would do it:
+	@# the assets exist, a week of history teaches D-005 what normal is, the attack hour is
+	@# swept, and correlation turns what the rules found into cases.
+	$(COMPOSE) run --rm api python -m aegisnet.cli seed-assets demo-scenario
+	$(COMPOSE) run --rm api python -m aegisnet.cli import-dataset demo-scenario-multi-stage-01 \
+	  --source-label demo-scenario
+	@window=$$(python3 -c "import json; m=json.load(open('samples/scenarios/multi-stage-01.manifest.json')); w=m['sweep_window']; print(m['baseline_until'], w['from'], w['to'])"); \
+	  set -- $$window && \
+	  echo "baselines as of $$1; sweeping $$2 .. $$3" && \
+	  $(COMPOSE) run --rm api python -m aegisnet.cli recompute-baselines --until $$1 && \
+	  $(COMPOSE) run --rm api python -m aegisnet.cli run-detectors --from $$2 --to $$3 && \
+	  $(COMPOSE) run --rm api python -m aegisnet.cli correlate --from $$2 --to $$3
+	$(COMPOSE) run --rm api python -m aegisnet.cli incidents
+
 correlate: require-env ## Group uncorrelated alerts into incidents (FROM=... TO=...)
 	$(COMPOSE) run --rm api python -m aegisnet.cli correlate --from $(FROM) --to $(TO)
 
@@ -320,8 +339,9 @@ gen-fixtures: ## Regenerate backend/tests/fixtures/labelled from the case defini
 # T1 = the labelled cases, T2 = the benign synthetic corpus; rewrites the marked block in
 # docs/evaluation.md §8. A test pins that block, so run this after touching a rule. The
 # command takes no paths: it finds the checkout above its working directory.
-eval: ## Score the rules on the labelled cases and the benign corpus; refresh docs/evaluation.md §8
+eval: ## Score the rules (T1/T2) and correlation on the scenario; refresh docs/evaluation.md §8
 	cd $(BACKEND) && uv run python -m aegisnet.cli eval-detectors
+	cd $(BACKEND) && uv run python -m aegisnet.cli eval-correlation
 
 # Regenerates the committed synthetic corpus byte-for-byte (seeded). After changing the
 # generator, run this, then update sha256 in samples/registry.yml; the integration suite

@@ -31,6 +31,7 @@ Commands:
     correlate --from --to          group uncorrelated alerts into incidents
     incidents                      list incidents, newest first
     incident REF                   one incident by case number or id
+    eval-correlation               score correlation on the committed multi-stage scenario
     eval-detectors                 score the rules on the labelled cases and the benign corpus;
                                    run inside the checkout, no paths accepted
 
@@ -128,6 +129,15 @@ from aegisnet.services.ingest_service import (
     limits_from_settings,
     provenance_for,
 )
+from aegisnet.services.scenario_service import (
+    MANIFEST_FILE,
+    SCENARIO_FILE,
+    ScenarioEvalError,
+    run_scenario,
+)
+from aegisnet.services.scenario_service import render as render_correlation
+from aegisnet.services.scenario_service import replace_results as replace_correlation
+from aegisnet.services.scenario_service import repository_root as scenario_root
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -350,6 +360,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--window-days", type=int, default=7, choices=range(1, 91), metavar="1..90"
     )
     recompute.add_argument("--mode", choices=["sync", "async"], default="sync")
+    recompute.add_argument(
+        "--until",
+        dest="until",
+        type=_timestamp,
+        default=None,
+        help="summarise the complete hours before this instant instead of before now; "
+        "how a committed scenario is replayed as of the hour it describes (sync only)",
+    )
     correlate = commands.add_parser(
         "correlate", help="group uncorrelated alerts in an interval into incidents"
     )
@@ -377,6 +395,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-write", action="store_true", help="print the block without touching the document"
     )
     evaluation.add_argument("--json", action="store_true", help="emit the report as JSON")
+
+    correlation = commands.add_parser(
+        "eval-correlation",
+        help="score correlation on the committed scenario into docs/evaluation.md §8; no database",
+    )
+    correlation.add_argument(
+        "--no-write", action="store_true", help="print the block without touching the document"
+    )
     return parser
 
 
@@ -754,6 +780,12 @@ def cmd_detector_runs(settings: Settings, limit: int) -> int:
 
 def cmd_recompute_baselines(settings: Settings, args: argparse.Namespace) -> int:
     if args.mode == "async":
+        if args.until is not None:
+            # The queued actor takes a window in days and nothing else. Accepting `--until`
+            # here and dropping it would compute a baseline over the wrong week and say
+            # nothing about it.
+            _emit({"error": "--until is only available with --mode sync"})
+            return EXIT_FAILED
         message_id = RedisDetectionQueue(install_broker(settings)).enqueue_baselines(
             args.window_days
         )
@@ -767,7 +799,7 @@ def cmd_recompute_baselines(settings: Settings, args: argparse.Namespace) -> int
             services.baselines._baselines,
             window_days=args.window_days,
         )
-        return await service.recompute()
+        return await service.recompute(until=args.until)
 
     _emit(_run(settings, action))
     return EXIT_OK
@@ -818,6 +850,29 @@ def cmd_eval(args: argparse.Namespace) -> int:
     else:
         print(block)  # noqa: T201 - CLI output
     return 1 if report.failures else 0
+
+
+def cmd_eval_correlation(args: argparse.Namespace) -> int:
+    """Score the committed scenario's grouping and refresh §8's correlation block.
+
+    Like `eval-detectors`, this takes no path and needs no database: the scenario, its ground
+    truth and the document are fixed names under the repository root found above the working
+    directory.
+    """
+    try:
+        root = scenario_root(Path.cwd())
+        report = run_scenario(root / SCENARIO_FILE, root / MANIFEST_FILE)
+        block = render_correlation(report)
+        if not args.no_write:
+            document = root / RESULTS_DOC
+            document.write_text(
+                replace_correlation(document.read_text(encoding="utf-8"), block), encoding="utf-8"
+            )
+    except (ScenarioEvalError, OSError) as error:
+        print(f"error: {error}", file=sys.stderr)  # noqa: T201 - CLI output
+        return EXIT_FAILED
+    print(block)  # noqa: T201 - CLI output
+    return EXIT_OK
 
 
 def dispatch(settings: Settings, samples_dir: Path, args: argparse.Namespace) -> int:
@@ -877,6 +932,8 @@ def dispatch(settings: Settings, samples_dir: Path, args: argparse.Namespace) ->
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "eval-correlation":
+        return cmd_eval_correlation(args)
     if args.command == "eval-detectors":
         # Files in, files out: no database, no broker, so no secrets are demanded either.
         return cmd_eval(args)

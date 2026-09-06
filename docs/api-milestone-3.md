@@ -101,4 +101,4 @@ keyset-paginated, bodies in full.
 - [x] RBAC: `viewer` receives `403` on all mutations — the matrix test runs every route against all four roles.
 - [x] Timeline entries are ordered, typed, and include the status changes made during the test — asserted over HTTP against the real router.
 - [x] Correlation is idempotent and unaffected by the new write path — `tests/db/test_incident_store.py` proves the `ON CONFLICT` still no-ops after `_append_one` was split out.
-- [ ] A scripted multi-stage scenario produces exactly one incident with four alerts from four distinct rules — Chunk 17 (`make demo-scenario`).
+- [x] A scripted multi-stage scenario produces exactly one incident with four alerts from four distinct rules — `make demo-scenario` (Chunk 17, ADR-025); asserted in `tests/detectors/test_demo_scenario.py`.

@@ -108,8 +108,10 @@ and cross-referenced).
 **Security risks.** T-2.2 (IDOR on incident ids), T-2.3 (illegal transitions), T-2.5 (audit non-repudiation).
 
 **Acceptance criteria.**
-- [ ] A scripted multi-stage synthetic scenario (scan → auth failures → beaconing → large upload from one asset)
-      produces exactly one incident with four alerts from four distinct rules and an escalated severity.
+- [x] A scripted multi-stage synthetic scenario (scan → auth failures → beaconing → large upload from one asset)
+      produces exactly one incident with four alerts from four distinct rules and an escalated severity —
+      `samples/scenarios/multi-stage-01.ndjson`, asserted in `tests/detectors/test_demo_scenario.py` and run
+      end to end by `make demo-scenario` (Chunk 17, ADR-025; on the stack: `AEG-2026-0003`, severity 5).
 - [x] Timeline entries are ordered, typed, and include the status changes made during the test — `tests/integration/test_incident_routes.py`, over the real router (Chunk 16).
 - [x] Every invalid transition returns `409` and is audit-logged as `denied` — `tests/integration/test_incident_routes.py`; the route audits `incident.status_change_refused` before re-raising (Chunk 16).
 - [x] Correlation is idempotent: re-running adds no duplicate incident-alert links — `tests/db/test_incident_store.py`, including the non-regression that the `ON CONFLICT` survived Chunk 16's split of the append path.

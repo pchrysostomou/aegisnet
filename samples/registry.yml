@@ -35,3 +35,19 @@ datasets:
       sensor records, payloads, packets and bodies removed. TEST-NET-3 addresses only.
       The operator attests that every system in the run is their own (docs/evaluation.md
       §7, L-3).
+  - id: demo-scenario-multi-stage-01
+    path: scenarios/multi-stage-01.ndjson
+    manifest: scenarios/multi-stage-01.manifest.json
+    sha256: d0e8ef0987d2c182fc4d4c907760c8bcff4ebcb00f98cb3ec64a308827f5405e
+    format: suricata_eve_ndjson
+    licence: MIT (generated in this repository by tools/gen_demo_scenario.py)
+    citation: null
+    description: >-
+      The multi-stage correlation scenario (ADR-025): a week of ordinary hourly
+      traffic from one host, then one hour in which that host scans a neighbour, fails
+      twelve logins in ninety seconds, beacons every minute and uploads 400 MiB, while a
+      second unrelated host scans at the same time, and the first host scans again six
+      hours later. Four rules on one entity must become one escalated incident, the second
+      host must get its own case, and so must the same host's later scan — that last one is
+      what lets grouping precision and case contamination be wrong at all. RFC 1918 sources,
+      RFC 5737 destinations, .test names only.

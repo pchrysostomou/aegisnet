@@ -51,6 +51,39 @@ Nothing is released yet. There is no tagged version.
   EVE DNS shapes so T1 and T2 exercise the one that broke D-003.
 
 ### Added
+- **Chunk 17 (Milestone 3, the last) — the multi-stage scenario and the correlation metrics
+  (ADR-025).** `samples/scenarios/multi-stage-01.ndjson` is 303 committed EVE records: a week
+  of ordinary hourly traffic from one host, then one hour in which that host scans a
+  neighbour on forty ports, fails twelve logins in ninety seconds, beacons to an external
+  address every minute and uploads 400 MiB — while a second, unrelated host scans beside it,
+  and the first host scans again six hours later as a separate story. Registered with a
+  pinned sha256 and a manifest carrying the ground truth.
+- Ground truth is declared by scenario window, never derived from the entity key correlation
+  groups on. The first version of the harness read it off the key, which made grouping
+  precision and case contamination algebraic identities — 1.00 and 0.00 for every possible
+  input. Two scenarios now share a host and differ only in time, so widening the join gap to
+  24 hours moves the numbers to precision 0.60 and contamination 0.50, and a test asserts it.
+- The week of history is part of the scenario rather than scaffolding around it: it is what
+  lets the baseline job produce the baseline D-005 needs. Without it the rule abstains, and
+  the four-rule claim would quietly have been three.
+- `make demo-scenario` runs the whole story on the stack — seed the assets, ingest, recompute
+  baselines as of the scenario's own hour, sweep, correlate, list the cases — and produces
+  exactly what `docs/delivery-plan.md` M3 asks for: one incident with four alerts from four
+  distinct rules at an escalated severity, and a separate case for the bystander.
+- `domain/correlation_eval.py` scores a grouping against known truth **pairwise**: for every
+  pair of alerts, did correlation put them together and should it have. Case counting alone
+  would hide both failure modes — lumping everything into one case, and splitting one story
+  into many — because each is wrong by the same number of incidents.
+- `make eval` now refreshes both halves of `docs/evaluation.md` §8. The correlation block
+  reports grouping precision and recall, case fragmentation and case contamination against
+  the targets §4 sets, and a test pins the committed block to what the harness produces.
+- `recompute-baselines --until` summarises the complete hours before a given instant instead
+  of before now, which is how a committed corpus dated in the past is replayed as of the hour
+  it describes.
+- `make gen-scenario` regenerates the scenario from its fixed seed; a test proves the bytes
+  come back identical, which is what makes the registry's checksum a fact rather than a
+  snapshot.
+
 - **Chunk 16 (Milestone 3) — the incidents API, audited transitions and the role matrix
   (ADR-024).** Six routes under `/api/v1/incidents`: list a case with filters, open one with its
   linked alerts and the newest 200 lines of its story, page the whole timeline, read and write

@@ -7,7 +7,9 @@ const changeStatus = vi.hoisted(() => vi.fn());
 const addNote = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api/incidents", () => ({ changeStatus, addNote }));
 
-const { idle, moveStatus, writeNote } = await import("./actions");
+import { idle } from "./action-state";
+
+const { moveStatus, writeNote } = await import("./actions");
 
 const ID = "5a4419f6-af88-4b2b-bdab-672f20331af7";
 

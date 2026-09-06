@@ -260,3 +260,9 @@ section h3 { font-size: 1.05rem; margin: 0 0 0.6rem; }
   color: var(--text);
   resize: vertical;
 }
+
+tr.inactive td { color: var(--muted-text); font-style: italic; }
+.result-denied { color: var(--sev-5); }
+.result-error { color: var(--sev-4); }
+.result-success { color: var(--sev-2); }
+td.detail { max-width: 26rem; overflow-wrap: anywhere; color: var(--muted-text); font-size: 0.8rem; }

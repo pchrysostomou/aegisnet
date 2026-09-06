@@ -144,6 +144,12 @@ named passing test or an explicit accepted-risk entry.
   attack writes and it must render. T-2.2's UI half is covered too: a viewer is drawn no mutation
   control and the API answers `403` to a forged one, both verified on the running stack (E-66). The
   Playwright stored-XSS fixture and the committed screenshots remain, in Chunk 20.
+- Chunk 20 closed M4. The stored-XSS fixture T-1.3 asks for now runs in a real browser against a
+  real stack (`frontend/e2e/xss.spec.ts`, ADR-028): a note carrying a script tag, an `onerror`
+  image, a `javascript:` link and an `<svg/onload>` must render *visibly, as text*, with no dialog
+  opened, no global set and no `script`/`img`/`svg`/`a`/`iframe` in the notes list. T-2.2's UI half
+  is asserted in the same suite, including the API's `403` to a forged request. The admin-only
+  audit viewer is drawn for nobody else, though the API is what enforces that.
 - New egress: none. No Perplexity call exists; TB-3 and TB-4 remain planning-phase rows until M5.
 - New rendered fields: none (the web app is still a health placeholder).
 - Milestone 1 rows whose mitigation has no named test yet: the

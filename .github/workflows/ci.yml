@@ -299,3 +299,83 @@ jobs:
       - name: Tear down, including the database volume
         if: always()
         run: docker compose down --volumes --remove-orphans
+
+  e2e:
+    # The Milestone 4 gate: a real browser against a real stack. The unit tests cannot reach
+    # what this covers — that hostile log content renders inert in a browser, that a viewer is
+    # drawn no control, and that the workflow reaches the API. Chunk 20's own defect (a
+    # non-function export from a "use server" module) passed tsc, ESLint, vitest and
+    # `next build`, and only this job's kind of test caught it.
+    name: e2e · playwright against the running stack
+    runs-on: ubuntu-latest
+    needs: [stack]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Enable the pnpm version pinned in package.json
+        run: corepack enable
+
+      - name: Generate a throwaway .env
+        run: python3 infra/scripts/bootstrap_env.py
+
+      - name: Build and start every service
+        env:
+          GIT_SHA: ${{ github.sha }}
+        run: docker compose up --build --detach --wait --wait-timeout 240
+
+      - name: Apply the migrations
+        run: docker compose run --rm api alembic upgrade head
+
+      - name: Load the multi-stage scenario so there are cases to look at
+        run: make demo-scenario
+
+      - name: Create the two accounts the suite signs in as
+        run: |
+          set -euo pipefail
+          analyst=$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')
+          viewer=$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')
+          echo "::add-mask::$analyst"
+          echo "::add-mask::$viewer"
+          printf '%s\n' "$analyst" | docker compose run --rm -T api \
+            python -m aegisnet.cli create-user e2e-analyst@example.test --role analyst --password-stdin > /dev/null
+          printf '%s\n' "$viewer" | docker compose run --rm -T api \
+            python -m aegisnet.cli create-user e2e-viewer@example.test --role viewer --password-stdin > /dev/null
+          echo "AEGISNET_E2E_ANALYST_PASSWORD=$analyst" >> "$GITHUB_ENV"
+          echo "AEGISNET_E2E_VIEWER_PASSWORD=$viewer" >> "$GITHUB_ENV"
+
+      - name: Install the locked dependency set
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        working-directory: frontend
+        run: pnpm e2e:install
+
+      - name: Run the browser suite
+        working-directory: frontend
+        env:
+          AEGISNET_E2E_ANALYST: e2e-analyst@example.test
+          AEGISNET_E2E_VIEWER: e2e-viewer@example.test
+        run: pnpm e2e
+
+      - name: Show the stack's logs when something failed
+        if: failure()
+        run: docker compose logs --no-color --tail 200 > stack.log 2>&1 || true
+
+      - name: Keep the failure artefacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failure
+          path: |
+            frontend/test-results/
+            stack.log
+          retention-days: 7
+
+      - name: Tear down, including the database volume
+        if: always()
+        run: docker compose down --volumes --remove-orphans

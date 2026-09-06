@@ -14,6 +14,8 @@ export async function Masthead() {
         <>
           <nav aria-label="Sections">
             <Link href="/incidents">Incidents</Link>
+            <Link href="/assets">Assets</Link>
+            {user.role === "admin" ? <Link href="/audit">Audit</Link> : null}
           </nav>
           <span className="spacer" />
           <span className="who">

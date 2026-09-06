@@ -2,7 +2,8 @@
 
 import { useActionState } from "react";
 
-import { idle, writeNote } from "./actions";
+import { idle } from "./action-state";
+import { writeNote } from "./actions";
 
 /** Notes are never edited or deleted, which is why the form says so before it is used rather
  * than after (ADR-024). */

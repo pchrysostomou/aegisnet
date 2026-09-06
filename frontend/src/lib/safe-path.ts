@@ -12,17 +12,22 @@
  */
 export const QUEUE = "/incidents";
 
+/** The other pages a sign-in may land on. Fixed strings, compared exactly. */
+const SECTIONS = ["/incidents", "/assets", "/audit"] as const;
+
 const CASE_PATH =
   /^\/incidents\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/;
 
 /** The route `raw` asked for, or the queue. Never anything else, and never `raw` itself. */
 export function safeNext(raw: string): string {
   const match = CASE_PATH.exec(raw);
-  return match ? `${QUEUE}/${match[1].toLowerCase()}` : QUEUE;
+  if (match) return `${QUEUE}/${match[1].toLowerCase()}`;
+  const section = SECTIONS.find((known) => known === raw);
+  return section ?? QUEUE;
 }
 
 /** Whether a path is worth remembering across a sign-in at all. `/` is not: it only
  * redirects to the queue, which is where an unremembered sign-in lands anyway. */
 export function isWorthRemembering(pathname: string): boolean {
-  return pathname !== "/" && pathname.startsWith(QUEUE);
+  return pathname !== "/" && safeNext(pathname) === pathname;
 }

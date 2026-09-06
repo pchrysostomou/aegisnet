@@ -108,3 +108,9 @@ scratch/
 
 # Local sonar-scanner run against a developer's own SonarQube
 .scannerwork/
+
+# Playwright: a saved storageState holds a live session cookie for the operator's own stack,
+# and a report or trace can contain page content from it. Neither is ever committed.
+frontend/playwright/.auth/
+frontend/playwright-report/
+frontend/test-results/

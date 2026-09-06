@@ -6,12 +6,7 @@ import { ApiError } from "@/lib/api/client";
 import { addNote, changeStatus } from "@/lib/api/incidents";
 import { incidentStatus, isClosed } from "@/lib/api/schemas";
 
-export interface ActionState {
-  error: string | null;
-  ok: boolean;
-}
-
-export const idle: ActionState = { error: null, ok: false };
+import type { ActionState } from "./action-state";
 
 function field(form: FormData, name: string): string {
   const value = form.get(name);

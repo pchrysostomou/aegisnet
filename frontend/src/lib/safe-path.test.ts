@@ -9,10 +9,16 @@ describe("safeNext", () => {
     );
   });
 
+  it("keeps a section this app serves", () => {
+    expect(safeNext("/incidents")).toBe("/incidents");
+    expect(safeNext("/assets")).toBe("/assets");
+    expect(safeNext("/audit")).toBe("/audit");
+  });
+
   it("sends everything it does not recognise to the queue", () => {
-    expect(safeNext("/incidents")).toBe(QUEUE);
     expect(safeNext("")).toBe(QUEUE);
-    expect(safeNext("/assets")).toBe(QUEUE);
+    expect(safeNext("/assets/1")).toBe(QUEUE);
+    expect(safeNext("/settings")).toBe(QUEUE);
   });
 
   it("cannot be talked into leaving this app", () => {
@@ -43,9 +49,12 @@ describe("safeNext", () => {
 });
 
 describe("isWorthRemembering", () => {
-  it("remembers a case, and does not bother with the root", () => {
-    expect(isWorthRemembering("/incidents/abc")).toBe(true);
+  it("remembers only somewhere it would send you back to", () => {
+    expect(isWorthRemembering("/incidents")).toBe(true);
+    expect(isWorthRemembering("/assets")).toBe(true);
+    expect(isWorthRemembering("/incidents/5a4419f6-af88-4b2b-bdab-672f20331af7")).toBe(true);
     expect(isWorthRemembering("/")).toBe(false);
     expect(isWorthRemembering("/login")).toBe(false);
+    expect(isWorthRemembering("//evil.test")).toBe(false);
   });
 });

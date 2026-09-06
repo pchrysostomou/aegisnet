@@ -5,7 +5,8 @@ import { useActionState, useState } from "react";
 import { STATUS_WORDS } from "@/components/badges";
 import { isClosed, type IncidentStatus } from "@/lib/api/schemas";
 
-import { idle, moveStatus } from "./actions";
+import { idle } from "./action-state";
+import { moveStatus } from "./actions";
 
 /** The moves the *server* says are legal, drawn from `allowed_transitions` on the case. The
  * list is never computed here: a client that keeps its own copy of the workflow is a client

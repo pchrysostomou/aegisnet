@@ -127,6 +127,52 @@ export type NotePage = z.infer<typeof notePage>;
 export const timelinePage = page(timelineEntry);
 export type TimelinePage = z.infer<typeof timelinePage>;
 
+export const assetEnvironment = z.enum(["prod", "staging", "dev", "lab", "unknown"]);
+
+export const assetNetwork = z.object({
+  id: z.uuid(),
+  cidr: z.string(),
+  is_primary: z.boolean(),
+});
+
+export const asset = z.object({
+  id: z.uuid(),
+  hostname: z.string().nullable(),
+  environment: assetEnvironment,
+  owner: z.string().nullable(),
+  criticality: z.number().int().min(1).max(5),
+  tags: z.array(z.string()),
+  description: z.string().nullable(),
+  is_active: z.boolean(),
+  created_at: isoDateTime,
+  updated_at: isoDateTime,
+  networks: z.array(assetNetwork),
+});
+export type Asset = z.infer<typeof asset>;
+
+export const assetPage = page(asset);
+export type AssetPage = z.infer<typeof assetPage>;
+
+export const auditResult = z.enum(["success", "denied", "error"]);
+
+export const auditRow = z.object({
+  id: z.number().int(),
+  occurred_at: isoDateTime,
+  action: z.string(),
+  target_type: z.string(),
+  target_id: z.string().nullable(),
+  result: auditResult,
+  detail: z.record(z.string(), z.unknown()),
+  actor_user_id: z.uuid().nullable(),
+  actor_token_id: z.uuid().nullable(),
+  actor_ip: z.string().nullable(),
+  correlation_id: z.uuid().nullable(),
+});
+export type AuditRow = z.infer<typeof auditRow>;
+
+export const auditPage = page(auditRow);
+export type AuditPage = z.infer<typeof auditPage>;
+
 export const roles = ["viewer", "analyst", "admin"] as const;
 export const role = z.enum(roles);
 export type Role = z.infer<typeof role>;

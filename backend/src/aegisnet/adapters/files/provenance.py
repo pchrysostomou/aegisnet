@@ -11,10 +11,13 @@ with fixed arguments and no value derived from an event, a request or a setting.
 a shell reached by attacker-influenced data, not `git log`; the pin is what keeps the two from
 being confused later.
 
-It refuses rather than improvises. If the paths carry uncommitted changes there is no honest
-commit to name — the bytes measured are not the bytes at any commit — and `make eval` stops
-with a message saying to commit the corpus first. A published number with a wrong provenance
-line is worse than one that was never published.
+It refuses rather than improvises, in three ways. Uncommitted changes to the paths mean the
+bytes measured are not the bytes at any commit, so `make eval` stops and says to commit the
+corpus first. A directory that is not a checkout is an error rather than a guess. And a
+**shallow clone is refused**, which is the subtle one: git happily names the graft point as the
+commit that introduced every file it can see, so a one-commit checkout answers this question
+with a confident lie. A published number with a wrong provenance line is worse than one that
+was never published.
 """
 
 from __future__ import annotations
@@ -74,6 +77,19 @@ def corpus_commit(root: Path, paths: Sequence[Path]) -> str:
         raise ProvenanceError("no corpus paths were given")
     relative = _relative(root, paths)
 
+    # A shallow clone answers this question, and answers it wrongly. `git log -1 -- <paths>`
+    # does not come back empty where the history was cut: the files exist at the graft point,
+    # so the boundary commit is reported as the one that introduced them. CI checks out one
+    # commit deep, which is where this was found — the check said the corpus was last changed
+    # by the commit that added this very file. A confident wrong answer is the worst kind, so
+    # a truncated history is refused before it can give one.
+    if _git(root, "rev-parse", "--is-shallow-repository").strip() == "true":
+        raise ProvenanceError(
+            "this is a shallow clone, where the commit a file was last changed in cannot be "
+            "known: git reports the graft point instead. Fetch the full history to publish a "
+            "provenance line"
+        )
+
     dirty = _git(root, "status", "--porcelain", "--", *relative).strip()
     if dirty:
         changed = ", ".join(line[3:] for line in dirty.splitlines()[:4])
@@ -85,8 +101,8 @@ def corpus_commit(root: Path, paths: Sequence[Path]) -> str:
     sha = _git(root, "log", "-1", "--format=%H", "--", *relative).strip()
     if not _SHA.fullmatch(sha):
         raise ProvenanceError(
-            "no commit was found for the corpus; a shallow clone or an export does not carry "
-            "the history a provenance line needs"
+            "no commit was found for the corpus; git has never seen these paths, or this is an "
+            "export with no history at all"
         )
     return sha
 

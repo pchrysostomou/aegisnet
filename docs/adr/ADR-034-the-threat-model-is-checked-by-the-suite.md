@@ -92,6 +92,14 @@ right bytes* and not *here is where to get them*.
   which holds every number without needing a history, since CI checks out one commit deep — and a
   second test asks git whether that sha is the right one, skipping with a reason where git cannot
   answer.
+- **A shallow clone is refused**, and this is the one the first push got wrong. The reasoning was
+  that a truncated history would make `git log -1 -- <paths>` come back empty and the check would
+  skip. It does not: the files exist at the graft point, so git names the **boundary commit** as the
+  one that introduced them. CI checks out one commit deep, so the check compared the true commit
+  against the sha of the commit that had just added the check — a confident wrong answer, which is
+  the worst kind, and precisely what a provenance line must never produce. `corpus_commit` now asks
+  `git rev-parse --is-shallow-repository` first and refuses, and a test clones a real repository
+  with `--depth 1`, asserts that git does give the graft point, and asserts the refusal.
 
 ### One process, on a list
 

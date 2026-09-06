@@ -102,8 +102,8 @@ def test_a_path_outside_the_checkout_is_refused(repository: Path, tmp_path: Path
         corpus_commit(repository, (outside,))
 
 
-def test_a_directory_with_no_history_is_refused(tmp_path: Path) -> None:
-    with pytest.raises(ProvenanceError, match="git status failed"):
+def test_a_directory_that_is_not_a_checkout_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(ProvenanceError, match="not a git repository"):
         corpus_commit(tmp_path, (tmp_path / "corpus.ndjson",))
 
 
@@ -112,6 +112,38 @@ def test_a_path_git_has_never_seen_is_refused(repository: Path) -> None:
     whatever the other paths last touched."""
     with pytest.raises(ProvenanceError, match="no commit was found"):
         corpus_commit(repository, (repository / "never-added.ndjson",))
+
+
+def test_a_shallow_clone_is_refused_rather_than_answered_wrongly(
+    repository: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """The defect CI found on this chunk's first push, kept.
+
+    A truncated history does not make `git log -1 -- <paths>` come back empty. The files exist
+    at the graft point, so git names the boundary commit as the one that introduced them — and
+    the check that was meant to skip instead compared the real commit against that. CI checks
+    out one commit deep, so this is the ordinary case rather than an exotic one, and a
+    confident wrong answer is worse than no answer.
+    """
+    shallow = tmp_path_factory.mktemp("shallow") / "clone"
+    _git(
+        repository,
+        "clone",
+        "--quiet",
+        "--depth",
+        "1",
+        f"file://{repository}",
+        str(shallow),
+    )
+    assert (shallow / "corpus.ndjson").is_file(), "the file is there; the history is not"
+    # Left to itself, git would name the graft point — the commit that has nothing to do with
+    # when the corpus was written.
+    assert _git(shallow, "log", "-1", "--format=%H", "--", "corpus.ndjson") == _git(
+        shallow, "rev-parse", "HEAD"
+    )
+
+    with pytest.raises(ProvenanceError, match="shallow clone"):
+        corpus_commit(shallow, (shallow / "corpus.ndjson",))
 
 
 def test_no_paths_is_refused(repository: Path) -> None:

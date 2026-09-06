@@ -59,24 +59,30 @@ written and is superseded by the first item here.
     deliberately — a detector whose strength depends on its numbers being secret is not one
     anybody should trust — and it says what it does not cover. Nothing sensitive was exposed:
     no `.env`, key, capture or log is tracked, which `make verify-ignore` and `gitleaks` assert.
-- **A SonarCloud C Security Rating that four bisection rounds could not find, because the file
-  was a test nobody had named as one.** `.sonarcloud.properties` declared `backend/tests` as
-  tests — with a comment saying why — and never did the same for the frontend's co-located
-  `*.test.ts(x)`, so Sonar rated them as product source. The finding was five
-  `typescript:S5332` ("using http protocol is insecure") in `frontend/src/lib/api/client.test.ts`,
-  which asserts that the API base URL defaults to `http://localhost:8000` and that
-  `http://user:pass@api:8000` is refused. **Those URLs are the assertions**; rewriting them to
-  https would have deleted the test to please the linter. Declaring the frontend tests as tests
-  fixes the asymmetry instead, and a local `sonarqube:community` scan confirmed it before the
-  push: security rating **B → A**, vulnerabilities **5 → 0**, reliability unchanged at A with
-  zero bugs, and all nineteen frontend test files still analysed — as tests.
+- **A SonarCloud C Security Rating that four bisection rounds could not find, because it was in
+  a test.** The finding is five `typescript:S5332` ("using http protocol is insecure") in
+  `frontend/src/lib/api/client.test.ts`, which asserts that the API base URL defaults to
+  `http://localhost:8000` — the stack binds loopback with nothing terminating TLS — and that
+  `http://user:pass@api:8000` is *refused*. **Those URLs are the assertions.** Rewriting them to
+  https would delete the behaviour under test to satisfy the rule.
+
+  Sonar rates them because the frontend's tests live beside their code, so `sonar.tests` cannot
+  reach them without overlapping `sonar.sources`. Declaring them with `sonar.test.inclusions` was
+  tried first and pushed: automatic analysis does not honour it and the gate stayed red. The five
+  lines carry `NOSONAR` with the reason at each one instead — the pattern this project already
+  uses for `python:S5332` on the lab's `serve_forever`. Excluding the file was rejected: it would
+  buy a green rating by not looking, the trade ADR-037 refused for the image scan, and would also
+  stop Sonar catching a dead assertion in a frontend test, which it has done before.
+
+  Verified locally before each push with `sonarqube:community` on loopback: security rating
+  **B → A**, vulnerabilities **5 → 0**, reliability unchanged at A with zero bugs.
 
   Worth recording because the project's own rule was wrong here. It said a *Security* rating is
   usually a taint finding that does not reproduce locally, so bisect `sonar.exclusions`. Four
   rounds excluded `.github/**`, the only file with new executable code, the two frontend files
   the push touched, and finally the whole of `backend/src/**` — all still red, because none of
-  them was it. The local scan named the rule and the five lines in one pass. **Scan first; bisect
-  only when the scan finds nothing.**
+  them was it, and none of them was a *test*. The local scan named the rule and the five lines in
+  one pass. **Scan first; bisect only when the scan finds nothing.**
 
 - **The premise under R-10 half-expired and four files still stated it.** `docker-compose.yml`,
   `backend/Dockerfile`, `README.md` and `THREAT_MODEL.md` all said base images stay on tags

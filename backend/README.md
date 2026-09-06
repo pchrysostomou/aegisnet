@@ -10,7 +10,7 @@ project directory; pointing it at the repository root makes the package unbuilda
 
 ## What this package contains
 
-Application foundation only:
+The whole application, Milestones 1 – 6:
 
 - `config.py` — settings with `SecretStr` secrets that refuse to load while any value is
   still a `.env.example` placeholder outside the test environment
@@ -21,9 +21,10 @@ Application foundation only:
 - `api/v1/health.py` — `/healthz` liveness and `/readyz` readiness, where readiness means
   PostgreSQL and Redis reachability and nothing else
 - `api/v1/meta.py` — `/api/v1/meta/version` (requires `meta.read` since Chunk 6)
-- `adapters/db/engine.py`, `adapters/cache` — async PostgreSQL engine and async Redis
-  client, connectivity only
-- `adapters/db/models.py` — SQLAlchemy 2.0 models for the nine Milestone 1 tables
+- `adapters/db/engine.py`, `adapters/cache` — the async PostgreSQL engines (two statement
+  budgets, one per workload) and the async Redis client, limiter and token denylist
+- `adapters/db/models.py` — SQLAlchemy 2.0 models for all twenty-one tables: the nine
+  Milestone 1 tables plus the detection, incident and brief tables (revisions 0003 – 0005)
 - `adapters/db/migrations/` — the Alembic environment and revisions, shipped inside the
   package so the runtime image can run `alembic upgrade head` (ADR-012); `alembic.ini`
   at this directory's root points here and carries no URL
@@ -61,7 +62,8 @@ Application foundation only:
   worker (`dramatiq aegisnet.workers.main`) and the scheduler (`periodiq
   aegisnet.workers.main`) load; the `import_dataset`, `import_upload`, `run_detectors` and
   `recompute_baselines` actors, which queue the post-ingest sweep when a batch completes; and
-  the two periodic actors, `scheduled_sweep` and `nightly_baselines` (ADR-020)
+  the three periodic actors, `scheduled_sweep` and `nightly_baselines` (ADR-020) and
+  `nightly_retention` (ADR-033)
 - `services/schedule.py` — the cron lines, the scheduled interval on the cadence grid and the
   hour-aligned post-ingest intervals; `services/evaluation_service.py`,
   `domain/detectors/evaluation.py`, `adapters/files/labelled.py` — `make eval`: the labelled
@@ -80,20 +82,22 @@ Application foundation only:
   service-token and audit stores; `adapters/cache/rate_limiter.py` — fixed-window limiter
   and access-token denylist on Redis; `adapters/files/spool.py`, `adapters/files/ndjson.py` — the capped upload spool and
   async NDJSON line reading
-- `cli.py` — `python -m aegisnet.cli` with `datasets`, `import-dataset`, `batch`,
-  `batches`, `rejects`, `seed-assets`, `assets`, `asset`, `resolve`, `events`,
+- `cli.py` — `python -m aegisnet.cli`, thirty subcommands: `datasets`, `import-dataset`,
+  `batch`, `batches`, `rejects`, `seed-assets`, `assets`, `asset`, `resolve`, `events`,
   `event-stats`, `create-user`, `users`, `create-service-token`, `revoke-service-token`,
   `service-tokens`, `run-detectors`, `alerts`, `alert`, `detector-runs`,
-  `recompute-baselines`, `baselines`, `eval-detectors` (files in, files out at fixed places
-  under the checkout: no paths, no database, no settings)
+  `recompute-baselines`, `baselines`, `correlate`, `incidents`, `incident`, `brief`,
+  `export`, `retention`, `eval-detectors` and `eval-correlation` (files in, files out at
+  fixed places under the checkout: no paths, no database, no settings)
 
 `SECURITY.md` at the repository root describes what the auth layer enforces and what it
 still lacks.
 
 ## Tests
 
-The default suite is hermetic: no PostgreSQL, no Redis, no network. The database suite is
-opt-in and needs the ephemeral PostgreSQL from `docker-compose.test.yml --profile db`.
+The default suite is hermetic: no PostgreSQL, no Redis, no network. Two suites are opt-in —
+the database suite, which needs the ephemeral PostgreSQL from `docker-compose.test.yml
+--profile db`, and the load suite, which needs the whole stack running.
 
 | Directory | Marker | What it covers |
 |---|---|---|
@@ -102,6 +106,7 @@ opt-in and needs the ephemeral PostgreSQL from `docker-compose.test.yml --profil
 | `tests/integration/` | `integration` | the assembled app in-process over `tests/fakes.py` (in-memory stores, a settable clock, a breakable limiter): health, readiness with faked probes, version, correlation IDs; the auth, ingest, asset, event and audit routes including cookies, refresh replay, rate limits and the audit trail each route leaves; the committed corpus, its manifest and the registry checksum |
 | `tests/security/` | `security` | THREAT_MODEL mitigations: the error envelope (T-2.7), and the committed Compose files, Dockerfiles, `.env.example`, `.gitignore` and pre-commit config read as data (T-5.1, T-5.2, T-5.4); payload limits (T-1.4, T-1.5); dataset path traversal (T-1.6); pagination bounds (T-2.6); the RBAC route enumeration and role × route matrix, credential downgrade refusal and audited denials (T-2.1, T-2.2, T-2.4) |
 | `tests/db/` | `db` (+ `integration` / `security`) | the baseline revision against a real PostgreSQL 16: the nine tables and enum types, ORM/schema agreement via `compare_metadata`, constraint behaviour, the runtime role's privilege matrix and the audit-log guarantee (T-2.5, T-5.3), downgrade to base; the SQL ingest store (idempotent corpus import, provenance, rejects, promoted columns), the `import_dataset` actor through a `StubBroker`, the asset store (resolution precedence, atomic bulk, seeding) and the event read store (filters, a full keyset walk, stats, batch and reject listing); the SQL user, refresh-token, service-token and audit stores, and the auth service end to end on PostgreSQL |
+| `tests/load/` | `load` | the **second opt-in suite**, against a *running* stack rather than an ephemeral database: whole rate-limit budgets fired at once — the read bucket, the refusal envelope and its `Retry-After`, read and write budgets counted apart, login failing closed, the fixed-window edge, and the two ingest limits (which skip without `AEGISNET_LOAD_INGEST_TOKEN`). Seven tests; `make load-test` |
 
 `conftest.py` sets `ENV=test` before the package is imported so that collection does not
 depend on the developer's shell.

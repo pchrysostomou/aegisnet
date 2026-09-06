@@ -253,7 +253,7 @@ jobs:
             'http://127.0.0.1:8000/api/v1/audit?limit=5' | grep -q '"ingest.batch_created"'
           echo "ACCESS=$access" >> "$GITHUB_ENV"
 
-      - name: The completed batch queued its own sweep (ADR-020) and the scheduler registered both periodic actors
+      - name: The completed batch queued its own sweep (ADR-020) and the scheduler registered all three periodic actors
         run: |
           set -euo pipefail
           runs=""

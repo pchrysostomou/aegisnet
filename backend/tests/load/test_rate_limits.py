@@ -1,9 +1,9 @@
 """Rate limits under concurrency, against a running stack (Milestone 6, Chunk 26).
 
-`SECURITY.md` publishes four counted limits and two failure modes, and until now every one of them
-was asserted one request at a time. That is the wrong shape for the question: a fixed-window counter
-is only correct if the increment is atomic, and a serial test cannot tell an atomic `INCR` from a
-read-modify-write that happens not to have raced yet.
+`SECURITY.md` publishes counted limits and two failure modes, and until this suite every one of
+them was asserted one request at a time. That is the wrong shape for the question: a fixed-window
+counter is only correct if the increment is atomic, and a serial test cannot tell an atomic `INCR`
+from a read-modify-write that happens not to have raced yet.
 
 So these fire the whole budget at once. What is being measured:
 
@@ -11,6 +11,10 @@ So these fire the whole budget at once. What is being measured:
   inside one window, no matter how many arrive together.
 * **A refusal is usable.** `429`, the documented error envelope, and a `Retry-After` that is the
   time left in the window rather than a constant somebody guessed.
+* **The two ingest limits**, added in Chunk 32: the request budget fired at once, and a refused
+  upload checked for anything it left behind in the spool. Both skip without
+  `AEGISNET_LOAD_INGEST_TOKEN`, which is why the suite is seven tests and five of them run
+  without a service token.
 * **The window edge, measured rather than assumed.** `rate_limiter.py` says in its own docstring
   that a burst straddling two windows can reach twice the limit for an instant. That is a real
   property of fixed windows and the honest thing is to show it, not to hide it behind a test

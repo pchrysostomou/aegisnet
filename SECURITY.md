@@ -255,9 +255,11 @@ and §9 records what the first run found.
   this list** — it arrived in Chunk 29 and is described above.
 - An unlock command. Nothing but a successful login clears a lock, which is why the backoff
   ceiling is an hour rather than a day.
-- Image **digest** pinning. Kept as minor tags deliberately, because nothing here bumps a
-  digest and pinning without an updater stops security patches arriving; the image scan is
-  the compensating control and `THREAT_MODEL.md` R-10 records what it does not cover.
+- Image **digest** pinning. Kept as minor tags deliberately, because at the time nothing here
+  bumped a digest and pinning without an updater stops security patches arriving; the image
+  scan is the compensating control and `THREAT_MODEL.md` R-10 records what it does not cover.
+  `.github/dependabot.yml` has since become that updater, so the decision now rests on inertia
+  rather than on that argument — revisiting it is [#14](https://github.com/pchrysostomou/aegisnet/issues/14).
   Read-only container filesystems are **no longer** on this list either — every service has
   one since Chunk 30 (T-5.1).
 - Any outbound integration: no Perplexity call has ever been made.

@@ -39,7 +39,7 @@ driven, proven entirely by the committed deterministic synthetic corpus.
       commit, E-84, all ten checks green); latest E-95, the commit `v1.0.0` was tagged at.
 - [x] No secret appears anywhere in the repo (CI secret scan passes) — the `security` workflow's gitleaks job (E-38).
 
-**Commands.** `cp .env.example .env` → `docker compose up --build -d` → `make migrate` → `make seed` →
+**Commands.** `make bootstrap` (`.env.example` carries seven `__REPLACE_ME__` values, so copying it gives a stack that refuses to start) → `docker compose up --build -d` → `make migrate` → `make seed` →
 `make demo-ingest` → `make test` → `make lint typecheck`.
 
 ---
@@ -113,7 +113,7 @@ and cross-referenced).
 - [x] A scripted multi-stage synthetic scenario (scan → auth failures → beaconing → large upload from one asset)
       produces exactly one incident with four alerts from four distinct rules and an escalated severity —
       `samples/scenarios/multi-stage-01.ndjson`, asserted in `tests/detectors/test_demo_scenario.py` and run
-      end to end by `make demo-scenario` (Chunk 17, ADR-025; on the stack: `AEG-2026-0003`, severity 5).
+      end to end by `make demo-scenario` (Chunk 17, ADR-025; on the stack: `AEG-2026-0001`, severity 5).
 - [x] Timeline entries are ordered, typed, and include the status changes made during the test — `tests/integration/test_incident_routes.py`, over the real router (Chunk 16).
 - [x] Every invalid transition returns `409` and is audit-logged as `denied` — `tests/integration/test_incident_routes.py`; the route audits `incident.status_change_refused` before re-raising (Chunk 16).
 - [x] Correlation is idempotent: re-running adds no duplicate incident-alert links — `tests/db/test_incident_store.py`, including the non-regression that the `ON CONFLICT` survived Chunk 16's split of the append path.

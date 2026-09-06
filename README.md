@@ -135,7 +135,7 @@ flowchart LR
         web["web<br/>Next.js 16<br/>127.0.0.1:3000"]
         api["api<br/>FastAPI · uvicorn<br/>127.0.0.1:8000"]
         worker["worker<br/>Dramatiq<br/>import_dataset · import_upload<br/>run_detectors · recompute_baselines"]
-        scheduler["scheduler<br/>periodiq<br/>scheduled_sweep · nightly_baselines"]
+        scheduler["scheduler<br/>periodiq<br/>scheduled_sweep · nightly_baselines<br/>nightly_retention"]
         db[("db<br/>PostgreSQL 16<br/>no host port")]
         redis[("redis<br/>Redis 7<br/>no host port")]
         samples[/"./samples<br/>read-only mount"/]
@@ -357,11 +357,13 @@ make export REF=AEG-2026-0001 > case.md   # the case as Markdown, deterministic
 make retention                            # what the retention policy would remove; APPLY=1 removes it,
 #                                           but only once RETENTION_ENABLED=true is in .env
 make load-test                            # fires whole rate-limit budgets at the running stack; needs an
+#                                           ingest service token in AEGISNET_LOAD_INGEST_TOKEN for the two
+#                                           ingest tests (make create-service-token NAME=load-probe), and an
 #                                           analyst account in AEGISNET_E2E_ANALYST{,_PASSWORD}
 make db-roles                             # create a role a running database predates (upgrades)
 make run-detectors FROM=2026-09-01T00:00:00Z TO=2026-09-01T02:00:00Z   # the same sweep, inline, one JSON line
 make recompute-baselines WINDOW_DAYS=7                                   # per-asset outbound baselines for D-005
-docker compose logs scheduler                                            # the two periodic actors and their cron lines
+docker compose logs scheduler                                            # the three periodic actors and their cron lines
 
 # 7. Probe it. Everything is bound to 127.0.0.1; the version route needs a credential too.
 curl http://127.0.0.1:8000/healthz              # {"status":"ok"}
@@ -418,6 +420,8 @@ The lab is opt-in and separate; nothing below starts unless you ask for it by na
 make lab-preflight     # L-0/L-1: prove the network is internal and has no default route
 make lab-capture       # one full run: sensor up, six traffic shapes, flush, export
 make lab-sanitize      # L-5: strip and verify, into samples/lab/
+make lab-soak HOURS=24 # a day of traffic, so D-005 has the 24 sampled hours it needs to stop
+                       # abstaining — the mechanism only; nobody has run it (#12)
 make eval-lab          # T3: ingest the sanitised capture, sweep it, print what fired
 make lab-clean         # remove the lab, its capture volume and the exported capture
 ```
@@ -440,7 +444,8 @@ stores, and downgrades to base to prove nothing is left behind. CI runs it as th
 
 Six services: `db` (PostgreSQL 16), `redis` (Redis 7), `api` (FastAPI), `worker`
 (Dramatiq: `import_dataset`, `import_upload`, `run_detectors`, `recompute_baselines` and the
-two periodic actors), `scheduler` (periodiq, sends `scheduled_sweep` and `nightly_baselines`;
+three periodic actors), `scheduler` (periodiq, sends `scheduled_sweep`, `nightly_baselines`
+and `nightly_retention`;
 Redis only, no volume), `web` (the Next.js analyst dashboard).
 `db`, `redis`, `worker` and `scheduler` publish no host port. `api` and `worker` mount `./samples`
 read-only at `/app/samples`, the only place a dataset can be imported from, and share the
@@ -462,8 +467,9 @@ write nothing at all. A policy test pins that list, so widening it is a decision
 rather than a line somebody adds.
 
 Image **digest** pinning is deliberately not applied. Decision F-5 chose minor tags, Chunk 30
-re-examined it and kept it: nothing here bumps a digest, so pinning without an updater would
-freeze the images and stop security patches arriving. The `images` job scans what is actually
+re-examined it and kept it: at the time nothing here bumped a digest, so pinning without an
+updater would freeze the images and stop security patches arriving. `.github/dependabot.yml`
+has since supplied that updater, so the argument has changed and the decision has not — [#14](https://github.com/pchrysostomou/aegisnet/issues/14). The `images` job scans what is actually
 inside every image instead — see residual risk **R-10** in
 [`THREAT_MODEL.md`](THREAT_MODEL.md), which also says what that does not cover.
 
@@ -525,7 +531,7 @@ reporting, as described in [`SECURITY.md`](SECURITY.md).
 │   │   ├── adapters/        SQL stores, migrations, Redis, spool, registry, queues, labelled cases, the Perplexity boundary
 │   │   ├── domain/          EVE normaliser, asset and auth rules, redaction, the brief contract, ports — pure, no I/O
 │   │   │   └── detectors/   window and result bounds, severity formula, baselines, the five rules, evaluation verdicts
-│   │   ├── workers/         entrypoint shared by worker and scheduler, the actors, the two periodic actors
+│   │   ├── workers/         entrypoint shared by worker and scheduler, the actors, the three periodic actors
 │   │   └── cli.py           python -m aegisnet.cli
 │   └── tests/               unit · integration · security · detectors · db (opt-in, real PostgreSQL) · load (opt-in, a running stack)
 │       └── fixtures/labelled/  labelled detector cases, rendered by tools/gen_labelled_fixtures.py

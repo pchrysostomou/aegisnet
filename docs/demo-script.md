@@ -31,7 +31,7 @@ baselines so D-005 knows what normal looks like, sweeps the attack hour, and cor
 
 What to point at in the output, in order:
 
-- `alerts_created: 6, rules: 5` — five detectors ran; three of them fired.
+- `alerts_created: 6, rules: 5` — five detectors ran; four of them fired.
 - The per-rule rows: `D-001 success (3)`, `D-002 success (1)`, `D-003 success (0)`,
   `D-004 success (1)`, `D-005 success (1)`. **`D-003` firing zero times is a result, not a
   gap** — there is no DNS anomaly in this scenario and a rule that fires anyway is worse than
@@ -71,7 +71,7 @@ Open <http://127.0.0.1:3000>, sign in as the admin created in Quickstart step 5.
 - **The queue** — three cases, severity-ordered, filterable.
 - **The case** — `AEG-2026-0001`: its four alerts, the timeline in the order things happened, and
   the workflow control drawn from the API's own `allowed_transitions` rather than a hardcoded list.
-- Move it `new → triaged` and add a note. Two things to say while doing it: the transition is a
+- Move it `new → triaging` and add a note. Two things to say while doing it: the transition is a
   compare-and-set, so two analysts deciding at once cannot both win; and every change *and every
   refused change* is written to an append-only audit log the application cannot edit.
 - Type something hostile into the note — `<script>alert(1)</script>` is the honest thing to try.

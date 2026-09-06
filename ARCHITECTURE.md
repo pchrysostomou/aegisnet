@@ -51,9 +51,9 @@ against fixtures with no database.
 | `web` | Next.js 16 (App Router), TypeScript; no CSS framework — M4 shipped on one stylesheet and declined the planned Tailwind | Analyst dashboard (M4); a health placeholder in M1 |
 | `api` | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 (async), Alembic | REST API, auth/RBAC, validation, rate limiting, audit logging, enqueue jobs |
 | `worker` | Dramatiq | Normalization, detector sweeps, correlation, baseline recompute, Perplexity brief generation |
-| `scheduler` | periodiq (Dramatiq companion) | Periodic detector sweep (every 10 min, 60 min lookback) + nightly baseline recompute — **in the stack since M2 Chunk 12 (ADR-020)**; a completed ingest batch also queues its own sweep |
+| `scheduler` | periodiq (Dramatiq companion) | Periodic detector sweep (every 10 min, 60 min lookback) + nightly baseline recompute + nightly retention prune (Chunk 25, ADR-033) — **in the stack since M2 Chunk 12 (ADR-020)**; a completed ingest batch also queues its own sweep |
 | `db` | PostgreSQL 16 | System of record; JSONB for event payloads and evidence |
-| `broker/cache` | Redis 7 | Dramatiq broker, rate-limit counters, Perplexity response cache |
+| `broker/cache` | Redis 7 | Dramatiq broker, rate-limit counters, the daily brief budget, the access-token denylist. The Perplexity response cache is **not** here — it is per-process inside the client, which is exactly why the budget had to move to Redis (three processes held three counters) |
 | `perplexity` | External HTTPS | Sole external egress, via a single hardened client module |
 
 ### Background-work decision: **Dramatiq** (with periodiq)
@@ -201,7 +201,7 @@ an internal-only network with no default route, so lab traffic generation can ne
 |---|---|
 | Redis down | Login and ingest answer `429` (limits fail closed, ADR-016); reads and the default group proceed and log an error; a queued import waits for the broker to return |
 | Perplexity unreachable / 429 / 5xx | Retry with backoff, then mark brief `failed`; incident fully usable; error surfaced non-blockingly in UI |
-| Perplexity returns unparseable output | Brief rejected, `schema_validation_failed` recorded, no partial brief shown |
+| Perplexity returns unparseable output | Brief rejected and stored with `failure_reason` `malformed_json` or `schema_rejected`, recorded, no partial brief shown |
 | Malformed EVE lines | Per-line reject into `ingest_rejects`; batch still succeeds; counts reported |
 | Detector exception | Isolated per rule per window; recorded in `detector_runs` with error; other detectors continue |
 

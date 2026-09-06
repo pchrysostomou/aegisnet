@@ -1,6 +1,7 @@
 # AegisNet — Safe Local Evaluation Plan
 
-Status: **T1, T2 and a first T3 lab run are present (Milestone 2, Chunks 12 – 14).** §8 is written by
+Status: **T1, T2 and a first T3 lab run are present (Milestone 2, Chunks 12 – 14), and §10's
+rate limits measured under concurrency (Milestone 6, Chunk 26).** §8 is written by
 `make eval` from the labelled cases and the benign synthetic corpus, both authored in this repository, and is
 pinned by a test. §9 records what the isolated Suricata lab (ADR-021) found when real sensor output met the
 same pipeline — including two defects that stopped D-003 and D-004 reading real data at all,
@@ -42,7 +43,7 @@ Non-negotiable. Any evaluation run that violates one of these is invalid.
 | Tier | Source | Purpose | Committed? |
 |---|---|---|---|
 | **T1 — Synthetic unit fixtures** | EVE JSON in `backend/tests/fixtures/labelled/<rule>/` with `labels.yml`, rendered from hand-specified case definitions by `tools/gen_labelled_fixtures.py` (seeded; a test pins the committed files to the generator) | Per-detector correctness: precision/recall against exact ground truth | Yes |
-| **T2 — Synthetic scenario corpus** | `tools/gen_synthetic_eve.py --scenario ...` — multi-hour, multi-asset, with injected benign noise | End-to-end pipeline, correlation quality, false-positive rate under noise | Yes (generator + manifest; corpus regenerated deterministically) |
+| **T2 — Synthetic scenario corpus** | two seeded generators: `tools/gen_synthetic_eve.py` (`make gen-synthetic`) writes the benign baseline, and `tools/gen_demo_scenario.py` (`make gen-scenario`) writes the multi-stage scenario — multi-hour, multi-asset, with benign noise around the staged behaviour. Neither takes a `--scenario` flag; the scenario is a separate generator, which is ADR-025 | End-to-end pipeline, correlation quality, false-positive rate under noise | Yes (generator + manifest; corpus regenerated deterministically) |
 | **T3 — Isolated lab capture** | `infra/lab/` containers generating benign traffic plus operator-authorised scripted behaviour, observed by Suricata | Realism check: does the pipeline survive real EVE output | No (operator-local; a small sanitized excerpt may be committed) |
 
 T3 is a *qualitative* tier. Headline metrics come from T1 and T2, where ground truth is exact.
@@ -52,7 +53,7 @@ T3 is a *qualitative* tier. Headline metrics come from T1 and T2, where ground t
 Every fixture directory contains:
 
 ```yaml
-# tests/fixtures/labelled/D-004-beaconing/positive/low-jitter-60s/labels.yml
+# backend/tests/fixtures/labelled/D-004-beaconing/positive/beacon-60s-low-jitter/labels.yml
 case_id: D-004-pos-low-jitter-60s
 rule_id: D-004
 expected: detection
@@ -261,7 +262,11 @@ Severity here is each rule's base severity. The stored formula (ADR-018) also mo
 - Synthetic corpora are cleaner than real networks; T2 false-positive rates are optimistic.
 - Correlation is entity+time based, so multi-hop activity across unrelated entities will fragment into
   separate cases.
-- Citation checking verifies that a URL exists and resolves, not that it supports the claim.
+- Citation checking never fetches anything. It verifies that a source is an https URL with no
+  credentials in its authority, and that a claim only cites an id the brief itself declared. That
+  a page is at that URL, and that it says what the model claims, rests entirely on the model —
+  which is residual risk **R-7**, and why an uncited external claim is kept and marked
+  `UNVERIFIED` rather than silently dropped.
 
 ---
 
@@ -359,8 +364,10 @@ operator pointing AegisNet at their own sensor should check the same key.
 ### D-005 abstained, correctly
 
 The rule needs 24 sampled hours of outbound history before it will judge anything, and a
-capture is one hour long. Exercising it needs a lab that runs on a schedule across a day,
-which is separate work.
+capture is one hour long. Exercising it needs a lab that runs on a schedule across a day.
+`make lab-soak HOURS=24` is that mechanism, added in Chunk 32 — but a mechanism is not a
+measurement: nobody has run it, so D-005 is still the one rule the lab has never tested
+([#12](https://github.com/pchrysostomou/aegisnet/issues/12)).
 
 ### After the fixes (2026-09-06, Chunk 14)
 

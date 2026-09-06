@@ -5,9 +5,9 @@ Target: PostgreSQL 16. All migrations via Alembic. Status: **head is `0006_reten
 `users`, `service_tokens`, `refresh_tokens`, `audit_log`), `0002_asset_network_delete_grant`,
 `0003_detection_tables` (`detection_rules`, `detector_runs`, `alerts`, `alert_events`,
 `alert_assets`, `asset_baselines`), `0004_incident_tables` (`incidents`, `incident_alerts`,
-`incident_timeline`, `incident_notes`) and `0005_brief_tables` (`investigation_briefs`,
-`brief_citations`) are implemented; anything below still described in the future tense is
-planned.
+`incident_timeline`, `incident_notes`), `0005_brief_tables` (`investigation_briefs`,
+`brief_citations`) and `0006_retention_role` (the `aegisnet_retention` role and its grants) are
+all implemented; anything below still described in the future tense is planned.
 Implementation notes that refine this document are in
 [ADR-012](adr/ADR-012-migrations-in-package-and-role-grants.md): `audit_log` carries no foreign
 keys, `service_tokens.created_by` is nullable, and hash columns carry a 32-byte length check.
@@ -66,7 +66,8 @@ Provenance for every ingest. Nothing enters `events` without a batch.
 | `started_at` / `finished_at` | timestamptz | |
 
 ### `events`
-Normalized EVE records. Append-only in practice.
+Normalized EVE records. Append-only for the runtime role; the `aegisnet_retention` role prunes
+them on a period, keeping any event an alert still cites (ADR-033).
 
 | Column | Type | Notes |
 |---|---|---|

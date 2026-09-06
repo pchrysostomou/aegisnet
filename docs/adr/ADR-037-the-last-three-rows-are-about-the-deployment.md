@@ -54,7 +54,7 @@ Digest pinning is the clause this chunk decided *not* to write, which needs more
 than writing it would have.
 
 Pinning by digest buys reproducibility and resistance to a tampered upstream tag. It also freezes
-the image. **Nothing in this repository bumps a digest** — there is no `dependabot.yml` at all [*added in Chunk 32; see the note at the end of this ADR*], so
+the image. **Nothing in this repository bumps a digest** — there is no `dependabot.yml` at all [*Chunk 32 added one, with a `docker` ecosystem; the decision below stands, but this sentence is no longer its reason — see #14*], so
 the Dependabot that `docs/STATUS.md` mentions is alerts, not version updates. Pinning without an
 updater, on a project with one maintainer, means the images stop receiving security patches and
 nobody notices until a scan says so. That is a worse position than the one F-5 chose.

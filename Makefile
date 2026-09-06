@@ -36,9 +36,11 @@ bootstrap-force: ## Regenerate .env, overwriting the existing file
 backend-install: ## Install the backend's locked dependency set
 	cd $(BACKEND) && $(UV) sync --frozen
 
-# ruff covers the backend, the generator in tools/ and the bootstrap script; lint-imports
+# ruff covers the backend, the generators in tools/ and the lab's preflight; lint-imports
 # enforces the layering contracts in pyproject.toml (ARCHITECTURE §1: domain/ is pure).
-lint: ## Lint the backend, tools/ and infra/scripts, and check the import contracts
+# infra/scripts is deliberately not in the list: bootstrap_env.py is standard-library only and
+# runs before the backend venv exists, which is the whole point of it.
+lint: ## Lint the backend, tools/ and infra/lab, and check the import contracts
 	cd $(BACKEND) && $(UV) run ruff check --config pyproject.toml src tests ../tools ../infra/lab
 	cd $(BACKEND) && $(UV) run lint-imports
 

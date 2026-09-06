@@ -81,7 +81,8 @@ class LoginRequest(Inbound):
 class TokenResponse(BaseModel):
     access_token: str
 
-    # (RFC 6749 §5.1) and "bearer" is the scheme, not a credential.
+    # `S105` is a false positive here: this is the OAuth 2.0 `token_type` *response field*
+    # (RFC 6749 §5.1), and "bearer" is the scheme it names, not a credential.
     token_type: Literal["bearer"] = "bearer"  # noqa: S105
     expires_in: int
 

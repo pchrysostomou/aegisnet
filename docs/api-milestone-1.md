@@ -36,7 +36,7 @@ No stack traces, no SQL, no internal paths (T-2.7). `correlation_id` matches the
 
 | Endpoint group | Limit |
 |---|---|
-| `POST /auth/login` | 5 / 15 min per IP **and** per account; 5 consecutive failures lock the account for 15 min (exponential backoff: M6) |
+| `POST /auth/login` | 5 / 15 min per IP **and** per account; 5 consecutive failures lock the account, each further failure doubling the lock from 15 minutes to a 60-minute ceiling; a lock nobody touches for 24 h is forgotten (ADR-036) |
 | `POST /ingest/*` | 30 requests/min per token; 200 MB/hour per token |
 | Read endpoints | 120 requests/min per user |
 | Everything else | 60 requests/min per subject |

@@ -36,6 +36,7 @@ so `CAP_NET_ADMIN` is not needed, and a test pins the list to exactly `["NET_RAW
 
 ```bash
 make lab-capture        # clean, pre-flight, sensor up, traffic, flush  -> infra/lab/out/eve.json
+make lab-soak HOURS=24  # the same, held open for a day, so D-005 gets 24 sampled hours (#12)
 make lab-sanitize       # L-5: strip and verify                        -> samples/lab/lab-capture-01.ndjson
 make lab-down           # stop everything and remove the lab network
 ```

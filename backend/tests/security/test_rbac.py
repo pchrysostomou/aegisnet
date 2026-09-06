@@ -81,6 +81,24 @@ CASES: list[Case] = [
         {"from": "2026-09-01T00:00:00Z", "to": "2026-09-01T01:00:00Z"},
         None,
     ),
+    ("GET", "/api/v1/incidents", Permission.incidents_read, None, None),
+    ("GET", f"/api/v1/incidents/{ZERO}", Permission.incidents_read, None, None),
+    ("GET", f"/api/v1/incidents/{ZERO}/timeline", Permission.incidents_read, None, None),
+    ("GET", f"/api/v1/incidents/{ZERO}/notes", Permission.incidents_read, None, None),
+    (
+        "POST",
+        f"/api/v1/incidents/{ZERO}/status",
+        Permission.incidents_write,
+        {"status": "triaging"},
+        None,
+    ),
+    (
+        "POST",
+        f"/api/v1/incidents/{ZERO}/notes",
+        Permission.incidents_write,
+        {"body": "looked at this"},
+        None,
+    ),
 ]
 ROLES = ["viewer", "analyst", "admin", "ingest_service"]
 
@@ -132,7 +150,13 @@ def test_every_matrix_case_hits_a_route_with_the_permission_it_claims(app: FastA
         template = path.replace(str(ZERO), "{asset_id}")
         candidates = {
             by_route.get((method, template.replace("{asset_id}", placeholder)))
-            for placeholder in ("{asset_id}", "{event_id}", "{batch_id}", "{alert_id}")
+            for placeholder in (
+                "{asset_id}",
+                "{event_id}",
+                "{batch_id}",
+                "{alert_id}",
+                "{incident_id}",
+            )
         }
         assert permission in candidates, (method, path)
 

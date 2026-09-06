@@ -110,10 +110,10 @@ and cross-referenced).
 **Acceptance criteria.**
 - [ ] A scripted multi-stage synthetic scenario (scan → auth failures → beaconing → large upload from one asset)
       produces exactly one incident with four alerts from four distinct rules and an escalated severity.
-- [ ] Timeline entries are ordered, typed, and include the status changes made during the test.
-- [ ] Every invalid transition returns `409` and is audit-logged as `denied`.
-- [ ] Correlation is idempotent: re-running adds no duplicate incident-alert links.
-- [ ] RBAC: `viewer` receives `403` on all mutations.
+- [x] Timeline entries are ordered, typed, and include the status changes made during the test — `tests/integration/test_incident_routes.py`, over the real router (Chunk 16).
+- [x] Every invalid transition returns `409` and is audit-logged as `denied` — `tests/integration/test_incident_routes.py`; the route audits `incident.status_change_refused` before re-raising (Chunk 16).
+- [x] Correlation is idempotent: re-running adds no duplicate incident-alert links — `tests/db/test_incident_store.py`, including the non-regression that the `ON CONFLICT` survived Chunk 16's split of the append path.
+- [x] RBAC: `viewer` receives `403` on all mutations — the matrix test runs all six incident routes against all four roles (Chunk 16).
 
 **Commands.** `make demo-scenario` · `make test-correlation`.
 

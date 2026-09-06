@@ -205,10 +205,20 @@ Ordered, typed narrative. Append-only.
 `id`, `incident_id` FK, `occurred_at` timestamptz, `entry_type` enum(`alert_fired`,`observation`,`status_change`,`note_added`,`brief_generated`,`report_exported`,`asset_linked`),
 `summary` text, `detail` jsonb, `actor_user_id` uuid NULL, `alert_id` uuid NULL, `created_at`.
 Index: `(incident_id, occurred_at)`. UNIQUE `(incident_id, entry_type, alert_id)`: a case says
-the same thing about an alert once, however often correlation runs.
+the same thing about an alert once, however often correlation runs. PostgreSQL counts NULLs as
+distinct in a UNIQUE, so the constraint only ever suppresses a repeat *about the same alert*: a
+case takes as many `status_change` and `note_added` lines as an analyst produces, and correlation
+still writes each `alert_fired` once. Correlation inserts `ON CONFLICT DO NOTHING`; a human's
+action is inserted plainly, because doing the same thing twice is two things worth recording
+(ADR-024). Reads are ordered `(occurred_at, id)`, which is what the keyset cursor carries.
 
 ### `incident_notes`
 `id`, `incident_id`, `author_id`, `body` text (markdown, rendered via SafeMarkdown), `created_at`. No edits in v1.
+CHECK `length(body) BETWEEN 1 AND 8000`, said again in `domain/incidents.clean_note_body` so an
+over-long note is refused by field name rather than as an integrity error. Index
+`(incident_id, created_at)`; reads are newest first. This is the **only** place a note's text is
+stored: the timeline records that a note exists and how long it is, and the audit log the same
+(ADR-024).
 
 ### `investigation_briefs`
 Immutable, versioned. Regeneration = new row.

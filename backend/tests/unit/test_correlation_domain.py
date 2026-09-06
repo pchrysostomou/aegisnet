@@ -26,13 +26,18 @@ from aegisnet.domain.enums import EntityType
 from aegisnet.domain.incidents import (
     CLOSED_STATUSES,
     ESCALATION_RULE_COUNT,
+    MAX_CLOSURE_REASON_CHARS,
+    MAX_NOTE_CHARS,
     TRANSITIONS,
     IllegalTransitionError,
     IncidentError,
     IncidentStatus,
+    NoteBodyError,
     Window,
     case_number,
     check_transition,
+    clean_closure_reason,
+    clean_note_body,
     is_closed,
     severity_of,
     title_for,
@@ -318,3 +323,42 @@ def test_a_window_grows_and_never_shrinks() -> None:
     assert (narrower.start, narrower.end) == (wider.start, wider.end)
     with pytest.raises(IncidentError):
         Window(T0 + timedelta(minutes=1), T0)
+
+
+# ---------------------------------------------------------------- analyst free text (ADR-024)
+
+
+def test_a_note_keeps_its_paragraphs_and_loses_its_control_characters() -> None:
+    assert clean_note_body("  one\ntwo\tthree  ") == "one\ntwo\tthree"
+    assert clean_note_body("bell\x07 and null\x00") == "bell and null"
+    # A Windows client's line endings become the newline the rest of the body already uses.
+    assert clean_note_body("first\r\nsecond") == "first\nsecond"
+
+
+@pytest.mark.parametrize("body", ["", "   ", "\x00", "\r\n", "\x1f\x7f"])
+def test_a_note_that_is_empty_once_cleaned_is_refused(body: str) -> None:
+    with pytest.raises(NoteBodyError) as error:
+        clean_note_body(body)
+    assert error.value.field == "body"
+    assert error.value.issue == "a note needs something in it"
+
+
+def test_a_note_is_refused_at_the_length_the_column_allows_not_truncated_to_it() -> None:
+    assert clean_note_body("x" * MAX_NOTE_CHARS) == "x" * MAX_NOTE_CHARS
+    with pytest.raises(NoteBodyError):
+        clean_note_body("x" * (MAX_NOTE_CHARS + 1))
+
+
+def test_a_closure_reason_that_says_nothing_is_no_reason_at_all() -> None:
+    assert clean_closure_reason(None) is None
+    assert clean_closure_reason("   ") is None
+    assert clean_closure_reason("\x00\x07") is None
+    assert clean_closure_reason("  known backup  ") == "known backup"
+
+
+def test_a_closure_reason_has_its_own_shorter_limit() -> None:
+    assert MAX_CLOSURE_REASON_CHARS < MAX_NOTE_CHARS
+    assert clean_closure_reason("x" * MAX_CLOSURE_REASON_CHARS) is not None
+    with pytest.raises(NoteBodyError) as error:
+        clean_closure_reason("x" * (MAX_CLOSURE_REASON_CHARS + 1))
+    assert error.value.field == "closure_reason"

@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Any, Final, Generic, Protocol, TypeVar
 from uuid import UUID
 
 from aegisnet.domain.assets import AssetPatch, AssetSpec, IPAddress, IPNetwork, NetworkRecord
@@ -413,6 +413,10 @@ class AlertStore(Protocol):
 
 # ---------------------------------------------------------------- incidents (M3, ADR-023)
 
+DETAIL_TIMELINE_LIMIT: Final = 200
+"""How much of a case's story one detail response carries. Past this the timeline endpoint
+is the way to read it, so a case that ran for a week is bounded without being truncated."""
+
 
 @dataclass(frozen=True, slots=True)
 class IncidentRecord:
@@ -477,10 +481,27 @@ class TimelineEntryRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class NoteRecord:
+    """What an analyst wrote on a case. Never edited (ADR-024): a note is a record of what
+    somebody thought at the time, and a rewritten one is a worse witness than a wrong one."""
+
+    id: UUID
+    incident_id: UUID
+    author_id: UUID | None
+    body: str
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class IncidentDetail:
     incident: IncidentRecord
     alert_ids: tuple[UUID, ...]
     timeline: tuple[TimelineEntryRecord, ...]
+    alerts: tuple[AlertRecord, ...] = ()
+    """The linked alerts themselves, so opening a case is one call rather than one per alert."""
+    timeline_truncated: bool = False
+    """The timeline here is the newest ``DETAIL_TIMELINE_LIMIT`` entries. When this is true the
+    case has more of a story than the detail carries, and the timeline endpoint has the rest."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -537,11 +558,59 @@ class IncidentStore(Protocol):
         """Of these alerts, the ones already in some case. One alert belongs to one case."""
         ...
 
+    async def set_status(
+        self,
+        incident_id: UUID,
+        *,
+        expected: IncidentStatus,
+        target: IncidentStatus,
+        closure_reason: str | None,
+        entry: NewTimelineEntry,
+        now: datetime,
+    ) -> IncidentRecord | None:
+        """Move a case from ``expected`` to ``target`` and write ``entry`` in the same
+        transaction, or return ``None`` because the case was no longer in ``expected``.
+
+        The expected status is part of the write rather than something the caller checked
+        first: two analysts deciding at the same moment is the ordinary case in a shift
+        handover, and the one who loses must be told, not silently overwritten (T-2.3).
+        """
+        ...
+
+    async def add_note(
+        self,
+        incident_id: UUID,
+        *,
+        body: str,
+        author_id: UUID | None,
+        entry: NewTimelineEntry,
+        now: datetime,
+    ) -> NoteRecord | None:
+        """Append a note and its timeline line together; ``None`` when there is no such case."""
+        ...
+
+    async def list_notes(
+        self, incident_id: UUID, *, limit: int, cursor: str | None
+    ) -> Page[NoteRecord]:
+        """Newest first, keyset-paginated."""
+        ...
+
+    async def list_timeline(
+        self, incident_id: UUID, *, limit: int, cursor: str | None
+    ) -> Page[TimelineEntryRecord]:
+        """The whole story in the order it happened, keyset-paginated so a long case stays
+        reachable past whatever the detail response carries."""
+        ...
+
     async def list(self, query: IncidentFilter) -> Page[IncidentRecord]: ...
 
-    async def get(self, incident_id: UUID) -> IncidentDetail | None: ...
+    async def get(
+        self, incident_id: UUID, *, timeline_limit: int = DETAIL_TIMELINE_LIMIT
+    ) -> IncidentDetail | None: ...
 
-    async def get_by_case_number(self, case_number: str) -> IncidentDetail | None: ...
+    async def get_by_case_number(
+        self, case_number: str, *, timeline_limit: int = DETAIL_TIMELINE_LIMIT
+    ) -> IncidentDetail | None: ...
 
 
 @dataclass(frozen=True, slots=True)

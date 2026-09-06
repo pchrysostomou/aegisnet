@@ -9,6 +9,18 @@ Nothing is released yet. There is no tagged version.
 ## [Unreleased]
 
 ### Fixed
+- **Chunk 16 — two defects the adversarial review found before the change was committed.** A
+  keyset cursor built as `(Column.a, Column.b) < (x, y)` is a *Python* tuple comparison, not a
+  SQL row comparison: CPython compares element 0, `bool(Column == x)` is `False`, and the
+  predicate collapses to `Column.a < x`, silently dropping every row that shares the boundary
+  instant. Three queries in the incident store had it — `list` shipped that way in Chunk 15 —
+  and the `# type: ignore[operator]` on each was suppressing the mypy error that names it. All
+  three now use `tuple_()`, like every other store, and a database test pages one entry at a
+  time across three entries sharing an instant.
+- `SqlIncidentStore.extend` now re-reads the case's status under a row lock and refuses a case
+  that closed under it. Correlation reads a case as open in one transaction and extends it in
+  another; until this chunk nothing could close a case in between. Linking into a closed case
+  would have been permanent, because the alert flips to `correlated` and can never be relinked.
 - **Chunk 14 — the two defects the lab found (ADR-022).** A **flow** event is now filed under
   `flow.start` rather than under the record's own timestamp, which is when Suricata's flow
   manager emitted it. Every other event type is unchanged. The emission time stays in the
@@ -39,6 +51,33 @@ Nothing is released yet. There is no tagged version.
   EVE DNS shapes so T1 and T2 exercise the one that broke D-003.
 
 ### Added
+- **Chunk 16 (Milestone 3) — the incidents API, audited transitions and the role matrix
+  (ADR-024).** Six routes under `/api/v1/incidents`: list a case with filters, open one with its
+  linked alerts and the newest 200 lines of its story, page the whole timeline, read and write
+  notes, and move a case through the workflow. Two permissions: `incidents.read` for viewers,
+  because an incident is the readable form of alerts a viewer may already read, and
+  `incidents.write` for analysts, because changing a case is a judgement.
+- A status change is a compare-and-set: the status the caller believed the case held is part of
+  the `UPDATE`'s `WHERE`, so two analysts deciding in the same second cannot both win, and the
+  one who loses is told the case moved rather than silently overwriting a decision they never
+  saw. `closed_at` and `closure_reason` move in that same statement, in both directions, because
+  the check constraint that ties them to the status is an equality.
+- Every change is recorded twice, on purpose: a line in the case's own timeline, written inside
+  the transaction that changed the status, and a row in the append-only audit log, written after
+  it commits. A move the workflow forbids — including a move to the status the case already
+  holds — answers `409` and is audited as `incident.status_change_refused` with `result: denied`.
+  The route writes that record, not an exception handler, because a handler cannot see the
+  principal a dependency resolved and a denial nobody can attribute is not a denial record.
+- Notes: free text, cleaned of control characters but keeping the paragraphs somebody wrote, and
+  refused rather than truncated when too long. A note's body is stored once, in `incident_notes`.
+  The timeline says `"Note added"` and the audit log says `{note_id, length}` — no analyst prose
+  reaches either, because the audit writer's 512-character cap would make its copy differ from
+  the note and its credential filter cannot see into free text.
+- `allowed_transitions` on the case detail, read from the same table the server enforces, so a
+  client never keeps its own copy of the workflow.
+- [`docs/api-milestone-3.md`](docs/api-milestone-3.md) documents the workflow table, every route
+  and every audit action a transition writes.
+
 - **Chunk 13 (Milestone 2, the last) — the isolated Suricata lab, and what it found.**
   `infra/lab/` is an opt-in stack of three containers behind the `lab` profile on a Docker
   network with `internal: true`: a `target` that listens (HTTP, a beacon port, a minimal DNS

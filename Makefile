@@ -300,9 +300,10 @@ incidents: require-env ## List incidents, newest first (OPEN=1 hides closed case
 incident: require-env ## Show one incident by case number or id (REF=AEG-2026-0001)
 	$(COMPOSE) run --rm api python -m aegisnet.cli incident $(REF)
 
-test-correlation: ## The correlation suite alone: the grouping policy, the workflow, the service
+test-correlation: ## The correlation and incident suites: the grouping policy, the workflow, the API
 	cd $(BACKEND) && ENV=test $(UV) run pytest tests/unit/test_correlation_domain.py \
-	  tests/unit/test_correlation_service.py
+	  tests/unit/test_correlation_service.py tests/unit/test_incident_service.py \
+	  tests/integration/test_incident_routes.py
 
 baselines: require-env ## List the stored baselines
 	$(COMPOSE) run --rm api python -m aegisnet.cli baselines

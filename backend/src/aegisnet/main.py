@@ -36,6 +36,7 @@ from aegisnet.adapters.db.detection_store import (
     SqlRuleStore,
 )
 from aegisnet.adapters.db.event_read_store import SqlEventReadStore
+from aegisnet.adapters.db.incident_store import SqlIncidentStore
 from aegisnet.adapters.db.ingest_store import SqlIngestStore
 from aegisnet.adapters.db.session import make_session_factory
 from aegisnet.adapters.files.spool import Spool
@@ -44,7 +45,18 @@ from aegisnet.adapters.queue.detection_queue import RedisDetectionQueue
 from aegisnet.adapters.queue.ingest_queue import RedisIngestQueue
 from aegisnet.api.deps import AppServices
 from aegisnet.api.errors import register_error_handlers
-from aegisnet.api.v1 import alerts, assets, audit, auth, detections, events, health, ingest, meta
+from aegisnet.api.v1 import (
+    alerts,
+    assets,
+    audit,
+    auth,
+    detections,
+    events,
+    health,
+    incidents,
+    ingest,
+    meta,
+)
 from aegisnet.config import Settings, get_settings
 from aegisnet.logging import configure_logging, correlation_id_var, get_logger
 from aegisnet.services.asset_service import AssetService
@@ -53,6 +65,7 @@ from aegisnet.services.auth_service import AuthPolicy, AuthService
 from aegisnet.services.baseline_service import BaselineService
 from aegisnet.services.detection_service import DetectionService
 from aegisnet.services.event_read_service import EventReadService
+from aegisnet.services.incident_service import IncidentService
 from aegisnet.services.ingest_service import IngestService, limits_from_settings
 from aegisnet.version import APP_VERSION
 
@@ -76,6 +89,7 @@ def build_services(settings: Settings, engine: AsyncEngine, cache: Redis) -> App
     asset_store = SqlAssetStore(sessions)
     asset_service = AssetService(asset_store)
     baseline_store = SqlBaselineStore(sessions)
+    incident_store = SqlIncidentStore(sessions)
 
     async def enqueue_upload(batch_id: UUID, spool_name: str, source_label: str) -> str:
         return queue.enqueue_upload(batch_id, spool_name, source_label)
@@ -119,6 +133,7 @@ def build_services(settings: Settings, engine: AsyncEngine, cache: Redis) -> App
         enqueue_sweep=enqueue_sweep,
         baselines=BaselineService(asset_store, events_store, baseline_store),
         enqueue_baselines=enqueue_baselines,
+        incidents=IncidentService(incident_store),
     )
 
 
@@ -227,6 +242,7 @@ def create_app(
     app.include_router(audit.router)
     app.include_router(alerts.router)
     app.include_router(detections.router)
+    app.include_router(incidents.router)
     return app
 
 

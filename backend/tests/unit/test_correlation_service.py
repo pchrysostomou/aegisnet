@@ -19,7 +19,7 @@ from aegisnet.domain.enums import (
     IncidentStatus,
     TimelineEntryType,
 )
-from aegisnet.domain.ports import AlertRecord
+from aegisnet.domain.ports import AlertRecord, NewIncident
 from aegisnet.services.correlation_service import (
     CorrelationRunError,
     CorrelationService,
@@ -283,3 +283,44 @@ async def test_the_summary_names_cases_but_no_alert_content() -> None:
     [case] = summary["cases"]  # type: ignore[misc]
     assert case["case_number"].startswith("AEG-")
     assert "evidence" not in str(summary)
+
+
+async def test_a_case_closed_between_the_read_and_the_write_absorbs_nothing() -> None:
+    """The window Chunk 16 opened: correlation reads a case as open, an analyst closes it, and
+    correlation's extend arrives afterwards. The store refuses it — linking would be permanent,
+    because the alert flips to `correlated` and can never be relinked to the case it belongs in.
+    """
+    incidents = FakeIncidentStore()
+    opened = await incidents.open_case(
+        NewIncident(
+            correlation_key=f"src_ip={HOST}",
+            title="D-001 on the host",
+            severity=3,
+            severity_rationale={"result": 3},
+            window_start=T0,
+            window_end=T0 + timedelta(minutes=1),
+            distinct_rule_count=1,
+            alert_ids=(uuid4(),),
+        ),
+        [],
+        now=NOW,
+    )
+    incidents.rows[opened.id] = replace(
+        opened, status=IncidentStatus.closed_benign, closed_at=NOW, closure_reason="handled"
+    )
+    linked = await incidents.extend(
+        opened.id,
+        [uuid4(), uuid4()],
+        [],
+        severity=5,
+        severity_rationale={"result": 5},
+        title="should not be applied",
+        window_end=T0 + timedelta(hours=3),
+        distinct_rule_count=3,
+        now=NOW,
+    )
+    assert linked == 0
+    frozen = incidents.rows[opened.id]
+    assert frozen.title == "D-001 on the host"
+    assert frozen.window_end == opened.window_end
+    assert frozen.severity == 3

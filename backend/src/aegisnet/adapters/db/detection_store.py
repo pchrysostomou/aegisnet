@@ -77,7 +77,7 @@ def _run(row: DetectorRun, rule_id: str) -> DetectorRunRecord:
     )
 
 
-def _alert(row: Alert, rule_id: str) -> AlertRecord:
+def alert_record(row: Alert, rule_id: str) -> AlertRecord:
     return AlertRecord(
         id=row.id,
         rule_id=rule_id,
@@ -314,7 +314,7 @@ class SqlAlertStore:
             rows = (await session.execute(statement)).all()
         has_more = len(rows) > query.limit
         rows = rows[: query.limit]
-        items = tuple(_alert(row, rule_id) for row, rule_id in rows)
+        items = tuple(alert_record(row, rule_id) for row, rule_id in rows)
         next_cursor = (
             encode_time_id(items[-1].first_seen, items[-1].id) if has_more and items else None
         )
@@ -347,7 +347,7 @@ class SqlAlertStore:
                 )
             ).all()
         return AlertDetail(
-            alert=_alert(row, rule_id),
+            alert=alert_record(row, rule_id),
             events=tuple((event_id, SampleRole(role)) for event_id, role in events),
             assets=tuple((asset_id, AlertAssetRole(role)) for asset_id, role in assets),
         )

@@ -312,3 +312,404 @@ async def test_a_case_can_be_found_by_its_number(store: SqlIncidentStore, sessio
     assert detail is not None and detail.incident.id == case.id
     assert await store.get_by_case_number("AEG-2026-9999") is None
     assert await store.get(uuid4()) is None
+
+
+# ---------------------------------------------------------------- the workflow (Chunk 16)
+
+
+async def _open_one(store: SqlIncidentStore, sessions, *, count: int = 1):  # type: ignore[no-untyped-def]
+    alerts = await _alerts(sessions, count)
+    record = await store.open_case(
+        _new_case(tuple(a.id for a in alerts)),
+        [
+            NewTimelineEntry(
+                occurred_at=a.first_seen,
+                entry_type=TimelineEntryType.alert_fired,
+                summary=f"{a.rule_id} fired",
+                alert_id=a.id,
+            )
+            for a in alerts
+        ],
+        now=NOW,
+    )
+    return record, alerts
+
+
+def _change(target: IncidentStatus, at: datetime) -> NewTimelineEntry:
+    return NewTimelineEntry(
+        occurred_at=at,
+        entry_type=TimelineEntryType.status_change,
+        summary=f"Status changed to {target.value}",
+        detail={"to": target.value},
+    )
+
+
+async def test_a_status_change_moves_the_case_and_writes_one_line(
+    store: SqlIncidentStore, sessions
+) -> None:  # type: ignore[no-untyped-def]
+    record, _alerts_ = await _open_one(store, sessions)
+    moved = await store.set_status(
+        record.id,
+        expected=IncidentStatus.new,
+        target=IncidentStatus.triaging,
+        closure_reason=None,
+        entry=_change(IncidentStatus.triaging, NOW),
+        now=NOW,
+    )
+    assert moved is not None
+    assert moved.status is IncidentStatus.triaging
+    assert moved.closed_at is None and moved.closure_reason is None
+    detail = await store.get(record.id)
+    assert detail is not None
+    assert [e.entry_type for e in detail.timeline] == [
+        TimelineEntryType.alert_fired,
+        TimelineEntryType.status_change,
+    ]
+
+
+async def test_a_change_from_a_status_the_case_no_longer_holds_writes_nothing(
+    store: SqlIncidentStore, sessions
+) -> None:  # type: ignore[no-untyped-def]
+    record, _alerts_ = await _open_one(store, sessions)
+    await store.set_status(
+        record.id,
+        expected=IncidentStatus.new,
+        target=IncidentStatus.triaging,
+        closure_reason=None,
+        entry=_change(IncidentStatus.triaging, NOW),
+        now=NOW,
+    )
+    # The second caller still believes the case is `new`: it must lose, and leave no trace.
+    lost = await store.set_status(
+        record.id,
+        expected=IncidentStatus.new,
+        target=IncidentStatus.investigating,
+        closure_reason=None,
+        entry=_change(IncidentStatus.investigating, NOW),
+        now=NOW,
+    )
+    assert lost is None
+    detail = await store.get(record.id)
+    assert detail is not None
+    assert detail.incident.status is IncidentStatus.triaging
+    assert sum(1 for e in detail.timeline if e.entry_type is TimelineEntryType.status_change) == 1
+
+
+async def test_closing_and_reopening_satisfy_the_check_constraint_in_both_directions(
+    store: SqlIncidentStore, sessions
+) -> None:  # type: ignore[no-untyped-def]
+    record, _alerts_ = await _open_one(store, sessions)
+    closed = await store.set_status(
+        record.id,
+        expected=IncidentStatus.new,
+        target=IncidentStatus.closed_benign,
+        closure_reason="a known backup job",
+        entry=_change(IncidentStatus.closed_benign, NOW),
+        now=NOW,
+    )
+    assert closed is not None
+    assert closed.closed_at == NOW
+    assert closed.closure_reason == "a known backup job"
+    # ck_incidents_closed_at_matches_status is an equality, so reopening has to clear both or
+    # the statement fails outright rather than leaving a case that claims to be closed.
+    later = NOW + timedelta(hours=1)
+    reopened = await store.set_status(
+        record.id,
+        expected=IncidentStatus.closed_benign,
+        target=IncidentStatus.investigating,
+        closure_reason=None,
+        entry=_change(IncidentStatus.investigating, later),
+        now=later,
+    )
+    assert reopened is not None
+    assert reopened.closed_at is None and reopened.closure_reason is None
+
+
+async def test_a_case_takes_many_status_changes_because_nulls_are_distinct(
+    store: SqlIncidentStore, sessions
+) -> None:  # type: ignore[no-untyped-def]
+    """uq_incident_timeline_alert_entry is (incident_id, entry_type, alert_id). A status
+    change carries no alert, and PostgreSQL counts NULLs as distinct, so the constraint never
+    collapses a case's history into one line. This is the test that says so out loud."""
+    record, _alerts_ = await _open_one(store, sessions)
+    walk = [
+        (IncidentStatus.new, IncidentStatus.triaging),
+        (IncidentStatus.triaging, IncidentStatus.investigating),
+        (IncidentStatus.investigating, IncidentStatus.contained_recommended),
+    ]
+    for index, (current, target) in enumerate(walk):
+        assert (
+            await store.set_status(
+                record.id,
+                expected=current,
+                target=target,
+                closure_reason=None,
+                entry=_change(target, NOW + timedelta(minutes=index)),
+                now=NOW + timedelta(minutes=index),
+            )
+            is not None
+        )
+    detail = await store.get(record.id)
+    assert detail is not None
+    changes = [e for e in detail.timeline if e.entry_type is TimelineEntryType.status_change]
+    assert [e.detail["to"] for e in changes] == [
+        "triaging",
+        "investigating",
+        "contained_recommended",
+    ]
+
+
+async def test_correlation_still_says_the_same_thing_about_an_alert_once(
+    store: SqlIncidentStore, sessions
+) -> None:  # type: ignore[no-untyped-def]
+    """The non-regression for splitting `_append_one` out of `_append`: the ON CONFLICT that
+    makes a re-run a no-op has to still be on the path correlation uses."""
+    record, alerts = await _open_one(store, sessions, count=1)
+    repeat = NewTimelineEntry(
+        occurred_at=alerts[0].first_seen,
+        entry_type=TimelineEntryType.alert_fired,
+        summary="D-001 fired (again)",
+        alert_id=alerts[0].id,
+    )
+    linked = await store.extend(
+        record.id,
+        [alerts[0].id],
+        [repeat],
+        severity=3,
+        severity_rationale={"result": 3},
+        title=record.title,
+        window_end=record.window_end,
+        distinct_rule_count=1,
+        now=NOW,
+    )
+    assert linked == 0
+    detail = await store.get(record.id)
+    assert detail is not None
+    assert [e.entry_type for e in detail.timeline] == [TimelineEntryType.alert_fired]
+
+
+# ---------------------------------------------------------------- notes and reads
+
+
+async def test_a_note_is_stored_with_its_timeline_line_and_pages_newest_first(
+    store: SqlIncidentStore, sessions
+) -> None:  # type: ignore[no-untyped-def]
+    record, _alerts_ = await _open_one(store, sessions)
+    author = uuid4()
+    notes = []
+    for index in range(3):
+        note = await store.add_note(
+            record.id,
+            body=f"note {index}",
+            author_id=None,
+            entry=NewTimelineEntry(
+                occurred_at=NOW + timedelta(minutes=index),
+                entry_type=TimelineEntryType.note_added,
+                summary="Note added",
+                detail={"length": 6},
+            ),
+            now=NOW + timedelta(minutes=index),
+        )
+        assert note is not None
+        notes.append(note)
+    assert [n.body for n in notes] == ["note 0", "note 1", "note 2"]
+    assert author  # the FK path is exercised by the API tests; None is the anonymous case
+
+    first = await store.list_notes(record.id, limit=2, cursor=None)
+    assert [n.body for n in first.items] == ["note 2", "note 1"]
+    assert first.next_cursor is not None
+    second = await store.list_notes(record.id, limit=2, cursor=first.next_cursor)
+    assert [n.body for n in second.items] == ["note 0"]
+    assert second.next_cursor is None
+
+    detail = await store.get(record.id)
+    assert detail is not None
+    lines = [e for e in detail.timeline if e.entry_type is TimelineEntryType.note_added]
+    assert len(lines) == 3
+    assert lines[0].detail["note_id"] == str(notes[0].id)
+
+
+async def test_a_note_on_a_case_that_does_not_exist_is_refused_not_orphaned(
+    store: SqlIncidentStore,
+) -> None:
+    assert (
+        await store.add_note(
+            uuid4(),
+            body="into the void",
+            author_id=None,
+            entry=NewTimelineEntry(
+                occurred_at=NOW,
+                entry_type=TimelineEntryType.note_added,
+                summary="Note added",
+            ),
+            now=NOW,
+        )
+        is None
+    )
+
+
+async def test_the_timeline_pages_in_the_order_things_happened(
+    store: SqlIncidentStore, sessions
+) -> None:  # type: ignore[no-untyped-def]
+    record, _alerts_ = await _open_one(store, sessions, count=2)
+    await store.set_status(
+        record.id,
+        expected=IncidentStatus.new,
+        target=IncidentStatus.triaging,
+        closure_reason=None,
+        entry=_change(IncidentStatus.triaging, NOW),
+        now=NOW,
+    )
+    first = await store.list_timeline(record.id, limit=2, cursor=None)
+    assert [e.entry_type for e in first.items] == [
+        TimelineEntryType.alert_fired,
+        TimelineEntryType.alert_fired,
+    ]
+    assert first.next_cursor is not None
+    rest = await store.list_timeline(record.id, limit=2, cursor=first.next_cursor)
+    assert [e.entry_type for e in rest.items] == [TimelineEntryType.status_change]
+    assert rest.next_cursor is None
+
+
+async def test_a_detail_carries_its_alerts_and_admits_when_it_cut_the_timeline(
+    store: SqlIncidentStore, sessions
+) -> None:  # type: ignore[no-untyped-def]
+    record, alerts = await _open_one(store, sessions, count=2)
+    whole = await store.get(record.id)
+    assert whole is not None
+    assert [a.rule_id for a in whole.alerts] == ["D-001", "D-001"]
+    assert whole.alert_ids == tuple(a.id for a in alerts)
+    assert whole.timeline_truncated is False
+
+    clipped = await store.get(record.id, timeline_limit=1)
+    assert clipped is not None
+    assert clipped.timeline_truncated is True
+    # The end that survives is the recent one, which is the part an analyst is working from.
+    assert clipped.timeline[0].alert_id == alerts[-1].id
+
+
+async def test_listing_incidents_pages_with_a_cursor(store: SqlIncidentStore, sessions) -> None:  # type: ignore[no-untyped-def]
+    alerts = await _alerts(sessions, 3)
+    for index, alert in enumerate(alerts):
+        await store.open_case(
+            _new_case((alert.id,), correlation_key=f"src_ip=10.10.0.{index}"),
+            [],
+            now=NOW + timedelta(minutes=index),
+        )
+    first = await store.list(IncidentFilter(limit=2))
+    assert len(first.items) == 2
+    assert first.next_cursor is not None
+    second = await store.list(IncidentFilter(limit=2, cursor=first.next_cursor))
+    assert len(second.items) == 1
+    assert second.next_cursor is None
+    numbers = [i.case_number for i in (*first.items, *second.items)]
+    assert numbers == ["AEG-2026-0003", "AEG-2026-0002", "AEG-2026-0001"]
+
+
+async def test_paging_across_entries_that_share_an_instant_loses_none_of_them(
+    store: SqlIncidentStore, sessions
+) -> None:  # type: ignore[no-untyped-def]
+    """A keyset cursor has to compare `(time, id)` as a SQL row, not just the time.
+
+    Ties are ordinary here: correlation writes an `observation` line at the window start, which
+    is by construction the `occurred_at` of the earliest `alert_fired`. A predicate that
+    compares only the timestamp drops every entry sharing the boundary instant, and the loss is
+    silent — the page simply comes back short.
+    """
+    record, _alerts_ = await _open_one(store, sessions)
+    tied = T0 - timedelta(hours=1)
+    for index in range(3):
+        await store.add_note(
+            record.id,
+            body=f"tied note {index}",
+            author_id=None,
+            entry=NewTimelineEntry(
+                occurred_at=tied,
+                entry_type=TimelineEntryType.observation,
+                summary=f"same instant {index}",
+            ),
+            now=tied,
+        )
+
+    seen: list[str] = []
+    cursor: str | None = None
+    while True:
+        page = await store.list_timeline(record.id, limit=1, cursor=cursor)
+        seen.extend(e.summary for e in page.items)
+        cursor = page.next_cursor
+        if cursor is None:
+            break
+    assert sorted(s for s in seen if s.startswith("same instant")) == [
+        "same instant 0",
+        "same instant 1",
+        "same instant 2",
+    ]
+    whole = await store.list_timeline(record.id, limit=50, cursor=None)
+    assert len(seen) == len(whole.items), "paging one at a time saw every entry exactly once"
+
+    # The same predicate, in the other direction, on notes.
+    notes: list[str] = []
+    cursor = None
+    while True:
+        page_n = await store.list_notes(record.id, limit=1, cursor=cursor)
+        notes.extend(n.body for n in page_n.items)
+        cursor = page_n.next_cursor
+        if cursor is None:
+            break
+    assert sorted(notes) == ["tied note 0", "tied note 1", "tied note 2"]
+
+
+async def test_a_case_closed_under_correlation_absorbs_nothing(
+    store: SqlIncidentStore, sessions
+) -> None:  # type: ignore[no-untyped-def]
+    """ADR-023's invariant, at the one moment Chunk 16 made it reachable.
+
+    Correlation reads the open case in one transaction and extends it in another. An analyst
+    closing the case in between must not have new alerts buried in it: linking is permanent,
+    because it flips the alert to `correlated` and `uq_incident_alerts_alert_id` means it can
+    never be relinked to the new case it belongs in.
+    """
+    alerts = await _alerts(sessions, 3)
+    record = await store.open_case(_new_case((alerts[0].id,)), [], now=NOW)
+
+    closed = await store.set_status(
+        record.id,
+        expected=IncidentStatus.new,
+        target=IncidentStatus.closed_false_positive,
+        closure_reason="not our host",
+        entry=_change(IncidentStatus.closed_false_positive, NOW),
+        now=NOW,
+    )
+    assert closed is not None
+
+    linked = await store.extend(
+        record.id,
+        [alerts[1].id, alerts[2].id],
+        [
+            NewTimelineEntry(
+                occurred_at=a.first_seen,
+                entry_type=TimelineEntryType.alert_fired,
+                summary=f"{a.rule_id} fired",
+                alert_id=a.id,
+            )
+            for a in alerts[1:]
+        ],
+        severity=4,
+        severity_rationale={"result": 4},
+        title="should not be applied",
+        window_end=T0 + timedelta(hours=2),
+        distinct_rule_count=2,
+        now=NOW + timedelta(minutes=1),
+    )
+    assert linked == 0
+
+    detail = await store.get(record.id)
+    assert detail is not None
+    assert detail.alert_ids == (alerts[0].id,), "no alert was buried in the closed case"
+    assert detail.incident.title != "should not be applied"
+    assert detail.incident.window_end == record.window_end, "a closed case's window is frozen"
+    assert all(e.entry_type is not TimelineEntryType.alert_fired for e in detail.timeline)
+
+    # The alerts are untouched, so the next correlation run opens a new case beside this one.
+    still_open = await SqlAlertStore(sessions).list(AlertFilter(status=AlertStatus.open, limit=10))
+    assert {a.id for a in still_open.items} >= {alerts[1].id, alerts[2].id}

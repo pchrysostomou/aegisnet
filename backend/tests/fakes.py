@@ -46,6 +46,7 @@ from aegisnet.domain.incidents import case_number, is_closed
 from aegisnet.domain.models import NormalizedEvent
 from aegisnet.domain.pagination import decode_time_id, encode_time_id
 from aegisnet.domain.ports import (
+    DETAIL_TIMELINE_LIMIT,
     AlertDetail,
     AlertFilter,
     AlertRecord,
@@ -70,6 +71,7 @@ from aegisnet.domain.ports import (
     NewAlert,
     NewIncident,
     NewTimelineEntry,
+    NoteRecord,
     Page,
     RateLimitDecision,
     RefreshTokenRecord,
@@ -87,6 +89,7 @@ from aegisnet.services.auth_service import AuthPolicy, AuthService
 from aegisnet.services.baseline_service import BaselineService
 from aegisnet.services.detection_service import DetectionService
 from aegisnet.services.event_read_service import EventReadService
+from aegisnet.services.incident_service import IncidentService
 from aegisnet.services.ingest_service import IngestService, limits_from_settings
 
 
@@ -656,12 +659,16 @@ class FakeIncidentStore:
     """The incident store in memory, with the two constraints that matter kept honest: an
     alert belongs to one case, and a case says the same thing about an alert once."""
 
-    def __init__(self) -> None:
+    def __init__(self, alert_store: FakeAlertStore | None = None) -> None:
         self.rows: dict[UUID, IncidentRecord] = {}
         self.alerts: dict[UUID, UUID] = {}
         """alert id -> incident id, which is the UNIQUE that makes a re-run a no-op."""
         self.timeline: dict[UUID, list[TimelineEntryRecord]] = {}
+        self.notes: dict[UUID, list[NoteRecord]] = {}
         self.ordinal = 0
+        self._alert_store = alert_store
+        """Where the linked alerts come from on a detail; ``None`` means the detail carries
+        their ids only, which is all the correlation tests ever look at."""
 
     async def open_case(
         self,
@@ -726,6 +733,11 @@ class FakeIncidentStore:
         now: datetime,
         source: IncidentAlertSource = IncidentAlertSource.correlation_engine,
     ) -> int:
+        # Mirrors the SQL store's row-locked re-read: a case an analyst closed between
+        # correlation's read and its write absorbs nothing (ADR-023).
+        current = self.rows.get(incident_id)
+        if current is None or is_closed(current.status):
+            return 0
         linked = self._link(incident_id, alert_ids)
         self._append(incident_id, entries, now)
         if linked:
@@ -744,6 +756,91 @@ class FakeIncidentStore:
     async def already_linked(self, alert_ids: Sequence[UUID]) -> set[UUID]:
         return {alert_id for alert_id in alert_ids if alert_id in self.alerts}
 
+    async def set_status(
+        self,
+        incident_id: UUID,
+        *,
+        expected: IncidentStatus,
+        target: IncidentStatus,
+        closure_reason: str | None,
+        entry: NewTimelineEntry,
+        now: datetime,
+    ) -> IncidentRecord | None:
+        current = self.rows.get(incident_id)
+        # The compare half of the compare-and-set: a caller working from a stale read loses.
+        if current is None or current.status is not expected:
+            return None
+        closing = is_closed(target)
+        updated = replace(
+            current,
+            status=target,
+            closed_at=now if closing else None,
+            closure_reason=closure_reason if closing else None,
+            updated_at=now,
+        )
+        self.rows[incident_id] = updated
+        self._append_one(incident_id, entry, now)
+        return updated
+
+    async def add_note(
+        self,
+        incident_id: UUID,
+        *,
+        body: str,
+        author_id: UUID | None,
+        entry: NewTimelineEntry,
+        now: datetime,
+    ) -> NoteRecord | None:
+        if incident_id not in self.rows:
+            return None
+        note = NoteRecord(
+            id=uuid4(),
+            incident_id=incident_id,
+            author_id=author_id,
+            body=body,
+            created_at=now,
+        )
+        self.notes.setdefault(incident_id, []).append(note)
+        self._append_one(
+            incident_id, replace(entry, detail={**entry.detail, "note_id": str(note.id)}), now
+        )
+        self.rows[incident_id] = replace(self.rows[incident_id], updated_at=now)
+        return note
+
+    async def list_notes(
+        self, incident_id: UUID, *, limit: int, cursor: str | None
+    ) -> Page[NoteRecord]:
+        rows = sorted(
+            self.notes.get(incident_id, []), key=lambda n: (n.created_at, n.id.int), reverse=True
+        )
+        if cursor is not None:
+            moment, last_id = decode_time_id(cursor)
+            rows = [n for n in rows if (n.created_at, n.id.int) < (moment, last_id.int)]
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        return Page(
+            items=tuple(rows),
+            next_cursor=(
+                encode_time_id(rows[-1].created_at, rows[-1].id) if has_more and rows else None
+            ),
+        )
+
+    async def list_timeline(
+        self, incident_id: UUID, *, limit: int, cursor: str | None
+    ) -> Page[TimelineEntryRecord]:
+        rows = self._ordered_timeline(incident_id)
+        if cursor is not None:
+            moment, last_id = decode_time_id(cursor)
+            rows = [e for e in rows if (e.occurred_at, e.id.int) > (moment, last_id.int)]
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        return Page(
+            items=tuple(rows),
+            next_cursor=(
+                encode_time_id(rows[-1].occurred_at, rows[-1].id) if has_more and rows else None
+            ),
+        )
+
     async def list(self, query: IncidentFilter) -> Page[IncidentRecord]:
         rows = list(self.rows.values())
         if query.status is not None:
@@ -755,27 +852,48 @@ class FakeIncidentStore:
         if query.correlation_key is not None:
             rows = [r for r in rows if r.correlation_key == query.correlation_key]
         rows.sort(key=lambda r: (r.created_at, r.id.int), reverse=True)
-        return Page(items=tuple(rows[: query.limit]), next_cursor=None)
+        if query.cursor is not None:
+            moment, last_id = decode_time_id(query.cursor)
+            rows = [r for r in rows if (r.created_at, r.id.int) < (moment, last_id.int)]
+        has_more = len(rows) > query.limit
+        rows = rows[: query.limit]
+        cursor = encode_time_id(rows[-1].created_at, rows[-1].id) if has_more and rows else None
+        return Page(items=tuple(rows), next_cursor=cursor)
 
-    async def get(self, incident_id: UUID) -> IncidentDetail | None:
+    async def get(
+        self, incident_id: UUID, *, timeline_limit: int = DETAIL_TIMELINE_LIMIT
+    ) -> IncidentDetail | None:
         row = self.rows.get(incident_id)
-        return None if row is None else self._detail(row)
+        return None if row is None else self._detail(row, timeline_limit)
 
-    async def get_by_case_number(self, case_number_value: str) -> IncidentDetail | None:
+    async def get_by_case_number(
+        self, case_number_value: str, *, timeline_limit: int = DETAIL_TIMELINE_LIMIT
+    ) -> IncidentDetail | None:
         for row in self.rows.values():
             if row.case_number == case_number_value:
-                return self._detail(row)
+                return self._detail(row, timeline_limit)
         return None
 
     # ---- internals
 
-    def _detail(self, row: IncidentRecord) -> IncidentDetail:
+    def _detail(self, row: IncidentRecord, timeline_limit: int) -> IncidentDetail:
         alerts = tuple(a for a, incident in self.alerts.items() if incident == row.id)
+        records = (
+            ()
+            if self._alert_store is None
+            else tuple(self._alert_store.rows[a] for a in alerts if a in self._alert_store.rows)
+        )
+        ordered = self._ordered_timeline(row.id)
         return IncidentDetail(
             incident=row,
             alert_ids=alerts,
-            timeline=tuple(sorted(self.timeline[row.id], key=lambda e: e.occurred_at)),
+            timeline=tuple(ordered[-timeline_limit:]),
+            alerts=records,
+            timeline_truncated=len(ordered) > timeline_limit,
         )
+
+    def _ordered_timeline(self, incident_id: UUID) -> list[TimelineEntryRecord]:
+        return sorted(self.timeline.get(incident_id, []), key=lambda e: (e.occurred_at, e.id.int))
 
     def _link(self, incident_id: UUID, alert_ids: Sequence[UUID]) -> int:
         linked = 0
@@ -789,24 +907,35 @@ class FakeIncidentStore:
     def _append(
         self, incident_id: UUID, entries: Sequence[NewTimelineEntry], now: datetime
     ) -> None:
-        existing = {(e.entry_type, e.alert_id) for e in self.timeline.get(incident_id, [])}
+        # The UNIQUE is (incident_id, entry_type, alert_id) and PostgreSQL counts NULLs as
+        # distinct, so it only ever suppresses a repeat about the *same alert*. Entries
+        # without one — a status change, a note — are never deduplicated by it.
+        existing = {
+            (e.entry_type, e.alert_id)
+            for e in self.timeline.get(incident_id, [])
+            if e.alert_id is not None
+        }
         for entry in entries:
-            if (entry.entry_type, entry.alert_id) in existing:
+            if entry.alert_id is not None and (entry.entry_type, entry.alert_id) in existing:
                 continue
-            existing.add((entry.entry_type, entry.alert_id))
-            self.timeline.setdefault(incident_id, []).append(
-                TimelineEntryRecord(
-                    id=uuid4(),
-                    incident_id=incident_id,
-                    occurred_at=entry.occurred_at,
-                    entry_type=entry.entry_type,
-                    summary=entry.summary,
-                    detail=dict(entry.detail),
-                    alert_id=entry.alert_id,
-                    actor_user_id=entry.actor_user_id,
-                    created_at=now,
-                )
+            if entry.alert_id is not None:
+                existing.add((entry.entry_type, entry.alert_id))
+            self._append_one(incident_id, entry, now)
+
+    def _append_one(self, incident_id: UUID, entry: NewTimelineEntry, now: datetime) -> None:
+        self.timeline.setdefault(incident_id, []).append(
+            TimelineEntryRecord(
+                id=uuid4(),
+                incident_id=incident_id,
+                occurred_at=entry.occurred_at,
+                entry_type=entry.entry_type,
+                summary=entry.summary,
+                detail=dict(entry.detail),
+                alert_id=entry.alert_id,
+                actor_user_id=entry.actor_user_id,
+                created_at=now,
             )
+        )
 
 
 class FakeAlertStore:
@@ -965,6 +1094,8 @@ class FakeWiring:
         self.baselines = BaselineService(
             self.asset_store, self.event_store, self.baseline_store, clock=self.clock
         )
+        self.incident_store = FakeIncidentStore(self.alert_store)
+        self.incidents = IncidentService(self.incident_store, clock=self.clock)
         self.sweeps: list[tuple[datetime, datetime]] = []
         self.baseline_requests: list[int] = []
 
@@ -1001,6 +1132,7 @@ class FakeWiring:
             enqueue_sweep=enqueue_sweep,
             baselines=self.baselines,
             enqueue_baselines=enqueue_baselines,
+            incidents=self.incidents,
         )
 
     def factory(self) -> object:

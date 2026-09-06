@@ -44,8 +44,13 @@ def test_the_viewer_reads_without_payloads_and_the_analyst_cannot_administer() -
         Permission.assets_read,
         Permission.events_read,
         Permission.alerts_read,
+        # A case is the readable form of alerts a viewer may already read, so reading one
+        # tells them nothing new; changing one is an analyst's job (ADR-024).
+        Permission.incidents_read,
     }
     assert {Permission.events_payload, Permission.assets_write, Permission.ingest_read} <= analyst
+    assert Permission.incidents_write in analyst
+    assert Permission.incidents_write not in viewer
     admin_only = {
         Permission.assets_admin,
         Permission.ingest_write,

@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any, Final, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from aegisnet.domain.assets import MAX_BULK, AssetSpec
 from aegisnet.domain.enums import (
@@ -23,11 +23,19 @@ from aegisnet.domain.enums import (
     DetectorRunStatus,
     EntityType,
     EventType,
+    IncidentStatus,
     IngestMethod,
     IngestStatus,
     RejectReason,
     SampleRole,
     SourceType,
+    TimelineEntryType,
+)
+from aegisnet.domain.incidents import (
+    MAX_CLOSURE_REASON_CHARS,
+    MAX_NOTE_CHARS,
+    allowed_from,
+    is_closed,
 )
 from aegisnet.domain.ports import (
     AlertDetail,
@@ -39,10 +47,14 @@ from aegisnet.domain.ports import (
     DetectorRunRecord,
     EventRow,
     EventStats,
+    IncidentDetail,
+    IncidentRecord,
+    NoteRecord,
     Page,
     RejectRow,
     ResolvedAsset,
     RuleRecord,
+    TimelineEntryRecord,
     UserRecord,
 )
 
@@ -511,6 +523,160 @@ class SweepAccepted(BaseModel):
     message_id: str
 
 
+# ---------------------------------------------------------------- incidents (M3, ADR-024)
+
+
+class IncidentOut(BaseModel):
+    id: UUID
+    case_number: str
+    title: str
+    severity: int
+    severity_rationale: dict[str, Any]
+    status: IncidentStatus
+    primary_asset_id: UUID | None
+    correlation_key: str
+    window_start: datetime
+    window_end: datetime
+    distinct_rule_count: int
+    assigned_to: UUID | None
+    closed_at: datetime | None
+    closure_reason: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_record(cls, record: IncidentRecord) -> IncidentOut:
+        return cls(
+            id=record.id,
+            case_number=record.case_number,
+            title=record.title,
+            severity=record.severity,
+            severity_rationale=record.severity_rationale,
+            status=record.status,
+            primary_asset_id=record.primary_asset_id,
+            correlation_key=record.correlation_key,
+            window_start=record.window_start,
+            window_end=record.window_end,
+            distinct_rule_count=record.distinct_rule_count,
+            assigned_to=record.assigned_to,
+            closed_at=record.closed_at,
+            closure_reason=record.closure_reason,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )
+
+
+class IncidentPage(BaseModel):
+    items: list[IncidentOut]
+    next_cursor: str | None
+
+    @classmethod
+    def from_page(cls, page: Page[IncidentRecord]) -> IncidentPage:
+        return cls(
+            items=[IncidentOut.from_record(i) for i in page.items], next_cursor=page.next_cursor
+        )
+
+
+class TimelineEntryOut(BaseModel):
+    id: UUID
+    occurred_at: datetime
+    entry_type: TimelineEntryType
+    summary: str
+    detail: dict[str, Any]
+    alert_id: UUID | None
+    actor_user_id: UUID | None
+    created_at: datetime
+
+    @classmethod
+    def from_record(cls, record: TimelineEntryRecord) -> TimelineEntryOut:
+        return cls(
+            id=record.id,
+            occurred_at=record.occurred_at,
+            entry_type=record.entry_type,
+            summary=record.summary,
+            detail=record.detail,
+            alert_id=record.alert_id,
+            actor_user_id=record.actor_user_id,
+            created_at=record.created_at,
+        )
+
+
+class TimelinePage(BaseModel):
+    items: list[TimelineEntryOut]
+    next_cursor: str | None
+
+    @classmethod
+    def from_page(cls, page: Page[TimelineEntryRecord]) -> TimelinePage:
+        return cls(
+            items=[TimelineEntryOut.from_record(e) for e in page.items],
+            next_cursor=page.next_cursor,
+        )
+
+
+class IncidentDetailOut(IncidentOut):
+    alerts: list[AlertOut]
+    timeline: list[TimelineEntryOut]
+    timeline_truncated: bool
+    allowed_transitions: list[IncidentStatus]
+    """Where this case may go next, read from the same table the server enforces. It crosses
+    the wire so a client never has to keep its own copy of the workflow and drift from it."""
+
+    @classmethod
+    def from_detail(cls, detail: IncidentDetail) -> IncidentDetailOut:
+        base = IncidentOut.from_record(detail.incident).model_dump()
+        return cls(
+            **base,
+            alerts=[AlertOut.from_record(a) for a in detail.alerts],
+            timeline=[TimelineEntryOut.from_record(e) for e in detail.timeline],
+            timeline_truncated=detail.timeline_truncated,
+            allowed_transitions=sorted(allowed_from(detail.incident.status)),
+        )
+
+
+class NoteOut(BaseModel):
+    id: UUID
+    incident_id: UUID
+    author_id: UUID | None
+    body: str
+    created_at: datetime
+
+    @classmethod
+    def from_record(cls, record: NoteRecord) -> NoteOut:
+        return cls(
+            id=record.id,
+            incident_id=record.incident_id,
+            author_id=record.author_id,
+            body=record.body,
+            created_at=record.created_at,
+        )
+
+
+class NotePage(BaseModel):
+    items: list[NoteOut]
+    next_cursor: str | None
+
+    @classmethod
+    def from_page(cls, page: Page[NoteRecord]) -> NotePage:
+        return cls(items=[NoteOut.from_record(n) for n in page.items], next_cursor=page.next_cursor)
+
+
+class StatusChangeRequest(Inbound):
+    status: IncidentStatus
+    closure_reason: str | None = Field(default=None, max_length=MAX_CLOSURE_REASON_CHARS)
+
+    @model_validator(mode="after")
+    def reason_belongs_to_a_closure(self) -> StatusChangeRequest:
+        # A reason attached to a move that does not close anything would be stored on a case
+        # that is still open, where it reads as a decision nobody made.
+        if self.closure_reason is not None and not is_closed(self.status):
+            raise ValueError("closure_reason is only for a closing status")
+        return self
+
+
+class NoteRequest(Inbound):
+    body: str = Field(min_length=1, max_length=MAX_NOTE_CHARS)
+
+
 # ---------------------------------------------------------------- audit
 
 
@@ -572,14 +738,23 @@ __all__ = [
     "EventOut",
     "EventPage",
     "ImportRequest",
+    "IncidentDetailOut",
+    "IncidentOut",
+    "IncidentPage",
     "IngestAccepted",
     "IngestMethod",
     "LoginRequest",
+    "NoteOut",
+    "NotePage",
+    "NoteRequest",
     "RejectOut",
     "RejectPage",
     "ResolveOut",
     "SourceType",
     "StatsOut",
+    "StatusChangeRequest",
+    "TimelineEntryOut",
+    "TimelinePage",
     "TokenResponse",
     "UserOut",
 ]

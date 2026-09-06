@@ -40,10 +40,12 @@ from aegisnet.domain.auth import (
     RefreshReuseError,
 )
 from aegisnet.domain.enums import AuditResult
+from aegisnet.domain.incidents import IllegalTransitionError, NoteBodyError
 from aegisnet.domain.pagination import InvalidCursorError
 from aegisnet.logging import correlation_id_var, get_logger
 from aegisnet.services.detection_service import AlertNotFoundError, SweepError
 from aegisnet.services.event_read_service import EventNotFoundError, EventQueryError
+from aegisnet.services.incident_service import IncidentNotFoundError
 from aegisnet.services.ingest_service import BatchNotFoundError, IngestLimitExceededError
 
 logger = get_logger(__name__)
@@ -252,9 +254,10 @@ def register_error_handlers(app: FastAPI) -> None:
         EventNotFoundError,
         AlertNotFoundError,
         DatasetNotFoundError,
+        IncidentNotFoundError,
     ):
         app.add_exception_handler(missing, not_found_handler)
-    for conflict in (HostnameConflictError, NetworkOverlapError):
+    for conflict in (HostnameConflictError, NetworkOverlapError, IllegalTransitionError):
         app.add_exception_handler(conflict, conflict_handler)
     for unavailable in (UnsafeDatasetPathError, ChecksumMismatchError, InvalidRegistryError):
         app.add_exception_handler(unavailable, dataset_unavailable_handler)
@@ -271,6 +274,7 @@ def register_error_handlers(app: FastAPI) -> None:
         SweepError,
         InvalidCursorError,
         PasswordPolicyError,
+        NoteBodyError,
     ):
         app.add_exception_handler(invalid, domain_validation_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)

@@ -68,10 +68,12 @@ never downgraded to anonymous. A denial is `403 forbidden` and is audited as
 | `assets.read` — list, get, resolve | ✓ | ✓ | ✓ | |
 | `events.read` — list, stats (no payload) | ✓ | ✓ | ✓ | |
 | `alerts.read` — alerts, alert detail, the rule registry | ✓ | ✓ | ✓ | |
+| `incidents.read` — cases, their alerts, timeline and notes | ✓ | ✓ | ✓ | |
 | `assets.write` — create, patch | | ✓ | ✓ | |
 | `events.payload` — payload in lists, `GET /events/{id}` | | ✓ | ✓ | |
 | `ingest.read` — batches, rejects | | ✓ | ✓ | |
 | `detections.read` — detector runs | | ✓ | ✓ | |
+| `incidents.write` — status transitions, notes | | ✓ | ✓ | |
 | `assets.admin` — bulk create, deactivate | | | ✓ | |
 | `ingest.write` — `POST /ingest/eve` | | | ✓ | ✓ |
 | `ingest.import` — `POST /ingest/import` | | | ✓ | |
@@ -96,8 +98,18 @@ Actions written today: `auth.login_success`, `auth.login_failed`, `auth.refresh`
 `auth.refresh_reuse_detected`, `auth.logout`, `rbac.denied`, `ingest.batch_created`,
 `ingest.import_requested`, `ingest.refused`, `asset.created`, `asset.updated`,
 `asset.deactivated`, `user.created`, `service_token.created`, `service_token.revoked`,
-`detection.sweep_requested`, `detection.baselines_requested`.
+`detection.sweep_requested`, `detection.baselines_requested`,
+`incident.status_changed`, `incident.status_change_refused`, `incident.note_added`.
 Admins read the trail at `GET /api/v1/audit` (newest first, filters, keyset cursors).
+
+An incident transition writes `incident.status_changed` on success and
+`incident.status_change_refused` with `result: denied` when the workflow forbade the move or
+another analyst had already moved the case; the detail names the statuses and the reason, never
+the analyst's own words. A note writes `incident.note_added` carrying only the note's id and its
+length. **No analyst free text reaches this table**: the 512-character cap and the
+control-character strip would make an audited copy differ from the note it claims to be, and the
+credential-key filter cannot see into prose. The text lives in `incident_notes`, and a closure
+reason lives on the case and in its timeline (ADR-024).
 
 ## Rate limits
 

@@ -29,6 +29,14 @@ ESCALATION_BUMP: Final = 1
 
 CASE_NUMBER: Final = re.compile(r"^AEG-\d{4}-\d{4,}$")
 TITLE_CHARS: Final = 200
+# The database says the same thing (`ck_incident_notes_body_length`); saying it here too means
+# an over-long note is refused with the field named rather than as an integrity error.
+MAX_NOTE_CHARS: Final = 8000
+MAX_CLOSURE_REASON_CHARS: Final = 500
+# Control characters, except tab and newline. `domain/eve/sanitize.clean_text` strips the
+# newline as well, which is right for a log line being squeezed into one field and wrong for a
+# note somebody wrote in paragraphs. Same rule, with \x0a kept.
+_CONTROL_CHARS: Final = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 
 class IncidentError(ValueError):
@@ -37,6 +45,16 @@ class IncidentError(ValueError):
 
 class IllegalTransitionError(IncidentError):
     """A status change that the workflow does not allow."""
+
+
+class NoteBodyError(IncidentError):
+    """Free text an analyst supplied that cannot be stored as written. Carries ``field`` and
+    ``issue`` so the API's validation handler can name the offending field to the caller."""
+
+    def __init__(self, field: str, issue: str) -> None:
+        self.field = field
+        self.issue = issue
+        super().__init__(issue)
 
 
 CLOSED_STATUSES: Final = frozenset(
@@ -179,3 +197,35 @@ class Window:
 
     def extended_to(self, first_seen: datetime, last_seen: datetime) -> Window:
         return Window(min(self.start, first_seen), max(self.end, last_seen))
+
+
+def clean_note_body(body: str) -> str:
+    """What an analyst typed, made safe to store and to render, or a refusal.
+
+    Refused rather than truncated: a note silently cut in half is worse than a note the
+    author is told to shorten, and this is the one place free text enters a case.
+    """
+    cleaned = _CONTROL_CHARS.sub("", body).strip()
+    if not cleaned:
+        raise NoteBodyError("body", "a note needs something in it")
+    if len(cleaned) > MAX_NOTE_CHARS:
+        raise NoteBodyError("body", f"a note is at most {MAX_NOTE_CHARS} characters")
+    return cleaned
+
+
+def clean_closure_reason(reason: str | None) -> str | None:
+    """Why a case was closed, under the same rules as a note and a shorter cap.
+
+    ``None`` and blank both mean "no reason given", because a caller that sends an empty
+    string is not making a statement and the column should not pretend it did.
+    """
+    if reason is None:
+        return None
+    cleaned = _CONTROL_CHARS.sub("", reason).strip()
+    if not cleaned:
+        return None
+    if len(cleaned) > MAX_CLOSURE_REASON_CHARS:
+        raise NoteBodyError(
+            "closure_reason", f"a closure reason is at most {MAX_CLOSURE_REASON_CHARS} characters"
+        )
+    return cleaned

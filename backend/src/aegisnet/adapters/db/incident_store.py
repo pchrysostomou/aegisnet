@@ -14,29 +14,36 @@ The case number comes from a sequence rather than from a count, because two runs
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import func, select, text, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from aegisnet.adapters.db.detection_store import alert_record
 from aegisnet.adapters.db.models import (
     Alert,
+    DetectionRule,
     Incident,
     IncidentAlert,
+    IncidentNote,
     IncidentTimelineEntry,
 )
 from aegisnet.domain.enums import AlertStatus, IncidentAlertSource, IncidentStatus
-from aegisnet.domain.incidents import CLOSED_STATUSES, case_number
+from aegisnet.domain.incidents import CLOSED_STATUSES, case_number, is_closed
 from aegisnet.domain.pagination import decode_time_id, encode_time_id
 from aegisnet.domain.ports import (
+    DETAIL_TIMELINE_LIMIT,
+    AlertRecord,
     IncidentDetail,
     IncidentFilter,
     IncidentRecord,
     NewIncident,
     NewTimelineEntry,
+    NoteRecord,
     Page,
     TimelineEntryRecord,
 )
@@ -63,6 +70,16 @@ def _incident(row: Incident) -> IncidentRecord:
         closure_reason=row.closure_reason,
         created_at=row.created_at,
         updated_at=row.updated_at,
+    )
+
+
+def _note(row: IncidentNote) -> NoteRecord:
+    return NoteRecord(
+        id=row.id,
+        incident_id=row.incident_id,
+        author_id=row.author_id,
+        body=row.body,
+        created_at=row.created_at,
     )
 
 
@@ -157,6 +174,19 @@ class SqlIncidentStore:
         source: IncidentAlertSource = IncidentAlertSource.correlation_engine,
     ) -> int:
         async with self._sessions() as session, session.begin():
+            # Correlation read this case as open in an earlier transaction. Between then and
+            # now an analyst may have closed it, and a closed case never absorbs a new alert
+            # (ADR-023) — so the status is re-read under a row lock, which serialises against
+            # the compare-and-set in `set_status`. Linking anyway would be permanent: the
+            # alert would flip to `correlated`, and neither the open queue nor a later
+            # correlation run would ever surface it again.
+            status = (
+                await session.execute(
+                    select(Incident.status).where(Incident.id == incident_id).with_for_update()
+                )
+            ).scalar_one_or_none()
+            if status is None or status in _CLOSED:
+                return 0
             linked = await self._link(session, incident_id, alert_ids, source=source, now=now)
             await self._append(session, incident_id, entries, now=now)
             if linked:
@@ -182,6 +212,127 @@ class SqlIncidentStore:
         async with self._sessions() as session:
             return set((await session.execute(statement)).scalars().all())
 
+    async def set_status(
+        self,
+        incident_id: UUID,
+        *,
+        expected: IncidentStatus,
+        target: IncidentStatus,
+        closure_reason: str | None,
+        entry: NewTimelineEntry,
+        now: datetime,
+    ) -> IncidentRecord | None:
+        closing = is_closed(target)
+        async with self._sessions() as session, session.begin():
+            # The expected status is in the WHERE, not in a SELECT the caller made first: two
+            # analysts deciding at the same moment is ordinary, and the loser has to be told.
+            changed = (
+                await session.execute(
+                    update(Incident)
+                    .where(Incident.id == incident_id, Incident.status == expected)
+                    .values(
+                        status=target,
+                        # ck_incidents_closed_at_matches_status is an equality in both
+                        # directions, so these move in the same statement as the status —
+                        # and a reopened case stops carrying the reason it was closed for.
+                        closed_at=now if closing else None,
+                        closure_reason=closure_reason if closing else None,
+                        updated_at=now,
+                    )
+                    .returning(Incident.id)
+                )
+            ).scalar_one_or_none()
+            if changed is None:
+                return None
+            await self._append_one(session, incident_id, entry, now=now)
+            row = (
+                await session.execute(select(Incident).where(Incident.id == incident_id))
+            ).scalar_one()
+            return _incident(row)
+
+    async def add_note(
+        self,
+        incident_id: UUID,
+        *,
+        body: str,
+        author_id: UUID | None,
+        entry: NewTimelineEntry,
+        now: datetime,
+    ) -> NoteRecord | None:
+        async with self._sessions() as session, session.begin():
+            present = (
+                await session.execute(select(Incident.id).where(Incident.id == incident_id))
+            ).scalar_one_or_none()
+            if present is None:
+                return None
+            row = IncidentNote(
+                incident_id=incident_id, author_id=author_id, body=body, created_at=now
+            )
+            session.add(row)
+            await session.flush()
+            # The timeline says a note exists and how long it is, never what it said: one copy
+            # of an analyst's prose, in the table that will not let the app role rewrite it.
+            await self._append_one(
+                session,
+                incident_id,
+                replace(entry, detail={**entry.detail, "note_id": str(row.id)}),
+                now=now,
+            )
+            await session.execute(
+                update(Incident).where(Incident.id == incident_id).values(updated_at=now)
+            )
+            await session.refresh(row)
+            return _note(row)
+
+    async def list_notes(
+        self, incident_id: UUID, *, limit: int, cursor: str | None
+    ) -> Page[NoteRecord]:
+        statement = select(IncidentNote).where(IncidentNote.incident_id == incident_id)
+        if cursor:
+            created_at, ident = decode_time_id(cursor)
+            statement = statement.where(
+                tuple_(IncidentNote.created_at, IncidentNote.id) < (created_at, ident)
+            )
+        statement = statement.order_by(
+            IncidentNote.created_at.desc(), IncidentNote.id.desc()
+        ).limit(limit + 1)
+        async with self._sessions() as session:
+            rows = list((await session.execute(statement)).scalars().all())
+        return Page(
+            items=tuple(_note(row) for row in rows[:limit]),
+            next_cursor=(
+                encode_time_id(rows[limit - 1].created_at, rows[limit - 1].id)
+                if len(rows) > limit
+                else None
+            ),
+        )
+
+    async def list_timeline(
+        self, incident_id: UUID, *, limit: int, cursor: str | None
+    ) -> Page[TimelineEntryRecord]:
+        statement = select(IncidentTimelineEntry).where(
+            IncidentTimelineEntry.incident_id == incident_id
+        )
+        if cursor:
+            occurred_at, ident = decode_time_id(cursor)
+            statement = statement.where(
+                tuple_(IncidentTimelineEntry.occurred_at, IncidentTimelineEntry.id)
+                > (occurred_at, ident)
+            )
+        statement = statement.order_by(
+            IncidentTimelineEntry.occurred_at, IncidentTimelineEntry.id
+        ).limit(limit + 1)
+        async with self._sessions() as session:
+            rows = list((await session.execute(statement)).scalars().all())
+        return Page(
+            items=tuple(_entry(row) for row in rows[:limit]),
+            next_cursor=(
+                encode_time_id(rows[limit - 1].occurred_at, rows[limit - 1].id)
+                if len(rows) > limit
+                else None
+            ),
+        )
+
     async def list(self, query: IncidentFilter) -> Page[IncidentRecord]:
         statement = select(Incident)
         if query.status is not None:
@@ -195,7 +346,7 @@ class SqlIncidentStore:
         if query.cursor:
             created_at, ident = decode_time_id(query.cursor)
             statement = statement.where(
-                (Incident.created_at, Incident.id) < (created_at, ident)  # type: ignore[operator]
+                tuple_(Incident.created_at, Incident.id) < (created_at, ident)
             )
         statement = statement.order_by(Incident.created_at.desc(), Incident.id.desc()).limit(
             query.limit + 1
@@ -210,44 +361,65 @@ class SqlIncidentStore:
         )
         return Page(items=tuple(items), next_cursor=cursor)
 
-    async def get(self, incident_id: UUID) -> IncidentDetail | None:
+    async def get(
+        self, incident_id: UUID, *, timeline_limit: int = DETAIL_TIMELINE_LIMIT
+    ) -> IncidentDetail | None:
         async with self._sessions() as session:
             row = (
                 await session.execute(select(Incident).where(Incident.id == incident_id))
             ).scalar_one_or_none()
-            return None if row is None else await self._detail(session, row)
+            return None if row is None else await self._detail(session, row, timeline_limit)
 
-    async def get_by_case_number(self, case_number_value: str) -> IncidentDetail | None:
+    async def get_by_case_number(
+        self, case_number_value: str, *, timeline_limit: int = DETAIL_TIMELINE_LIMIT
+    ) -> IncidentDetail | None:
         async with self._sessions() as session:
             row = (
                 await session.execute(
                     select(Incident).where(Incident.case_number == case_number_value)
                 )
             ).scalar_one_or_none()
-            return None if row is None else await self._detail(session, row)
+            return None if row is None else await self._detail(session, row, timeline_limit)
 
     # ------------------------------------------------------------------ internals
 
-    async def _detail(self, session: AsyncSession, row: Incident) -> IncidentDetail:
+    async def _detail(
+        self, session: AsyncSession, row: Incident, timeline_limit: int
+    ) -> IncidentDetail:
         alerts = (
             await session.execute(
-                select(IncidentAlert.alert_id)
-                .join(Alert, Alert.id == IncidentAlert.alert_id)
+                select(Alert, DetectionRule.rule_id)
+                .join(IncidentAlert, IncidentAlert.alert_id == Alert.id)
+                .join(DetectionRule, DetectionRule.id == Alert.rule_id)
                 .where(IncidentAlert.incident_id == row.id)
                 .order_by(Alert.first_seen, Alert.id)
             )
-        ).scalars()
-        timeline = (
-            await session.execute(
-                select(IncidentTimelineEntry)
-                .where(IncidentTimelineEntry.incident_id == row.id)
-                .order_by(IncidentTimelineEntry.occurred_at, IncidentTimelineEntry.created_at)
+        ).all()
+        # The newest entries, then turned back into the order things happened. A long case's
+        # recent history is the part an analyst needs; the rest is a page away.
+        newest = list(
+            (
+                await session.execute(
+                    select(IncidentTimelineEntry)
+                    .where(IncidentTimelineEntry.incident_id == row.id)
+                    .order_by(
+                        IncidentTimelineEntry.occurred_at.desc(), IncidentTimelineEntry.id.desc()
+                    )
+                    .limit(timeline_limit + 1)
+                )
             )
-        ).scalars()
+            .scalars()
+            .all()
+        )
+        records: tuple[AlertRecord, ...] = tuple(
+            alert_record(alert, rule) for alert, rule in alerts
+        )
         return IncidentDetail(
             incident=_incident(row),
-            alert_ids=tuple(alerts.all()),
-            timeline=tuple(_entry(entry) for entry in timeline.all()),
+            alert_ids=tuple(record.id for record in records),
+            timeline=tuple(_entry(entry) for entry in reversed(newest[:timeline_limit])),
+            alerts=records,
+            timeline_truncated=len(newest) > timeline_limit,
         )
 
     async def _link(
@@ -319,3 +491,31 @@ class SqlIncidentStore:
                 index_elements=["incident_id", "entry_type", "alert_id"],
             )
         )
+
+    async def _append_one(
+        self,
+        session: AsyncSession,
+        incident_id: UUID,
+        entry: NewTimelineEntry,
+        *,
+        now: datetime,
+    ) -> None:
+        """One line, inserted plainly.
+
+        Deliberately not ``_append``: that one's ``ON CONFLICT DO NOTHING`` exists so a
+        repeated correlation run says the same thing about an alert once. A person changing a
+        status twice is saying two things, and both belong in the story.
+        """
+        session.add(
+            IncidentTimelineEntry(
+                incident_id=incident_id,
+                occurred_at=entry.occurred_at,
+                entry_type=entry.entry_type,
+                summary=entry.summary,
+                detail=entry.detail,
+                alert_id=entry.alert_id,
+                actor_user_id=entry.actor_user_id,
+                created_at=now,
+            )
+        )
+        await session.flush()

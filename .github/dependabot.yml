@@ -49,6 +49,15 @@ updates:
     groups:
       backend:
         patterns: ["*"]
+    ignore:
+      # Not a suppressed vulnerability — an update that cannot resolve. `dramatiq[redis]`
+      # constrains redis to <7.0, so Dependabot's first run proposed redis 8.1.0 and reported
+      # `dependency_file_not_resolvable`, failing the check on every push for an upgrade nobody
+      # can apply. Redis 5.x and 6.x updates still come through, which is where a security fix
+      # for the version this project actually runs would arrive. Delete this entry when dramatiq
+      # widens its cap; `uv tree --package dramatiq` shows the current one.
+      - dependency-name: redis
+        versions: [">=7.0"]
 
   - package-ecosystem: npm
     directory: /frontend

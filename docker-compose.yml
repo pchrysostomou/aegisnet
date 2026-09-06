@@ -163,6 +163,9 @@ services:
       NODE_ENV: production
       NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-AegisNet}
       PORT: "3000"
+      # Server-side only, deliberately not NEXT_PUBLIC_: the browser talks to this container,
+      # this container talks to the API, and no token or API address reaches a script (T-2.4).
+      AEGISNET_API_URL: ${AEGISNET_API_URL:-http://api:8000}
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:

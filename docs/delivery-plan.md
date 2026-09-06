@@ -144,7 +144,7 @@ renderer built here, before the AI feature lands).
 - [ ] Incident list and detail render the M3 demo scenario correctly; screenshots committed to `docs/screenshots/`.
 - [ ] `viewer` sees no mutation controls and receives `403` if requests are forged.
 - [ ] Keyboard navigation works on list, detail, and status controls; WCAG AA contrast verified.
-- [ ] `tsc`, ESLint, vitest, and `next build` green in CI.
+- [x] `tsc`, ESLint, vitest, and `next build` green in CI — the `frontend` job runs all four (Chunk 18, ADR-026).
 
 **Commands.** `make up` · `pnpm --dir frontend test` · `pnpm --dir frontend exec playwright test`.
 

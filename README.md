@@ -98,6 +98,7 @@ aspirational:
 | Correlation: alerts about one entity within a sliding window become one incident, with a case number, a derived severity that escalates when three distinct rules agree, an ordered timeline and a workflow whose transitions are a table rather than an opinion | ✅ Milestone 3, Chunk 15 ([ADR-023](docs/adr/ADR-023-correlation-and-incidents.md)); a closed case is never extended, and a re-run adds nothing |
 | The analyst workflow over HTTP: list and open a case with its alerts and its story, move it through the state machine, write notes on it. A status change is a compare-and-set, so two analysts deciding at once cannot both win; every change and every refusal is recorded in the case's timeline and in the append-only audit log; a viewer reads and cannot write | ✅ Milestone 3, Chunk 16 ([ADR-024](docs/adr/ADR-024-incident-api-workflow-enforcement-and-analyst-text.md), [`docs/api-milestone-3.md`](docs/api-milestone-3.md)); an illegal transition answers `409` and is audited as denied |
 | The multi-stage scenario, as committed data: a week of ordinary history, then one hour in which one host scans, fails twelve logins, beacons and uploads 400 MiB, while an unrelated host scans beside it. `make demo-scenario` runs it through ingest, the baseline job, the sweep and correlation and produces one escalated case of four rules and a separate case for the bystander | ✅ Milestone 3, Chunk 17 ([ADR-025](docs/adr/ADR-025-the-scenario-is-data-and-correlation-is-scored-pairwise.md)); `make eval` scores the grouping into [`docs/evaluation.md`](docs/evaluation.md) §8 and a test pins the block |
+| The analyst dashboard's foundation: sign in, the incident queue with filters and keyset paging, and a boundary that parses every API answer against a zod schema. The browser never holds a token and never learns the API's address — the session lives in this app's own `HttpOnly` cookies and middleware rotates it before a render | ✅ Milestone 4, Chunk 18 ([ADR-026](docs/adr/ADR-026-the-dashboard-holds-the-session-and-the-browser-holds-nothing.md), [`frontend/README.md`](frontend/README.md)); `dangerouslySetInnerHTML` is banned by the linter and the ban is proven by a test case, not assumed |
 | Real sensor output reads correctly: a flow event is filed under the instant the conversation began, not when Suricata announced it, and a DNS record's direction comes from its own type rather than from the presence of a response code | ✅ Chunk 14 ([ADR-022](docs/adr/ADR-022-event-time-and-dns-direction.md)); the two defects the lab found, with four of five rules firing on the real capture afterwards — [`docs/evaluation.md`](docs/evaluation.md) §9 |
 | Correlation and incidents, analyst dashboard, AI investigation briefs | ⬜ Milestones 3–5 ([roadmap](#roadmap)) |
 
@@ -378,7 +379,7 @@ stores, and downgrades to base to prove nothing is left behind. CI runs it as th
 Six services: `db` (PostgreSQL 16), `redis` (Redis 7), `api` (FastAPI), `worker`
 (Dramatiq: `import_dataset`, `import_upload`, `run_detectors`, `recompute_baselines` and the
 two periodic actors), `scheduler` (periodiq, sends `scheduled_sweep` and `nightly_baselines`;
-Redis only, no volume), `web` (Next.js placeholder).
+Redis only, no volume), `web` (the Next.js analyst dashboard).
 `db`, `redis`, `worker` and `scheduler` publish no host port. `api` and `worker` mount `./samples`
 read-only at `/app/samples`, the only place a dataset can be imported from, and share the
 `ingest_spool` volume where uploads wait. `api` and `web` publish only on `127.0.0.1`, so
@@ -450,7 +451,7 @@ reporting, as described in [`SECURITY.md`](SECURITY.md).
 │   │   └── cli.py           python -m aegisnet.cli
 │   └── tests/               unit · integration · security · detectors · db (opt-in, real PostgreSQL)
 │       └── fixtures/labelled/  labelled detector cases, rendered by tools/gen_labelled_fixtures.py
-├── frontend/                Next.js placeholder (health page and /api/health)
+├── frontend/                Next.js analyst dashboard (sign-in, incident queue; /api/health)
 ├── infra/                   PostgreSQL role init script, .env bootstrap
 │   └── lab/                 the opt-in isolated Suricata lab: compose file, sensor config, target, generator
 ├── samples/                 committed synthetic corpus, one sanitised real lab capture, asset seeds, dataset registry
@@ -470,7 +471,7 @@ reporting, as described in [`SECURITY.md`](SECURITY.md).
 | M1 | Foundation, ingest, normalisation, asset inventory, auth and audit | ✅ Complete; acceptance criteria and evidence in [`docs/delivery-plan.md`](docs/delivery-plan.md) and [`docs/STATUS.md`](docs/STATUS.md) |
 | M2 | Five deterministic detectors (port scan, auth-failure burst, DNS anomaly, periodic beaconing, outbound volume anomaly) with labelled fixtures; the isolated Suricata lab | ✅ Complete (Chunks 8–13); every acceptance criterion in [`docs/delivery-plan.md`](docs/delivery-plan.md) is ticked with evidence. The lab's two findings are open defects with a chunk of their own, not unmet criteria |
 | M3 | Correlation into incidents, timeline, analyst workflow | ✅ **Complete** (Chunks 15–17): the grouping policy, the four incident tables, the workflow state machine, the incidents API with audited transitions, notes and the role matrix, and the multi-stage scenario with its correlation metrics. Every M3 acceptance criterion has evidence |
-| M4 | Analyst dashboard (Next.js) | ⬜ |
+| M4 | Analyst dashboard (Next.js) | 🟡 Chunk 18 done: sign-in, the session model, the typed API boundary and the incident queue; the case view, notes and the workflow controls (Chunk 19) and the asset screens, audit viewer, Playwright and screenshots (Chunk 20) remain |
 | M5 | Investigation brief via Perplexity, with redaction canaries, and Markdown export | ⬜ |
 | M6 | Hardening, evaluation with measured accuracy, documentation, release | ⬜ |
 
@@ -497,7 +498,7 @@ Detector accuracy is **unmeasured** and no claim is made until Milestone 6
 | [`docs/delivery-plan.md`](docs/delivery-plan.md) | Six-milestone plan |
 | [`docs/evaluation.md`](docs/evaluation.md) | Detection evaluation methodology; §8 holds the `make eval` table (synthetic T1/T2, pinned by a test), §9 the first lab run and what it found |
 | [`docs/detection-rules.md`](docs/detection-rules.md) | The rule contract and each detector's specification, guards and hard negatives |
-| [`docs/adr/`](docs/adr) | Architecture decision records (ADR-009 … ADR-025) |
+| [`docs/adr/`](docs/adr) | Architecture decision records (ADR-009 … ADR-026) |
 | [`infra/lab/README.md`](infra/lab/README.md) | The lab runbook: what is safe about it, how to run it, what each traffic shape is for |
 | [`PLANNING.md`](PLANNING.md) | Index of the Milestone 0 planning package |
 | [`backend/README.md`](backend/README.md) | What the backend package contains today |

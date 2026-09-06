@@ -1,0 +1,180 @@
+/* One stylesheet, no framework. The dashboard is tables and text; a utility framework would
+   add a build step and a supply-chain surface to solve a problem this app does not have.
+   Colours are checked for WCAG AA contrast against their backgrounds. */
+:root {
+  color-scheme: light dark;
+  --bg: #fbfbfd;
+  --surface: #ffffff;
+  --border: #d6d8de;
+  --text: #14161a;
+  --muted: #55596180;
+  --muted-text: #4a4e57;
+  --accent: #1b4b8f;
+  --accent-text: #ffffff;
+  --sev-1: #486081;
+  --sev-2: #3f6d5a;
+  --sev-3: #8a6516;
+  --sev-4: #9a4b12;
+  --sev-5: #96231d;
+  --danger: #96231d;
+  --radius: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a;
+    --surface: #1c1f25;
+    --border: #333842;
+    --text: #eef0f4;
+    --muted-text: #b3b8c2;
+    --accent: #7aa9ee;
+    --accent-text: #0d1013;
+    --sev-1: #9fb4d1;
+    --sev-2: #8fc9ae;
+    --sev-3: #e6c169;
+    --sev-4: #f0a06a;
+    --sev-5: #f28b84;
+    --danger: #f28b84;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+a { color: var(--accent); }
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.masthead {
+  display: flex;
+  align-items: baseline;
+  gap: 1.5rem;
+  padding: 0.85rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.masthead h1 { font-size: 1rem; margin: 0; letter-spacing: 0.02em; }
+.masthead nav { display: flex; gap: 1rem; }
+.masthead .spacer { margin-left: auto; }
+.masthead .who { color: var(--muted-text); font-size: 0.85rem; }
+
+main { padding: 1.5rem; max-width: 76rem; margin: 0 auto; }
+h2 { font-size: 1.25rem; margin: 0 0 0.25rem; }
+.lede { color: var(--muted-text); margin: 0 0 1.25rem; }
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+  margin-bottom: 1rem;
+  padding: 0.9rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.field { display: flex; flex-direction: column; gap: 0.25rem; }
+.field label { font-size: 0.78rem; color: var(--muted-text); }
+select, input[type="text"], input[type="number"], input[type="email"], input[type="password"] {
+  font: inherit;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  min-width: 9rem;
+}
+
+button, .button {
+  font: inherit;
+  padding: 0.42rem 0.9rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+button.secondary, .button.secondary {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+table { width: 100%; border-collapse: collapse; background: var(--surface); }
+caption { text-align: left; color: var(--muted-text); font-size: 0.85rem; padding: 0 0 0.5rem; }
+th, td {
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+th { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-text); }
+tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+td.numeric { text-align: right; font-variant-numeric: tabular-nums; }
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+.sev-1 { color: var(--sev-1); }
+.sev-2 { color: var(--sev-2); }
+.sev-3 { color: var(--sev-3); }
+.sev-4 { color: var(--sev-4); }
+.sev-5 { color: var(--sev-5); }
+.status { color: var(--muted-text); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; }
+
+.empty, .notice {
+  padding: 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted-text);
+}
+.error {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  margin-bottom: 1rem;
+}
+.pager { display: flex; gap: 0.75rem; margin-top: 1rem; align-items: center; }
+
+.login {
+  max-width: 24rem;
+  margin: 4rem auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+}
+.login .field { margin-bottom: 0.9rem; }
+.login .field input { width: 100%; }
+.login button { width: 100%; }
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--surface);
+  padding: 0.5rem 0.75rem;
+}
+.skip-link:focus { left: 0.5rem; top: 0.5rem; z-index: 10; }

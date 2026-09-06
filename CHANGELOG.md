@@ -51,6 +51,28 @@ Nothing is released yet. There is no tagged version.
   EVE DNS shapes so T1 and T2 exercise the one that broke D-003.
 
 ### Added
+- **Chunk 18 (Milestone 4) — the dashboard's foundation and the incident queue (ADR-026).**
+  Sign in and sign out, the incident queue with status, severity and open-only filters and the
+  API's keyset paging, and a typed boundary: `src/lib/api/schemas.ts` restates the API's DTOs
+  as zod schemas and every response is parsed before a component sees it, so a renamed field
+  fails in one place instead of rendering `undefined` into a case somebody is reading.
+- **The browser holds no credential.** The API's access token and refresh cookie live in this
+  app's own `HttpOnly`, `SameSite=Lax` cookies; the browser talks to Next and Next talks to the
+  API, so neither a token nor the API's address ever reaches a script. `AEGISNET_API_URL` is a
+  server variable, deliberately not `NEXT_PUBLIC_`. An XSS bug in a dashboard whose whole job
+  is rendering strings from other people's packets can still act as the analyst while the page
+  is open, but it cannot walk away with a credential that keeps working (T-1.3, T-2.4).
+- A server component cannot write a cookie, so `middleware.ts` rotates an expired session
+  before the render rather than bouncing an analyst to the login form every fifteen minutes.
+  A refresh the API refuses — including a replayed token it revoked the chain for — clears both
+  cookies and lands on the form with an explanation.
+- `dangerouslySetInnerHTML`, `innerHTML` and `outerHTML` are banned by an ESLint rule that
+  names T-1.3 in its message. The ban was proven by writing a component that trips it before
+  being relied on.
+- Frontend tooling: ESLint 10 flat config with `typescript-eslint` type-aware rules, vitest,
+  and 22 unit tests over the schemas, the client and the session. CI's frontend job now runs
+  `typecheck`, `lint`, `test` and `build`.
+
 - **Chunk 17 (Milestone 3, the last) — the multi-stage scenario and the correlation metrics
   (ADR-025).** `samples/scenarios/multi-stage-01.ndjson` is 303 committed EVE records: a week
   of ordinary hourly traffic from one host, then one hour in which that host scans a

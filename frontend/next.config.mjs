@@ -7,6 +7,10 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
+  // Linting is a separate, stricter step (`pnpm lint`) with its own flat config, and it
+  // runs in CI before the build. Repeating a weaker version of it here would only hide
+  // which one failed.
+  eslint: { ignoreDuringBuilds: true },
   // Required by frontend/Dockerfile, which copies .next/standalone into the runtime image.
   output: "standalone",
   reactStrictMode: true,

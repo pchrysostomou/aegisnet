@@ -127,6 +127,13 @@ named passing test or an explicit accepted-risk entry.
   (control characters stripped, tab and newline kept, refused rather than truncated at 8 000 and 500
   characters) before storage and are returned as stored. Neither reaches the audit log, a log line or a
   second mutable copy; the dashboard that renders them arrives in M4 under T-1.3 and T-4.4.
+- Chunk 18 opened the dashboard. Its session model is the T-2.4 answer for the browser: the API's
+  access token and refresh cookie are held in the Next server's own `HttpOnly`, `SameSite=Lax` cookies
+  and never reach a script, and `AEGISNET_API_URL` is a server variable so the browser does not learn
+  the API's address either (ADR-026). T-1.3's first mitigation is in place ahead of the content it
+  protects: `dangerouslySetInnerHTML`, `innerHTML` and `outerHTML` are banned by an ESLint rule, proven
+  by a component written to trip it. The rendering itself — alert evidence, note bodies through
+  `SafeMarkdown` — and the Playwright stored-XSS fixture arrive in Chunks 19 and 20.
 - New egress: none. No Perplexity call exists; TB-3 and TB-4 remain planning-phase rows until M5.
 - New rendered fields: none (the web app is still a health placeholder).
 - Milestone 1 rows whose mitigation has no named test yet: the

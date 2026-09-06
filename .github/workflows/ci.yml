@@ -78,7 +78,7 @@ jobs:
           retention-days: 7
 
   frontend:
-    name: frontend · tsc, next build
+    name: frontend · tsc, eslint, vitest, next build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -98,6 +98,12 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit tests
+        run: pnpm test
 
       - name: Build
         env:

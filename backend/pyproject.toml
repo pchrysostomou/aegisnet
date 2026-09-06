@@ -160,6 +160,7 @@ markers = [
   "integration: exercises the assembled application",
   "security: asserts a THREAT_MODEL mitigation",
   "db: needs the ephemeral PostgreSQL (docker-compose.test.yml --profile db); skipped otherwise",
+  "load: drives a running stack under concurrency (make load-test); skipped otherwise",
 ]
 
 [tool.coverage.run]

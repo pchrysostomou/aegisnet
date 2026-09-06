@@ -386,3 +386,50 @@ Three things in particular a reader should not conclude from any table above:
 - **The rules were fixed against the data that broke them.** D-003 and D-004 now fire on the
   capture that exposed them, which is the weakest form of evidence there is. What would make it
   stronger is another capture, from another lab run, that nobody has looked at yet.
+
+---
+
+## 10. Rate limits under concurrency (2026-09-06, Chunk 26)
+
+`SECURITY.md` publishes four limits and two failure modes. Until this chunk every one of them
+was asserted one request at a time, which is the wrong shape for the question: a fixed-window
+counter is only correct if its increment is atomic, and a serial test cannot tell an atomic
+`INCR` from a read-modify-write that has not raced yet.
+
+`make load-test` fires whole budgets at once against a running stack. It is opt-in, joins that
+stack's own network, spends the same Redis budgets an operator's requests would, and deletes the
+keys it burned afterwards — the login limit is per-IP and fails closed, so leaving it spent would
+lock the operator out of their own deployment for fifteen minutes.
+
+| Property | Measured | Result |
+|---|---|---|
+| Read limit, 180 requests fired together | 120 allowed, 60 refused | exactly `RATE_LIMIT_READ_PER_MIN` |
+| Refusal shape | `429`, `{"error":{"code":"rate_limited",…}}`, correlation id present | as documented |
+| `Retry-After` | integer, within 1–61 s | the time left in the window, not a constant |
+| Read and write budgets | read budget exhausted, a write still accepted | counted apart |
+| Login, 10 wrong passwords at once | `429` after 5; every response 401 or 429 | fails closed, never succeeds |
+| **Fixed-window edge** | **240 allowed across two adjacent windows** | **exactly 2× the limit — the ceiling, not an excess** |
+
+The last row is the point of running this at all. `adapters/cache/rate_limiter.py` says in its
+own docstring that a fixed window is "honest about its edge: a burst straddling two windows can
+reach twice the limit for an instant". That is now measured rather than asserted, and the
+measurement agrees exactly: a burst timed onto a boundary spends the closing window's remainder
+and the opening window's whole budget, and there is no third window inside a minute, so 2× is a
+ceiling rather than a number that grows with the burst.
+
+**What this does not say.** It does not say the limits are the *right* numbers — that is a
+tuning question no test can answer, and 120 reads a minute is a guess that has never met a real
+analyst. It does not measure the API under sustained load, only the limiter under a burst.
+Nothing here was run against a network stack under contention, and the client and server were on
+the same host.
+
+**Reproduce it:**
+
+```bash
+make up                                    # the stack the suite drives
+export AEGISNET_E2E_ANALYST=… AEGISNET_E2E_ANALYST_PASSWORD=…
+make load-test
+```
+
+The window-edge test waits up to a minute for a real boundary rather than skipping or
+manufacturing one, so a run takes about twenty seconds longer than the requests themselves.

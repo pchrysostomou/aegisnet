@@ -15,7 +15,7 @@ BACKEND := backend
         help bootstrap bootstrap-force verify-ignore require-env compose-config \
         build up down compose-ps compose-logs compose-down compose-test pin-digests clean \
         backend-install lint format format-check typecheck test test-cov check \
-        migrate migrate-status test-db db-roles gen-synthetic demo-ingest batch seed
+        migrate migrate-status test-db db-roles load-test gen-synthetic demo-ingest batch seed
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort | \
@@ -323,6 +323,14 @@ brief: require-env ## Ask for an investigation brief on one case (REF=AEG-2026-0
 
 incident: require-env ## Show one incident by case number or id (REF=AEG-2026-0001)
 	$(COMPOSE) run --rm api python -m aegisnet.cli incident $(REF)
+
+load-test: require-env ## Drive the running stack's rate limits under concurrency
+	@# Opt-in and never part of `make test`: it spends real budgets against the real Redis the
+	@# stack is using, and cleans them up afterwards. Needs `make up` first — it joins that
+	@# stack's network rather than starting one — and the two e2e credentials in the
+	@# environment, the same ones the browser suite uses.
+	@test -n "$$AEGISNET_E2E_ANALYST" || { echo "set AEGISNET_E2E_ANALYST and AEGISNET_E2E_ANALYST_PASSWORD"; exit 1; }
+	$(COMPOSE) -f docker-compose.test.yml --profile load run --rm loadtests
 
 db-roles: require-env ## Create any role a running database predates (restarts db; keeps data)
 	@# `infra/postgres/init/01_roles.sh` runs only when PostgreSQL initialises an empty data

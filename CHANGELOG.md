@@ -114,6 +114,22 @@ Nothing is released yet. There is no tagged version.
   EVE DNS shapes so T1 and T2 exercise the one that broke D-003.
 
 ### Added
+- **Chunk 26 (Milestone 6) — the rate limits, measured under concurrency.** `SECURITY.md`
+  publishes four limits and two failure modes, and every one of them was asserted one request at a
+  time. That is the wrong shape for the question: a fixed-window counter is only correct if its
+  increment is atomic, and a serial test cannot tell an atomic `INCR` from a read-modify-write that
+  has not raced yet. `make load-test` fires whole budgets at once — 180 concurrent reads against a
+  budget of 120, and exactly 120 are allowed.
+- **The documented weakness is now a number.** `rate_limiter.py` has always said a burst
+  straddling two windows can reach twice the limit; a run timed onto a boundary allows exactly 240
+  against a limit of 120 — the ceiling, not a number that grows with the burst. That test waits up
+  to a minute for a real boundary rather than skipping most runs or manufacturing one.
+- The suite is opt-in (marker `load`), joins the running stack's own network rather than starting
+  one, and deletes the budgets it burns: the login limit is per-IP and fails closed, so leaving it
+  spent would lock the operator out of their own deployment for fifteen minutes.
+- `docs/evaluation.md` §10 records the numbers, the command to reproduce them, and what they do
+  not say — that the limits are the right numbers is a tuning question no test can answer.
+
 - `bootstrap_env.py` takes no path any more. `--example` and `--out` are gone; both files are
   resolved from the checkout the script lives in. SonarCloud rated the change that added a second
   read and an append through those arguments as a security finding on new code — a path from

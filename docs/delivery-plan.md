@@ -220,7 +220,10 @@ review pass · tag `v1.0.0`.
 **Acceptance criteria.**
 - [ ] RBAC matrix test covers every route × every role, with no unexpected allows.
 - [ ] Audit log proves non-repudiation: DB grant test confirms the app role cannot `UPDATE`/`DELETE` `audit_log`.
-- [ ] Rate limits verified under a load test; `429` + `Retry-After` correct.
+- [x] Rate limits verified under a load test; `429` + `Retry-After` correct — `make load-test`
+      (Chunk 26): 120 of 180 concurrent reads allowed, the refusals carrying the documented envelope and a
+      `Retry-After` inside the window, login refused after five wrong passwords, and the fixed-window edge
+      measured at exactly 2× the limit. Numbers and their limits in `docs/evaluation.md` §10.
 - [ ] All containers run as non-root; compose publishes only `127.0.0.1` ports (verified test).
 - [ ] `docs/evaluation.md` reports precision/recall for all five detectors on the labelled corpus, with the
       command used and the corpus commit sha.

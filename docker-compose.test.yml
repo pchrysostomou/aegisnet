@@ -107,3 +107,43 @@ services:
     depends_on:
       db-test: {condition: service_healthy}
     command: ["pytest", "-m", "db"]
+
+  # The load suite (profile `load`, Chunk 26). Unlike `tests` and `tests-db` it does not bring
+  # its own datastore: it drives the *running* stack, so it joins that stack's network and
+  # spends the same Redis budgets an operator's requests would. Credentials come from the
+  # environment, the same two the browser suite uses.
+  loadtests:
+    build:
+      context: ./backend
+      target: dev
+    profiles: ["load"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    env_file: [.env]
+    environment:
+      AEGISNET_LOAD_TESTS: "1"
+      ENV: test
+      DEBUG: "false"
+      LOG_LEVEL: WARNING
+      PYTHONPATH: /repo/backend/src
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTEST_ADDOPTS: -p no:cacheprovider
+      MYPY_CACHE_DIR: /tmp/mypy_cache
+      RUFF_CACHE_DIR: /tmp/ruff_cache
+      AEGISNET_API_PUBLIC_URL: http://api:8000
+      POSTGRES_HOST: db
+      REDIS_HOST: redis
+      AEGISNET_E2E_ANALYST: ${AEGISNET_E2E_ANALYST:-}
+      AEGISNET_E2E_ANALYST_PASSWORD: ${AEGISNET_E2E_ANALYST_PASSWORD:-}
+    volumes:
+      - .:/repo
+    working_dir: /repo/backend
+    networks: [stack]
+    command: ["pytest", "-m", "load"]
+
+networks:
+  # The running stack's network, created by `docker-compose.yml`. Declared external so this
+  # file never creates it: if the stack is down there is nothing to load-test.
+  stack:
+    external: true
+    name: aegisnet_default

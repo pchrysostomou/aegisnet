@@ -150,6 +150,11 @@ Fixed windows in Redis, one counter per limit, subject and window; `429` with
 | Everything else | 60 / min | principal | allow, log an error |
 | Outbound briefs | `BRIEF_DAILY_BUDGET` / UTC day | the whole deployment | refuse — the counter is the cap |
 
+These are measured, not just declared: `make load-test` fires whole budgets at once against a
+running stack and `docs/evaluation.md` §10 records what came back — 120 of 180 concurrent reads
+allowed, `429` with a usable `Retry-After` for the rest, login refused after five wrong passwords,
+and the fixed-window edge costing exactly one extra budget and never more.
+
 Fail-closed for the routes an attacker would push on, fail-open for reads so an analyst
 is not locked out by a cache outage. The brief budget is the exception to "per principal": it is
 one number for the deployment, counted in Redis rather than in each process, because the API, the

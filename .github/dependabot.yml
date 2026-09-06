@@ -13,6 +13,11 @@
 # Grouped on purpose: this is a one-maintainer project, and twenty separate pull requests a week is
 # how a repository learns to ignore Dependabot. One grouped PR per ecosystem per week is a thing a
 # person actually reads.
+#
+# Minor and patch only, though — a major gets its own pull request. The first run proved why:
+# `next` 15 to 16, `typescript` 5.9 to 7.0 and two `@types` majors arrived as one group, the whole
+# thing failed because typescript-eslint does not support TS 7 yet, and a `@types/react-dom` patch
+# sat behind it unable to merge. All-or-nothing is the wrong shape for a major.
 
 version: 2
 
@@ -29,6 +34,7 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+        update-types: [minor, patch]
 
   - package-ecosystem: docker
     directories:
@@ -40,6 +46,7 @@ updates:
     groups:
       base-images:
         patterns: ["*"]
+        update-types: [minor, patch]
 
   - package-ecosystem: uv
     directory: /backend
@@ -49,6 +56,7 @@ updates:
     groups:
       backend:
         patterns: ["*"]
+        update-types: [minor, patch]
     ignore:
       # Not a suppressed vulnerability — an update that cannot resolve. `dramatiq[redis]`
       # constrains redis to <7.0, so Dependabot's first run proposed redis 8.1.0 and reported
@@ -67,3 +75,4 @@ updates:
     groups:
       frontend:
         patterns: ["*"]
+        update-types: [minor, patch]

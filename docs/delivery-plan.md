@@ -142,7 +142,7 @@ renderer built here, before the AI feature lands).
 - [ ] A stored-XSS fixture (malicious DNS query and HTTP host) renders as inert text — Playwright asserts no
       script execution and no `innerHTML` injection.
 - [ ] Incident list and detail render the M3 demo scenario correctly; screenshots committed to `docs/screenshots/`.
-- [ ] `viewer` sees no mutation controls and receives `403` if requests are forged.
+- [x] `viewer` sees no mutation controls and receives `403` if requests are forged — verified on the running stack (Chunk 19; `docs/STATUS.md` E-66).
 - [ ] Keyboard navigation works on list, detail, and status controls; WCAG AA contrast verified.
 - [x] `tsc`, ESLint, vitest, and `next build` green in CI — the `frontend` job runs all four (Chunk 18, ADR-026).
 

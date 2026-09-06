@@ -51,6 +51,28 @@ Nothing is released yet. There is no tagged version.
   EVE DNS shapes so T1 and T2 exercise the one that broke D-003.
 
 ### Added
+- **Chunk 19 (Milestone 4) — the case view and `SafeMarkdown` (ADR-027).** A case now opens on
+  its own page: the linked alerts, the timeline typed and in order, the notes analysts wrote,
+  and — for an analyst — a status control and a note form. The status control offers exactly
+  the moves the API said were legal in `allowed_transitions`; the workflow is never recomputed
+  in the browser, so a client cannot disagree with the server about what a case may do.
+- **Markdown is parsed into React elements, never into an HTML string.** The usual answer is a
+  markdown library plus a sanitiser, which is a bet that the sanitiser understands everything
+  the parser can produce. `components/safe-markdown.tsx` takes the other route: a small fixed
+  grammar — paragraphs, breaks, bullets, quotes, fenced code, inline code, bold, italic —
+  parsed straight into elements. Nothing serialises to HTML, so there is nothing for a
+  sanitiser to miss and no `dangerouslySetInnerHTML` to reach for (T-1.3, T-4.4).
+- Links and images are deliberately not supported. A note is read by somebody deciding whether
+  a host is compromised: a link is how that reader gets taken elsewhere, and a rendered image is
+  how a note phones home with the reader's address when the case is opened. An indicator belongs
+  in a code span, where it can be copied and cannot be clicked.
+- Raw HTML in a note renders as the characters typed rather than being stripped, because an
+  analyst writing about a payload must not find their evidence silently edited.
+- 15 hostile inputs are rendered in the suite and checked two ways: every tag emitted must be
+  one of eleven inert elements, and nothing outside those tags may contain `<` or `>`. The
+  assertions are on the tags, not on forbidden substrings — a note whose *text* reads
+  `onerror=alert(1)` is what an analyst investigating an attack writes, and it must render.
+
 - **Chunk 18 (Milestone 4) — the dashboard's foundation and the incident queue (ADR-026).**
   Sign in and sign out, the incident queue with status, severity and open-only filters and the
   API's keyset paging, and a typed boundary: `src/lib/api/schemas.ts` restates the API's DTOs

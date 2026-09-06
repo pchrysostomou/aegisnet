@@ -5,7 +5,19 @@
 import { readAccessToken } from "@/lib/session";
 
 import { apiRequest } from "./client";
-import { incidentPage, type IncidentPage, type IncidentStatus } from "./schemas";
+import {
+  incidentDetail,
+  incidentPage,
+  note,
+  notePage,
+  timelinePage,
+  type IncidentDetail,
+  type IncidentPage,
+  type IncidentStatus,
+  type Note,
+  type NotePage,
+  type TimelinePage,
+} from "./schemas";
 
 export const PAGE_SIZE = 25;
 
@@ -45,6 +57,62 @@ export async function listIncidents(filters: IncidentFilters = {}): Promise<Inci
       cursor: filters.cursor,
       limit: filters.limit ?? PAGE_SIZE,
     },
+  });
+  return data;
+}
+
+export async function getIncident(id: string): Promise<IncidentDetail> {
+  const { data } = await apiRequest(`/api/v1/incidents/${encodeURIComponent(id)}`, {
+    schema: incidentDetail,
+    accessToken: await token(),
+  });
+  return data;
+}
+
+export async function listNotes(id: string, limit = 50): Promise<NotePage> {
+  const { data } = await apiRequest(`/api/v1/incidents/${encodeURIComponent(id)}/notes`, {
+    schema: notePage,
+    accessToken: await token(),
+    query: { limit },
+  });
+  return data;
+}
+
+export async function listTimeline(
+  id: string,
+  cursor?: string,
+  limit = 200,
+): Promise<TimelinePage> {
+  const { data } = await apiRequest(`/api/v1/incidents/${encodeURIComponent(id)}/timeline`, {
+    schema: timelinePage,
+    accessToken: await token(),
+    query: { limit, cursor },
+  });
+  return data;
+}
+
+/** Move a case. A refusal is a `409` and comes back as an `ApiError` the caller shows to the
+ * analyst; it is a normal answer, not a fault (ADR-024). */
+export async function changeStatus(
+  id: string,
+  status: IncidentStatus,
+  closureReason: string | null,
+): Promise<IncidentDetail> {
+  const { data } = await apiRequest(`/api/v1/incidents/${encodeURIComponent(id)}/status`, {
+    schema: incidentDetail,
+    method: "POST",
+    accessToken: await token(),
+    body: closureReason ? { status, closure_reason: closureReason } : { status },
+  });
+  return data;
+}
+
+export async function addNote(id: string, body: string): Promise<Note> {
+  const { data } = await apiRequest(`/api/v1/incidents/${encodeURIComponent(id)}/notes`, {
+    schema: note,
+    method: "POST",
+    accessToken: await token(),
+    body: { body },
   });
   return data;
 }

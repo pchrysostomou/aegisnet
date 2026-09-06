@@ -112,6 +112,21 @@ export const page = <T extends z.ZodType>(item: T) =>
 export const incidentPage = page(incident);
 export type IncidentPage = z.infer<typeof incidentPage>;
 
+export const note = z.object({
+  id: z.uuid(),
+  incident_id: z.uuid(),
+  author_id: z.uuid().nullable(),
+  body: z.string(),
+  created_at: isoDateTime,
+});
+export type Note = z.infer<typeof note>;
+
+export const notePage = page(note);
+export type NotePage = z.infer<typeof notePage>;
+
+export const timelinePage = page(timelineEntry);
+export type TimelinePage = z.infer<typeof timelinePage>;
+
 export const roles = ["viewer", "analyst", "admin"] as const;
 export const role = z.enum(roles);
 export type Role = z.infer<typeof role>;

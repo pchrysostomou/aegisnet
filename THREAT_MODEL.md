@@ -134,6 +134,16 @@ named passing test or an explicit accepted-risk entry.
   protects: `dangerouslySetInnerHTML`, `innerHTML` and `outerHTML` are banned by an ESLint rule, proven
   by a component written to trip it. The rendering itself — alert evidence, note bodies through
   `SafeMarkdown` — and the Playwright stored-XSS fixture arrive in Chunks 19 and 20.
+- Chunk 19 rendered that content. T-4.4's renderer exists ahead of the AI feature it was written
+  for: `components/safe-markdown.tsx` parses a small fixed grammar straight into React elements and
+  never produces an HTML string, so there is no sanitiser to keep current and no
+  `dangerouslySetInnerHTML` anywhere (ADR-027). Links and images are unsupported on purpose — a link
+  takes a reader elsewhere, and a rendered image is a tracking pixel in an incident record. Fifteen
+  hostile inputs are pinned in the suite, asserted on the tags emitted rather than on forbidden
+  substrings, because a note whose text reads `onerror=alert(1)` is what an analyst investigating an
+  attack writes and it must render. T-2.2's UI half is covered too: a viewer is drawn no mutation
+  control and the API answers `403` to a forged one, both verified on the running stack (E-66). The
+  Playwright stored-XSS fixture and the committed screenshots remain, in Chunk 20.
 - New egress: none. No Perplexity call exists; TB-3 and TB-4 remain planning-phase rows until M5.
 - New rendered fields: none (the web app is still a health placeholder).
 - Milestone 1 rows whose mitigation has no named test yet: the

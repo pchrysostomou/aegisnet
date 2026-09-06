@@ -178,3 +178,85 @@ td.numeric { text-align: right; font-variant-numeric: tabular-nums; }
   padding: 0.5rem 0.75rem;
 }
 .skip-link:focus { left: 0.5rem; top: 0.5rem; z-index: 10; }
+
+/* ---- case view ---- */
+.crumb { margin: 0 0 0.75rem; }
+.case-head { margin-bottom: 1.25rem; }
+.case-head h2 { margin-bottom: 0.5rem; }
+.badges { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0 0 0.75rem; }
+.facts { display: flex; flex-wrap: wrap; gap: 1.5rem; margin: 0; }
+.facts div { display: flex; flex-direction: column; gap: 0.1rem; }
+.facts dt { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-text); }
+.facts dd { margin: 0; }
+.closure { margin: 0.75rem 0 0; }
+.control-heading { width: 100%; margin: 0 0 0.25rem; font-size: 0.95rem; }
+.field.grow { flex: 1 1 18rem; }
+.field.grow input { width: 100%; }
+section { margin-top: 1.75rem; }
+section h3 { font-size: 1.05rem; margin: 0 0 0.6rem; }
+
+.timeline { list-style: none; margin: 0; padding: 0; }
+.timeline .entry {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: baseline;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--border);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.entry-status_change { border-left-color: var(--accent); }
+.entry-alert_fired { border-left-color: var(--sev-4); }
+.entry-note_added { border-left-color: var(--sev-2); }
+.timeline .summary { flex: 1 1 20rem; }
+.timeline .detail { color: var(--muted-text); font-size: 0.82rem; }
+
+.notes { list-style: none; margin: 0 0 1.25rem; padding: 0; }
+.notes li {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+.note-meta { margin: 0 0 0.4rem; color: var(--muted-text); font-size: 0.82rem; }
+.prose p { margin: 0 0 0.6rem; }
+.prose p:last-child { margin-bottom: 0; }
+.prose ul { margin: 0 0 0.6rem 1.1rem; padding: 0; }
+.prose blockquote {
+  margin: 0 0 0.6rem;
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--border);
+  color: var(--muted-text);
+}
+.prose pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.75rem;
+  overflow-x: auto;
+}
+.prose code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88em; }
+
+.note-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+.note-form label { font-size: 0.82rem; color: var(--muted-text); max-width: 44rem; }
+.note-form textarea {
+  width: 100%;
+  font: inherit;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  resize: vertical;
+}

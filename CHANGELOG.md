@@ -39,6 +39,53 @@ written and is superseded by the first item here.
   volume. This is the mechanism and says plainly that it is not the measurement.
 
 ### Fixed
+- **The evidence packet sent the model an empty list where D-003 had put a number, and said
+  nothing was withheld.** `top_domain_names` — how many distinct names were seen under the
+  suspected tunnelling domain — was classified in `ADDRESS_KEYS`, so `Pseudonymizer.tokens` was
+  asked to tokenise an integer and returned `[]` for it. Every real DNS-tunnelling brief has
+  gone out with that count missing, and `dropped_fields` empty, so the packet asserted nothing
+  had been dropped. Reproduced by calling `_evidence` with a real D-003 evidence dict before
+  the fix and after.
+
+  It survived two milestones and a 38-test canary suite because the canary fixture fed it a
+  *list* — a shape `dns_anomaly.py` never produces. Every other test in that file hands the
+  builder a dictionary somebody typed, which cannot catch a key classified wrongly. There is
+  now a test that runs the five shipped detectors over their own labelled positives and asserts
+  that a number goes out as a number, naming no keys, so a new rule or a new field is covered
+  the day it is written. Re-classifying the key makes it fail.
+- **Three quadratic regexes in the redaction scanner** — the one module guaranteed to be handed
+  attacker-influenced text, and the one whose own comment says "a regex that can backtrack over
+  untrusted input is a denial of service in the very code meant to make it safe". `email`'s
+  unbounded local part took **0.69 s** on twenty thousand characters containing no at-sign at
+  all, and 1.67 s on `a@` followed by `a.` repeated; `private_key_block` opened with `-{2,}` and
+  took **4.09 s** on a run of dashes — a separator line in a log. `clean_free_text` scans
+  *before* it truncates, deliberately, so the length cap was never a bound on what these
+  patterns saw.
+
+  The local part is bounded at RFC 5321's 64 octets; the domain is deliberately left unbounded,
+  because capping it at 255 was measured to *lose* a detection. The old probe list could not
+  have found any of this — its probes were ~500 characters, where a quadratic pattern is still
+  instant. It is a sweep now: every prefix that could start a rule crossed with a long run of
+  every character the rules care about, plus repeating pairs. Restoring either bound makes it
+  fail, at 67 s and 38 s.
+- **Ingest fail-closed was claimed by `THREAT_MODEL.md` T-2.6 since Chunk 6 and tested nowhere.**
+  `wiring.limiter.broken` appeared only in the auth tests, so both `fail_open=False` arguments
+  in `api/v1/ingest.py` could have been flipped — turning a Redis outage into unmetered ingest —
+  with the whole suite green. Now covered for both entrypoints, and flipping them fails it.
+- **A browser test that asserted nothing for three milestones.** `keyboard.spec.ts` called
+  `getComputedStyle(target, ":focus-visible")`, but that is a pseudo-*class*, so CSSOM returns
+  an empty declaration and `"" !== "none"` passes — with the entire focus-ring block deleted
+  from `globals.css` it passed identically. It reads the focused element's own computed style
+  now, arrives by pressing Tab rather than calling `.focus()`, and walks every control rather
+  than `querySelector`'s first, which is what its name had been claiming.
+- **A step named for something it never checked.** The `stack` job's step was renamed earlier in
+  this same session to say "all three periodic actors" while still grepping for two;
+  `nightly_retention` appeared nowhere in the workflow. It is asserted now, in CI and in
+  `test_schedule.py`, which had also only ever known about two — eight chunks after ADR-033
+  added the third.
+- **`make lab-soak` printed "exporting" and exported nothing.** The capture stayed inside the
+  sensor's volume, so the `make lab-sanitize` it recommends next would have read whatever an
+  earlier run left in `infra/lab/out/`, or refused, finding nothing.
 - **This repository is public, and every document that reasoned from it being private.** It was
   never private: `gh api repos/pchrysostomou/aegisnet` reports `"private": false`, and the event
   stream carries a `PublicEvent` at the second the repository was created. The belief arrived as

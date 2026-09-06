@@ -241,6 +241,14 @@ lab-soak: require-env ## Collect a day of lab traffic so D-005 can be exercised 
 	  done
 	@echo "soak done; exporting"
 	$(LAB) stop suricata
+	@# The echo above said "exporting" and nothing exported: the capture stayed inside the
+	@# sensor's volume, so `make lab-sanitize` would have read whatever `infra/lab/out/eve.json`
+	@# happened to hold from an earlier run — or refused, finding nothing. Same body as
+	@# `lab-export`, inline rather than recursive for the reason given above.
+	@mkdir -p infra/lab/out
+	$(LAB) cp suricata:/capture/eve.json $(LAB_CAPTURE)
+	@$(LAB) cp suricata:/capture/suricata.log infra/lab/out/suricata.log 2>/dev/null || true
+	@wc -l < $(LAB_CAPTURE) | xargs -I{} echo "captured {} EVE records in $(LAB_CAPTURE)"
 	@echo "next: make lab-sanitize, then recompute-baselines and a sweep — see docs/evaluation.md §9"
 
 lab-capture: ## One full run: clean, pre-flight, sensor up, traffic, flush, export — writes infra/lab/out/eve.json

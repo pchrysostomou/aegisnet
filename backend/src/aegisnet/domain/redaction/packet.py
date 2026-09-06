@@ -72,6 +72,13 @@ NUMERIC_KEYS: Final[frozenset[str]] = frozenset(
         "baseline_window_days",
         "distinct_destinations",
         "top_domain_suspicious",
+        # A count of distinct names under the busiest domain, not a name. It sat in
+        # ADDRESS_KEYS until Chunk 33, where `Pseudonymizer.tokens` turned the integer
+        # into `[]` for every real D-003 alert — the one number saying how large the
+        # suspected tunnel is, silently emptied, with `dropped_fields` reporting nothing
+        # withheld. The canary test had only ever fed it a *list*, a shape the detector
+        # does not produce (`dns_anomaly.py:244` sends `len(names)`).
+        "top_domain_names",
     }
 )
 
@@ -85,7 +92,6 @@ ADDRESS_KEYS: Final[frozenset[str]] = frozenset(
         "sample_dest_hosts",
         "sample_destinations",
         "top_domain",
-        "top_domain_names",
     }
 )
 

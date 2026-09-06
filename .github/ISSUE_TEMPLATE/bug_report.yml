@@ -1,0 +1,45 @@
+name: Something does not work
+description: A command, route, detector or test behaves differently from how it is documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        For anything exploitable, use the private vulnerability report instead of this form.
+  - type: textarea
+    id: what
+    attributes:
+      label: What you ran, and what happened
+      description: The exact command or request, and the output. Redact nothing that matters.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and where the project says so
+      description: A file and line if the expectation comes from the documentation.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit or tag
+      placeholder: "v1.0.0, or the output of `git rev-parse --short HEAD`"
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Which part
+      options:
+        - Stack / Compose / Makefile
+        - Ingest and normalisation
+        - Detectors or evaluation
+        - Correlation and incidents
+        - API
+        - Dashboard
+        - The isolated Suricata lab
+        - Briefs / export
+        - Something else
+    validations:
+      required: true

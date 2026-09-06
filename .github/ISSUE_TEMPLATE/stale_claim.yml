@@ -1,0 +1,35 @@
+name: A claim in the documentation is wrong
+description: Something this repository says about itself does not match the code.
+title: "docs: "
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        The largest class of defect this project has produced is not a broken test — it is a
+        document that was true when written and quietly stopped being true. Reporting one is
+        genuinely useful, and the more precise you are the faster it is fixed.
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: File and line, e.g. `SECURITY.md:176`.
+      placeholder: "docs/evaluation.md:264"
+    validations:
+      required: true
+  - type: textarea
+    id: claim
+    attributes:
+      label: What it says
+      description: Quote it exactly.
+    validations:
+      required: true
+  - type: textarea
+    id: reality
+    attributes:
+      label: What is actually true, and how you know
+      description: >-
+        The file, line, test or command that shows it. "Nothing fetches the URL —
+        `grep -rn httpx backend/src/aegisnet/domain/` returns nothing" is the ideal shape.
+    validations:
+      required: true

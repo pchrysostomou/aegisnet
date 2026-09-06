@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a vulnerability (private)
+    url: https://github.com/pchrysostomou/aegisnet/security/advisories/new
+    about: >-
+      Anything exploitable goes here, not in a public issue. See SECURITY.md.
+  - name: What this project will not do
+    url: https://github.com/pchrysostomou/aegisnet/blob/main/README.md#safety-and-scope-boundary
+    about: >-
+      AegisNet is defensive only — no scanning, probing, exploitation or automated response.
+      Requests for those are out of scope by design.

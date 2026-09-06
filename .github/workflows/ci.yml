@@ -272,6 +272,9 @@ jobs:
           grep -q 'post_ingest_sweep_queued' worker.log
           grep -q 'scheduled_sweep@detection' scheduler.log
           grep -q 'nightly_baselines@detection' scheduler.log
+          # The third one. The step's name said "all three" before this line existed,
+          # which is a green check asserting something it never looked at.
+          grep -q 'nightly_retention@detection' scheduler.log
 
       - name: Queue a detection sweep over HTTP and watch the worker record every rule
         run: |

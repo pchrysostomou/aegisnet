@@ -74,7 +74,11 @@ def poisoned_alert(**overrides: object) -> dict[str, object]:
             "long_names": 12,
             # Allow-listed but attacker-chosen: pseudonymised, never passed through.
             "top_domain": CANARIES["email"],
-            "top_domain_names": [CANARIES["aws_key"], CANARIES["jwt"], "evil.example.test"],
+            # An integer, because that is what D-003 emits (`dns_anomaly.py` sends
+            # `len(names)`). It was a list here for two milestones, which is why nobody
+            # noticed the key was classified as an address and every real alert had this
+            # number replaced by `[]` on the way out.
+            "top_domain_names": 30,
             "sample_dest_hosts": ["10.10.0.9", "198.51.100.4"],
             # A closed vocabulary that has been poisoned.
             "app_proto": CANARIES["assignment"],
@@ -216,11 +220,63 @@ def test_lists_inside_evidence_are_capped() -> None:
     assert len(hosts) <= PacketLimits().max_list_items
 
 
+def test_every_evidence_key_a_real_detector_emits_survives_as_the_type_it_emitted() -> None:
+    """The test that would have caught `top_domain_names`, and the reason it is written this way.
+
+    Every other test in this file hands `build_packet` a dictionary somebody typed. That is
+    fine for canaries — the point there is a poisoned value — but it cannot catch a key that is
+    *classified wrongly*, because the hand-written value has whatever shape the author assumed.
+    `top_domain_names` sat in `ADDRESS_KEYS` for two milestones while D-003 emitted it as an
+    integer; the fixture above fed it a list, so the address branch looked correct. In
+    production every real DNS-tunnelling alert reached the model with that count replaced by
+    `[]` — and `dropped_fields` empty, so the packet said nothing had been withheld.
+
+    So this runs the five shipped detectors over their own labelled positives, takes the
+    evidence they actually produce, and asserts that a number goes out as a number. It needs no
+    list of keys, which is the point: a new rule, or a new field on an old one, is covered the
+    day it is written.
+    """
+    from aegisnet.domain.detectors import get_detector
+    from aegisnet.domain.redaction.packet import _evidence
+    from tests.detectors.conftest import labelled_case_dirs, load_case
+
+    names = Pseudonymizer(subject=SUBJECT)
+    limits = PacketLimits()
+    seen = 0
+    for directory in labelled_case_dirs():
+        case = load_case(directory)
+        if case.labels["expected"] != "detection":
+            continue
+        for result in get_detector(str(case.labels["rule_id"])).run(case.window):
+            dropped: list[str] = []
+            out = _evidence(dict(result.evidence), names, limits, dropped, case.labels["rule_id"])
+            for key, value in result.evidence.items():
+                if key not in out:
+                    # `dropped` entries are qualified — "D-002.sample_categories: not sent by
+                    # policy" — because a bare key name would not say which rule it came from.
+                    assert any(key in entry for entry in dropped), (
+                        f"{case.labels['rule_id']} sends {key!r} and the packet neither carries "
+                        f"it nor records it as dropped: {dropped}"
+                    )
+                    continue
+                seen += 1
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    continue
+                assert isinstance(out[key], (int, float)) and not isinstance(out[key], bool), (
+                    f"{case.labels['rule_id']} emits {key}={value!r} and the packet sends "
+                    f"{out[key]!r} — a number classified as something it is not"
+                )
+    assert seen > 20, f"only {seen} evidence values reached the packet; the corpus is not loading"
+
+
 def test_the_byte_cap_is_honoured_even_when_one_alert_is_enormous() -> None:
     alert = poisoned_alert()
     alert["evidence"] = {
         **alert["evidence"],
-        "top_domain_names": [f"h{i}.example.test" for i in range(500)],
+        # An address list, because that is a key whose value really can be long. This probe
+        # used `top_domain_names` until Chunk 33, when that key turned out to be a *count* the
+        # detector emits as an integer — a list there was never a shape this code sees.
+        "sample_dest_hosts": [f"198.51.100.{i % 254 + 1}" for i in range(500)],
     }  # type: ignore[dict-item]
     packet, _names = build(alerts=[alert], limits=PacketLimits(max_bytes=1_500))
     assert len(packet.serialise().encode("utf-8")) <= 1_500
@@ -324,6 +380,12 @@ def test_the_redactor_does_not_backtrack_on_adversarial_input() -> None:
         "1." * 300 + "x",
         "x" * 400,
         ("Aa1" * 200),
+        # The shape the `email` rule used to be quadratic on: an at-sign, then a long run of
+        # label-and-dot that never ends in a plausible TLD, so every failed tail re-tried every
+        # split point. Short probes hid it — this list's others are ~500 characters, where even
+        # a quadratic pattern finishes in microseconds. That is why the sibling test below
+        # measures a *large* input rather than trusting a wall-clock bound on a small one.
+        "a@" + "a." * 400,
     ]
     for probe in hostile:
         started = time.perf_counter()
@@ -332,6 +394,81 @@ def test_the_redactor_does_not_backtrack_on_adversarial_input() -> None:
         clean_free_text(probe, field="probe")
         elapsed = time.perf_counter() - started
         assert elapsed < 0.5, f"{probe[:24]!r}… took {elapsed:.2f}s"
+
+
+def test_no_denylist_rule_backtracks_on_a_long_run_of_any_single_character() -> None:
+    r"""The test that found three of them, written as a sweep rather than as a list of guesses.
+
+    Every rule here is a regex over attacker-influenced text, and the shape that breaks one is
+    always the same: an unbounded quantifier over a class, followed by something that fails. The
+    engine gives one character back, fails again, and does that from every start position.
+
+    So instead of naming probes, this crosses every prefix that could *start* a rule with a long
+    run of every character those rules care about, and asserts that no rule is slow on any of
+    them. Written this way it found two quadratic patterns that the older list-of-probes test
+    had passed for months, because its probes were ~500 characters — a length at which a
+    quadratic pattern is still instant:
+
+    * `email`'s unbounded local part, `[A-Za-z0-9._%+-]+`, which matches to the end from every
+      start position and then fails on `@`: 0.69 s on twenty thousand characters containing no
+      at-sign at all, and 1.67 s on `a@` followed by `a.` repeated;
+    * `private_key_block`, which opened with `-{2,}`: 4.09 s on a run of dashes — a separator
+      line in a log, or the body of a PEM block itself.
+
+    Restoring either bound makes this test fail, at 67 s and 38 s. A third change went in at the
+    same time — moving `email`'s TLD check out of the pattern into Python — and this test says
+    plainly that it was **not** a speed fix: with the local part bounded that tail is linear, and
+    reverting it alone leaves this test passing. It stands on being one less backtracking
+    construct over untrusted text, not on a number.
+
+    `clean_free_text` scans before it truncates, deliberately, so that a secret sitting past the
+    length cap is still found. The cap is therefore not a bound on what these patterns see, and
+    linear is the only acceptable cost.
+    """
+    import itertools
+    import time
+
+    runs = "-.=/xA0 +_~%@"
+    starts = ("", "bearer ", "password=", "a@", "-----BEGIN ", "eyJaaaaaaaa.", "AKIA", "MII")
+
+    # Two families, because they catch different halves. A run of one character finds an
+    # unbounded class at the *front* of a rule — the one that matches to the end from every
+    # start position. A repeating pair finds an unbounded class in the *middle*, where the
+    # failing tail is what forces the backtrack; `a@` then `a.` repeated is the probe that
+    # exposed the `email` domain, and no single-character run reproduces it.
+    units = [(start, character, 20_000) for start, character in itertools.product(starts, runs)]
+    units += [(start, pair, 10_000) for start in starts for pair in ("a.", "a-", "a=", "-a", ".a")]
+
+    slow: list[str] = []
+    for start, unit, count in units:
+        probe = start + unit * count
+        began = time.perf_counter()
+        scan(probe, field="probe")
+        elapsed = time.perf_counter() - began
+        if elapsed > 0.5:
+            slow.append(f"{start!r} + {unit!r}*{count} took {elapsed:.2f}s")
+    assert not slow, "quadratic backtracking: " + "; ".join(slow)
+
+
+def test_the_email_rule_still_finds_an_address_and_still_refuses_a_near_miss() -> None:
+    """Moving the TLD decision out of the pattern must not move the answer.
+
+    Every one of these was checked against the old pattern and gives the same verdict; the
+    awkward ones are the point — a trailing dot, a digit glued to the TLD, and a path after
+    the address all used to depend on the regex backtracking to the right split.
+    """
+    for address in (
+        "ops@example.test",
+        "a.b+c%d_e@sub.example.co.uk",
+        "mail me at ops@example.test now",
+        "a@b.com5",
+        "a@b.com.",
+        "x@y.z.ab/path",
+    ):
+        assert any(f.pattern == "email" for f in scan(address)), address
+
+    for near_miss in ("user@host", "a@b.c", "a@b.c0m", "no at sign here", "@", "a@"):
+        assert not any(f.pattern == "email" for f in scan(near_miss)), near_miss
 
 
 def test_the_base64_rule_still_knows_a_blob_from_a_long_boring_string() -> None:

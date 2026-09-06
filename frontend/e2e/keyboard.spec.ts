@@ -32,15 +32,43 @@ test("the status control is operable from the keyboard", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Move" })).toBeEnabled();
 });
 
-test("every focusable control shows a visible focus ring", async ({ page }) => {
+/* This asserted nothing at all until Chunk 33. It called
+ * `getComputedStyle(target, ":focus-visible")` — but `:focus-visible` is a pseudo-*class*, not a
+ * pseudo-element, so CSSOM resolves the second argument to nothing and hands back an empty
+ * declaration: `{width: "", style: ""}`, length 0. `"" !== "none"` passes, and it passed
+ * identically with the whole focus-ring block deleted from `globals.css`. Measured in this
+ * repository's own Chromium, both ways round.
+ *
+ * Two changes. It reads the element's *own* computed style, which is where the
+ * `a|button|input|select:focus-visible` rule in `globals.css` has actually applied. And it
+ * arrives by pressing Tab rather than calling `.focus()`, because `:focus-visible` is a
+ * heuristic about how focus was acquired — a keyboard press is the case the rule exists for,
+ * and it is also the case `docs/STATUS.md` E-68 claims to have checked. */
+test("every control reached by Tab shows a visible focus ring", async ({ page }) => {
   await page.goto("/incidents");
-  const outline = await page.evaluate(() => {
-    const target = document.querySelector<HTMLElement>("a, button, select, input");
-    if (!target) return null;
-    target.focus();
-    const style = getComputedStyle(target, ":focus-visible");
-    return { width: style.outlineWidth, style: style.outlineStyle };
-  });
-  expect(outline).not.toBeNull();
-  expect(outline?.style).not.toBe("none");
+  await page.locator("body").click(); // start from a known place, without focusing a control
+
+  const rings: { tag: string; outlineStyle: string; outlineWidth: number }[] = [];
+  for (let press = 0; press < 10; press += 1) {
+    await page.keyboard.press("Tab");
+    const ring = await page.evaluate(() => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el || el === document.body) return null;
+      const style = getComputedStyle(el);
+      return {
+        tag: el.tagName.toLowerCase(),
+        outlineStyle: style.outlineStyle,
+        outlineWidth: Number.parseFloat(style.outlineWidth) || 0,
+      };
+    });
+    if (ring) rings.push(ring);
+  }
+
+  expect(rings.length, "Tab reached no focusable control").toBeGreaterThan(2);
+  for (const ring of rings) {
+    expect(ring.outlineStyle, `<${ring.tag}> focused by Tab has outline-style none`).not.toBe(
+      "none",
+    );
+    expect(ring.outlineWidth, `<${ring.tag}> outline is ${ring.outlineWidth}px`).toBeGreaterThan(1);
+  }
 });

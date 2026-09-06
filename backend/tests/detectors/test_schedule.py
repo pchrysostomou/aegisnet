@@ -18,6 +18,7 @@ from aegisnet.adapters.queue import broker as broker_module
 from aegisnet.adapters.queue.names import (
     DETECTION_QUEUE,
     NIGHTLY_BASELINES_ACTOR,
+    NIGHTLY_RETENTION_ACTOR,
     SCHEDULED_SWEEP_ACTOR,
 )
 from aegisnet.services.detection_service import SweepError
@@ -143,14 +144,25 @@ def test_the_periodic_actors_register_with_their_cron_lines(
         if SCHEDULED_SWEEP_ACTOR not in stub.get_declared_actors():
             schedule = importlib.reload(schedule)  # re-run the decorators against the stub
         declared = stub.get_declared_actors()
-        assert {SCHEDULED_SWEEP_ACTOR, NIGHTLY_BASELINES_ACTOR} <= declared
+        # All three. `nightly_retention` (Chunk 25, ADR-033) went unasserted here for eight
+        # chunks, so the scheduler could have stopped sending it with the suite still green.
+        assert {
+            SCHEDULED_SWEEP_ACTOR,
+            NIGHTLY_BASELINES_ACTOR,
+            NIGHTLY_RETENTION_ACTOR,
+        } <= declared
         sweep = stub.get_actor(SCHEDULED_SWEEP_ACTOR)
         nightly = stub.get_actor(NIGHTLY_BASELINES_ACTOR)
-        assert sweep.queue_name == nightly.queue_name == DETECTION_QUEUE
+        retention = stub.get_actor(NIGHTLY_RETENTION_ACTOR)
+        assert sweep.queue_name == nightly.queue_name == retention.queue_name == DETECTION_QUEUE
         assert schedule.SWEEP_CRON == "*/15 * * * *" and schedule.BASELINE_CRON == "0 3 * * *"
+        assert schedule.RETENTION_CRON == "0 3 * * *"
         assert str(sweep.options["periodic"]) == "*/15 * * * *"
         assert str(nightly.options["periodic"]) == "0 3 * * *"
+        assert str(retention.options["periodic"]) == "0 3 * * *"
         assert sweep.options["max_retries"] == 0 and nightly.options["max_retries"] == 0
+        # The prune is the one job where a retry could delete twice as much as intended.
+        assert retention.options["max_retries"] == 0
     finally:
         dramatiq.set_broker(previous)
         get_settings.cache_clear()

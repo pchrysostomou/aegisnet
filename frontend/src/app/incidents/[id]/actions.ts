@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { ApiError } from "@/lib/api/client";
-import { addNote, changeStatus } from "@/lib/api/incidents";
+import { addNote, changeStatus, generateBrief } from "@/lib/api/incidents";
 import { incidentStatus, isClosed } from "@/lib/api/schemas";
 
 import type { ActionState } from "./action-state";
@@ -65,6 +65,22 @@ export async function writeNote(_previous: ActionState, form: FormData): Promise
     await addNote(id, body);
   } catch (error) {
     return { error: explain(error, "The note could not be saved."), ok: false };
+  }
+  revalidatePath(`/incidents/${id}`);
+  return { error: null, ok: true };
+}
+
+/** Ask for a brief. The API answers `201` even when it could not produce one — a failure is a
+ * stored brief with a reason (ADR-031) — so the only thing to do here is re-render and let the
+ * panel show whichever of the two happened. */
+export async function requestBrief(_previous: ActionState, form: FormData): Promise<ActionState> {
+  const id = field(form, "id");
+  if (!CASE_ID.test(id)) return { error: "That case reference is not valid.", ok: false };
+
+  try {
+    await generateBrief(id);
+  } catch (error) {
+    return { error: explain(error, "The brief could not be requested."), ok: false };
   }
   revalidatePath(`/incidents/${id}`);
   return { error: null, ok: true };

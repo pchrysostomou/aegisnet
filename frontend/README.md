@@ -20,9 +20,22 @@ Next.js App Router, React 19, TypeScript. Milestone 4; the decisions behind it a
   anywhere, so hostile markdown cannot become markup. No links and no images, on purpose.
 
 - **The asset inventory** and the **admin-only audit viewer** (Chunk 20).
+- **The investigation brief panel** (Chunk 24,
+  [ADR-032](../docs/adr/ADR-032-the-report-changes-nothing-and-escapes-everything.md)): the
+  summary, claims, recommendations and sources of the newest brief, with every uncited external
+  claim tagged `UNVERIFIED` and the committed offline sample labelled as not-a-model. Model
+  prose goes through `SafeMarkdown` like an analyst's note. Only an analyst is offered the
+  control that asks for one.
+- **`CitationList`**: the first and only anchor to somewhere else this app draws. A source is a
+  link when it is `https` — parsed with `new URL`, not prefix-matched — and carries
+  `rel="noopener noreferrer nofollow"` and `target="_blank"`; anything else is printed as text
+  with a line saying why.
+- **The Markdown export**: `/incidents/[id]/report.md` is a route handler in this app, not a
+  link to the API. The browser never learns the API's address, so the bytes come through here.
 - **A browser suite** (Chunk 20, [ADR-028](../docs/adr/ADR-028-a-browser-suite-for-what-the-other-tests-cannot-see.md)):
-  fourteen Playwright tests against a running stack, covering what the unit tests cannot —
-  a stored payload rendering inert, a viewer offered no control, keyboard operation.
+  twenty-one Playwright tests against a running stack, covering what the unit tests cannot —
+  a stored payload rendering inert, a viewer offered no control, keyboard operation, a brief
+  generated and shown as the offline sample it is, and one case exported twice to the same bytes.
 
 ## Layout
 
@@ -30,8 +43,8 @@ Next.js App Router, React 19, TypeScript. Milestone 4; the decisions behind it a
 |---|---|
 | `src/app/login/` | The form, its server actions, and the only client component here |
 | `src/app/incidents/` | The queue and its filters, server-rendered |
-| `src/app/incidents/[id]/` | The case view, its server actions, and the two controls an analyst gets |
-| `src/components/` | Badges, timestamps and `SafeMarkdown` — display only, no data access |
+| `src/app/incidents/[id]/` | The case view, its server actions, the three controls an analyst gets, and the `report.md` route handler |
+| `src/components/` | Badges, timestamps, `SafeMarkdown`, the brief panel and the citation list — display only, no data access |
 | `src/lib/api/` | The one module that talks to the API, and the schemas it parses with |
 | `src/lib/session.ts` | Cookie names, lifetimes and the role check the UI draws controls from |
 | `src/app/assets/`, `src/app/audit/` | The inventory, and the audit trail an admin reads |

@@ -102,6 +102,9 @@ CASES: list[Case] = [
     ("GET", f"/api/v1/incidents/{ZERO}/briefs", Permission.briefs_read, None, None),
     ("GET", f"/api/v1/incidents/{ZERO}/briefs/1", Permission.briefs_read, None, None),
     ("POST", f"/api/v1/incidents/{ZERO}/briefs", Permission.briefs_generate, None, None),
+    # A viewer may export: everything in the document is something a viewer can already
+    # read as JSON, so gating the format would protect nothing (ADR-032).
+    ("GET", f"/api/v1/incidents/{ZERO}/report.md", Permission.incidents_read, None, None),
 ]
 ROLES = ["viewer", "analyst", "admin", "ingest_service"]
 

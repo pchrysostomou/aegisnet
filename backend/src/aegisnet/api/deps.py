@@ -42,6 +42,7 @@ from aegisnet.services.detection_service import DetectionService
 from aegisnet.services.event_read_service import EventReadService
 from aegisnet.services.incident_service import IncidentService
 from aegisnet.services.ingest_service import IngestService
+from aegisnet.services.report_service import ReportService
 
 logger = get_logger(__name__)
 
@@ -80,6 +81,7 @@ class AppServices:
     """Queues ``recompute_baselines(window_days)``; returns a message id."""
     incidents: IncidentService
     briefs: BriefService
+    reports: ReportService
 
 
 def services(request: Request) -> AppServices:

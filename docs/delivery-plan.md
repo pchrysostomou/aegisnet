@@ -169,19 +169,39 @@ fields · offline mode so a reviewer without an API key still sees the feature.
 
 **Security risks.** The whole of TB-3 and TB-4: T-3.1 – T-3.6, T-4.1 – T-4.5.
 
-**Acceptance criteria.**
-- [ ] **Canary redaction test passes:** every event field poisoned with canary emails, secrets, AWS-style keys, and
-      private-key blocks; none appear in the serialized request body.
-- [ ] Serialized packet stays under the configured byte cap; truncation is flagged in `packet_truncated`.
-- [ ] A prompt-injection corpus embedded in DNS/HTTP fields cannot alter any alert or incident field (test).
-- [ ] A fixture response with an uncited external claim is stored and rendered as `UNVERIFIED`.
-- [ ] A fixture response recommending an offensive/automated action is rejected as `safety_rejected`.
-- [ ] Timeout, 429, 5xx, and malformed-JSON responses each produce a graceful `failed` brief with the incident
-      still fully usable.
-- [ ] Exported Markdown is byte-identical across two runs for the same incident (determinism test).
-- [ ] No API key appears in any log record (log-scrubbing test).
+**Acceptance criteria.** All eight are met as of Chunk 24, which closes Milestone 5. The feature remains **off by
+default and no outbound call has ever been made from this repository**: every test runs against committed fixtures
+through a mock transport, and a checkout without a key is served the offline sample.
 
-**Commands.** `make brief INCIDENT=AEG-2026-0001` · `make test-security` · `make export INCIDENT=AEG-2026-0001`.
+- [x] **Canary redaction test passes:** every event field poisoned with canary emails, secrets, AWS-style keys, and
+      private-key blocks; none appear in the serialized request body — 36 tests in
+      `backend/tests/security/test_redaction.py`, asserting against the serialised body rather than the object
+      (Chunk 21, ADR-029, `docs/STATUS.md` E-70). The suite found a real leak on its first run.
+- [x] Serialized packet stays under the configured byte cap; truncation is flagged in `packet_truncated` — Chunk 21
+      (E-70), surfaced on the brief and in the dashboard panel from Chunk 24.
+- [x] A prompt-injection corpus embedded in DNS/HTTP fields cannot alter any alert or incident field — structurally in
+      Chunk 21 (what leaves is arithmetic, not prose) and asserted at the route in Chunk 23, which compares the whole
+      case before and after generating a brief (E-70, E-74).
+- [x] A fixture response with an uncited external claim is stored and rendered as `UNVERIFIED` — stored in Chunk 22
+      (E-72), rendered in Chunk 24 by `UnverifiedTag` in the dashboard and by the report's own marker
+      (`backend/tests/unit/test_reports.py`, `frontend/src/components/brief-panel.tsx`).
+- [x] A fixture response recommending an offensive/automated action is rejected as `safety_rejected` — Chunk 22
+      (ADR-030, E-72); the filter is a step after validation, not a pydantic validator, which is what makes the
+      reason distinguishable.
+- [x] Timeout, 429, 5xx, and malformed-JSON responses each produce a graceful `failed` brief with the incident
+      still fully usable — every reason named and tested in Chunk 22 (E-72), stored as a brief and answered `201` in
+      Chunk 23 (E-74).
+- [x] Exported Markdown is byte-identical across two runs for the same incident — Chunk 24 (ADR-032):
+      `backend/tests/unit/test_reports.py` shuffles every collection, moves dictionary keys and strips timezones;
+      `backend/tests/integration/test_report_routes.py` exports twice over HTTP and compares bytes; and
+      `frontend/e2e/briefs.spec.ts` does the same against a running stack. The export writes nothing to the case,
+      which is what makes it true.
+- [x] No API key appears in any log record — Chunk 22 (E-72): the key is a `SecretStr` carried only in a header, a
+      transport failure records the exception's *type*, and the value is in `secret_values()` so the scrubber would
+      catch it even if the client were wrong.
+
+**Commands.** `make brief REF=AEG-2026-0001` · `make test-security` · `make export REF=AEG-2026-0001`.
+(Both were planned as `INCIDENT=`; every neighbouring case-scoped target uses `REF=`, and these match them.)
 
 ---
 

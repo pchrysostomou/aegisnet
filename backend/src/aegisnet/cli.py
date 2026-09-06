@@ -105,7 +105,7 @@ from aegisnet.services.asset_service import AssetService
 from aegisnet.services.audit_service import AuditService
 from aegisnet.services.auth_service import AuthPolicy, AuthService
 from aegisnet.services.baseline_service import BaselineService
-from aegisnet.services.brief_service import BriefService
+from aegisnet.services.brief_service import BriefIncidentNotFoundError, BriefService
 from aegisnet.services.correlation_service import (
     CorrelationService,
     summarise,
@@ -134,6 +134,7 @@ from aegisnet.services.ingest_service import (
     limits_from_settings,
     provenance_for,
 )
+from aegisnet.services.report_service import ReportIncidentNotFoundError, ReportService
 from aegisnet.services.scenario_service import (
     MANIFEST_FILE,
     SCENARIO_FILE,
@@ -188,9 +189,18 @@ class Services:
         self.baselines = BaselineService(asset_store, events_store, baseline_store)
         self.incidents = SqlIncidentStore(sessions)
         self.correlation = CorrelationService(self.incidents, SqlAlertStore(sessions))
+        brief_store = SqlBriefStore(sessions)
+        self.reports = ReportService(
+            self.incidents,
+            brief_store,
+            alerts=SqlAlertStore(sessions),
+            events=events_store,
+            ingest=SqlIngestStore(sessions),
+            assets=self.assets,
+        )
         self.briefs = BriefService(
             self.incidents,
-            SqlBriefStore(sessions),
+            brief_store,
             PerplexityClient(
                 settings,
                 # The same counter the API spends from: one cap for the deployment, not one
@@ -410,6 +420,11 @@ def build_parser() -> argparse.ArgumentParser:
         "brief", help="ask for an investigation brief on one case (off unless BRIEF_ENABLED)"
     )
     brief.add_argument("reference", help="AEG-2026-0001 or a uuid")
+
+    export = commands.add_parser(
+        "export", help="write one case out as Markdown, the same bytes every time"
+    )
+    export.add_argument("reference", help="AEG-2026-0001 or a uuid")
 
     commands.add_parser("baselines", help="list the stored baselines")
 
@@ -803,6 +818,33 @@ def cmd_brief(settings: Settings, reference: str) -> int:
     return EXIT_OK
 
 
+def cmd_export(settings: Settings, reference: str, stream: TextIO | None = None) -> int:
+    """Write the case out as Markdown.
+
+    Straight to the stream rather than through `_emit`, because the point of this command is
+    the document's bytes: running it twice on an unchanged case produces identical output, and
+    wrapping it in JSON would only put an escaping layer between the operator and that.
+    """
+
+    async def action(services: Services) -> object:
+        try:
+            incident_id = UUID(reference)
+        except ValueError:
+            detail = await services.incidents.get_by_case_number(reference)
+            if detail is None:
+                return None
+            incident_id = detail.incident.id
+        return await services.reports.markdown(incident_id)
+
+    found = _run(settings, action)
+    if found is None:
+        _emit({"error": f"no incident {reference}"})
+        return EXIT_FAILED
+    _case_number, document = found
+    (stream or sys.stdout).write(document)
+    return EXIT_OK
+
+
 def cmd_alerts(settings: Settings, args: argparse.Namespace) -> int:
     query = AlertFilter(
         severity_min=args.severity_min, rule_id=args.rule, limit=args.limit, cursor=args.cursor
@@ -977,6 +1019,8 @@ def dispatch(settings: Settings, samples_dir: Path, args: argparse.Namespace) ->
             return cmd_incidents(settings, args)
         case "brief":
             return cmd_brief(settings, args.reference)
+        case "export":
+            return cmd_export(settings, args.reference)
         case "incident":
             return cmd_incident(settings, args.reference)
         case "baselines":
@@ -1006,6 +1050,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         EmailTakenError,
         ServiceTokenNameTakenError,
         AlertNotFoundError,
+        # A syntactically valid uuid that is not a case reaches the store rather than the
+        # case-number lookup, so it comes back as one of these rather than as `None`. Without
+        # them here the operator gets a traceback where every other command prints an envelope.
+        BriefIncidentNotFoundError,
+        ReportIncidentNotFoundError,
     ) as error:
         _emit({"error": str(error)})
         return EXIT_FAILED

@@ -301,8 +301,9 @@ an analyst than a claim that quietly disappeared.
 Append-only. The app DB role receives `INSERT`/`SELECT` only — **no `UPDATE`, no `DELETE`** (T-2.5, T-5.3).
 
 `id` bigserial, `occurred_at` timestamptz, `actor_user_id` NULL, `actor_token_id` NULL, `actor_ip` inet NULL,
-`action` text (`auth.login_failed`, `ingest.batch_created`, `incident.status_changed`, `brief.requested`,
-`brief.egress`, `report.exported`, `asset.updated`, `rbac.denied`), `target_type` text, `target_id` text NULL,
+`action` text — the list here is illustrative of the column's shape, not a contract: the actions actually
+written are in [`SECURITY.md`](../SECURITY.md), and `brief.requested` and `brief.egress` were never implemented
+(Chunk 22 wrote `brief.generated` instead, Chunk 24 `report.exported`). `target_type` text, `target_id` text NULL,
 `result` enum(`success`,`denied`,`error`), `detail` jsonb (non-sensitive only), `correlation_id` uuid.
 Indexes: `(occurred_at DESC)`, `(actor_user_id, occurred_at DESC)`, `(action, occurred_at DESC)`.
 

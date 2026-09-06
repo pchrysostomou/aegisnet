@@ -102,7 +102,7 @@ Actions written today: `auth.login_success`, `auth.login_failed`, `auth.refresh`
 `asset.deactivated`, `user.created`, `service_token.created`, `service_token.revoked`,
 `detection.sweep_requested`, `detection.baselines_requested`,
 `incident.status_changed`, `incident.status_change_refused`, `incident.note_added`,
-`brief.generated`.
+`brief.generated`, `report.exported`.
 Admins read the trail at `GET /api/v1/audit` (newest first, filters, keyset cursors).
 
 An incident transition writes `incident.status_changed` on success and
@@ -113,6 +113,12 @@ length. **No analyst free text reaches this table**: the 512-character cap and t
 control-character strip would make an audited copy differ from the note it claims to be, and the
 credential-key filter cannot see into prose. The text lives in `incident_notes`, and a closure
 reason lives on the case and in its timeline (ADR-024).
+
+Exporting a case as Markdown writes `report.exported` with the case number and the document's
+size in bytes — never the document. It is the only **read** in this API that writes an audit
+row, and it is deliberate: an export is the whole case as plain text in a file somebody can
+forward, and FR-10.3 names it an auditable event. It appends nothing to the case itself, so two
+exports of an unchanged case are the same bytes (ADR-032).
 
 Asking for a brief writes `brief.generated` — `success` when one was produced, `error` when it
 could not be, with the reason. The detail carries the version, the status, the source and the

@@ -127,6 +127,61 @@ export type NotePage = z.infer<typeof notePage>;
 export const timelinePage = page(timelineEntry);
 export type TimelinePage = z.infer<typeof timelinePage>;
 
+export const briefStatus = z.enum(["complete", "failed"]);
+export type BriefStatus = z.infer<typeof briefStatus>;
+
+/** `offline_fixture` is the sample committed to the repository, served when the feature is off.
+ * It must never be shown as something a model said (ADR-031), which is why it is a field rather
+ * than an inference from `model` being null. */
+export const briefSource = z.enum(["perplexity", "offline_fixture"]);
+export type BriefSource = z.infer<typeof briefSource>;
+
+export const briefCitation = z.object({
+  id: z.number().int(),
+  url: z.string(),
+  title: z.string(),
+});
+export type BriefCitation = z.infer<typeof briefCitation>;
+
+export const briefClaim = z.object({
+  text: z.string(),
+  /** `observed` or `external`, but typed as the API types it. A narrower enum here would turn a
+   * value the domain adds later into a contract error that blanks the whole case page. */
+  kind: z.string(),
+  citations: z.array(z.number().int()),
+  /** False means the model asserted something about the outside world and cited nothing for it.
+   * Shown as `UNVERIFIED`; never dropped (ADR-030). */
+  verified: z.boolean(),
+});
+export type BriefClaim = z.infer<typeof briefClaim>;
+
+export const briefRecommendation = z.object({ action: z.string(), detail: z.string() });
+export type BriefRecommendation = z.infer<typeof briefRecommendation>;
+
+export const brief = z.object({
+  id: z.uuid(),
+  incident_id: z.uuid(),
+  version: z.number().int(),
+  status: briefStatus,
+  source: briefSource,
+  packet_hash: z.string(),
+  packet_truncated: z.boolean(),
+  model: z.string().nullable(),
+  summary: z.string().nullable(),
+  limitations: z.string().nullable(),
+  claims: z.array(briefClaim),
+  recommendations: z.array(briefRecommendation),
+  citations: z.array(briefCitation),
+  has_unverified: z.boolean(),
+  failure_reason: z.string().nullable(),
+  created_at: isoDateTime,
+});
+export type Brief = z.infer<typeof brief>;
+
+/** A bare array: `GET /briefs` is `response_model=list[BriefOut]`, with no page envelope. */
+export const briefList = z.array(brief);
+export type BriefList = z.infer<typeof briefList>;
+
 export const assetEnvironment = z.enum(["prod", "staging", "dev", "lab", "unknown"]);
 
 export const assetNetwork = z.object({

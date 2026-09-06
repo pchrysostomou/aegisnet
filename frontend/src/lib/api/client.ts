@@ -169,6 +169,28 @@ export async function apiRequest<T extends z.ZodType>(
   return { data: parsed.data, setCookie };
 }
 
+/**
+ * A body that is a document rather than a value.
+ *
+ * `apiRequest` cannot be reused: it asks for JSON and parses what comes back against a zod
+ * schema, and neither of those is meaningful for `report.md`. The safety this loses is real,
+ * so the caller must treat the result as text and never as markup — the only consumer is the
+ * route handler that hands the bytes to the browser as an attachment.
+ */
+export async function apiText(
+  path: string,
+  accessToken: string,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<string> {
+  const response = await fetch(url(path, undefined), {
+    headers: new Headers({ Accept: "text/markdown", Authorization: `Bearer ${accessToken}` }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!response.ok) await readError(response);
+  return response.text();
+}
+
 /** The refresh cookie the API just issued, if it issued one. */
 export function refreshCookieFrom(setCookie: readonly string[]): string | null {
   for (const raw of setCookie) {

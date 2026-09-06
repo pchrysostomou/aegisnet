@@ -105,9 +105,21 @@ key) · `malformed_json` · `malformed_brief` when the model answers in prose ·
 The packet is content-addressed: an unchanged case is answered from cache and costs nothing.
 `temperature` is `0.0`, so the same case does not tell a different story on reload.
 
+## Where a brief is read
+
+On the case page in the dashboard, in a panel that shows the summary, the claims, the
+recommendations, the sources and the limitations — with every uncited external claim tagged
+`UNVERIFIED` and the offline sample labelled as not-a-model. A viewer reads it; only an analyst
+is offered the control that asks for one. Model prose goes through the same `SafeMarkdown`
+renderer an analyst's note does (ADR-027), and the sources are the one place this app renders a
+link: `https` only, `rel="noopener noreferrer nofollow"`, opened in a new tab (ADR-032).
+
+It is also in the exported case document, `GET /api/v1/incidents/{id}/report.md`, marked the
+same way.
+
 ## What is not built yet
 
-The deterministic Markdown export of a case and the dashboard's brief panel arrive in Chunk 24.
-**No call has been made from this repository to date** — every test runs against committed
-fixtures through a mock transport, and the offline path is what a checkout without a key
-exercises.
+Milestone 5 is complete. **No call has been made from this repository to date** — every test
+runs against committed fixtures through a mock transport, and the offline path is what a
+checkout without a key exercises. Turning it on takes `BRIEF_ENABLED=true` and a key, and
+nothing else in the project changes when you do.

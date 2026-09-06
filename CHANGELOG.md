@@ -9,6 +9,64 @@ Nothing is released yet. There is no tagged version.
 ## [Unreleased]
 
 ### Fixed
+- **A code span in a table cell cannot be made safe, so it is not one.** The pipe escape that
+  fixed the first version of this was itself broken: a backslash cannot be escaped inside a code
+  span, so a value already containing `\|` emits two backslashes and a renderer that consumes
+  the escaped backslash reads the pipe as a live delimiter again. Table cells are escaped text
+  now, like every other untrusted string — `escape` escapes the backslash too, so nothing
+  survives to be re-read. Monospace in a table is worth less than a rule with no exceptions.
+- **An indented line became a code block.** Every CommonMark block construct opens on ASCII
+  punctuation except the indented one, which opens on four spaces or a tab — the one thing an
+  escaper cannot reach. A pasted log excerpt in a note turned into a code block the report never
+  wrote, and inside one a backslash stops being an escape, so the analyst's own evidence arrived
+  full of visible `\/` and `\=`. Leading whitespace is stripped now.
+- **A viewer's export named ingest batches they may not read.** The provenance appendix carries
+  each batch's source label, dataset and line counts, and reading those is `ingest.read` — which
+  a viewer does not hold. The export is not a way around a permission: the appendix is rendered
+  only for a caller who holds it, and everyone else is told it was withheld and why. The honest
+  statement of the determinism promise is therefore "the same case and the same permission
+  produce the same bytes".
+- **`make export` on a well-formed but unknown uuid printed a traceback**, because that
+  reference reaches the store rather than the case-number lookup and comes back as an exception
+  rather than as `None`. `make brief` had the same hole since Chunk 23. Both print the envelope
+  every other command prints.
+- **A `$`-anchored check guarded a response header.** In Python `$` also matches immediately
+  before a trailing newline, so `AEG-2026-0001\n` would have passed the case-number check on its
+  way into `Content-Disposition`. `fullmatch` now.
+- `FakeEventStore.get(include_payload=False)` built a fresh row rather than returning the one it
+  held, so `batch_id` was a uuid belonging to no batch and the report's provenance appendix
+  always rendered its empty branch — the populated table had no integration coverage at all. The
+  same class of defect as the `FakeAlertStore` one above: a fake that answers differently from
+  the port it stands in for hides exactly the code it exists to cover.
+- **The dashboard's own fetch budget was shorter than the API's.** `generateBrief` used the
+  default ten seconds, while the API allows a thirty-second call and two retries — so a brief the
+  model answered at twelve seconds was reported to the analyst as a failure while the API quietly
+  finished and stored it, and the obvious next move was to press the button again and write a
+  second version. Asking now waits as long as the API may take; the export waits a minute.
+- **A lookup table read with `in` walks `Object.prototype`.** A `failure_reason` or a
+  recommendation `action` called `toString` found a function and rendered as nothing; one called
+  `__proto__` found an object and threw, which in a server component with no boundary above it
+  blanks the whole case page. Both are unconstrained strings on purpose, precisely so a value the
+  domain adds later shows itself, and this was the one path where it would not. `Object.hasOwn`
+  now, with the prototype keys in the tests.
+- A brief that could not be generated was badged **generated**, one line above the sentence
+  saying it could not be. The badge is the only place the panel states provenance (ADR-031), so
+  it reads the status before the source.
+- **A code span inside a table cell is not safe, and the report's own security test found it on
+  its first run.** GFM splits a row on `|` before it parses anything inline, so a pipe inside a
+  code span ends the cell, leaves the backticks unmatched, and turns the rest of somebody else's
+  text into ordinary Markdown — an entity value containing `| a | b |` made a `javascript:` URL
+  two cells later into a link. Table cells use a pipe-escaping code span now.
+- The report service's page loop could exceed its own cap: when the last page happened to finish
+  the list, the loop returned everything gathered and called it complete, so a case with 510
+  notes rendered all 510 under a cap of 500. It reads one row past the cap now and decides
+  completeness from what exists rather than from where the cursor ran out.
+- `FakeAlertStore.get` raised `KeyError` for an alert with no link rows, where the SQL store
+  returns empty tuples — a test that put a row in `rows` directly got a 500 instead of an answer.
+- The browser suite's XSS probe asserted on a marker that is unique only on a fresh stack. A note
+  is never edited or deleted, so running `pnpm e2e` twice against one stack left two identical
+  probes and a strict-mode violation; the assertion takes the first match now.
+
 - **Chunk 16 — two defects the adversarial review found before the change was committed.** A
   keyset cursor built as `(Column.a, Column.b) < (x, y)` is a *Python* tuple comparison, not a
   SQL row comparison: CPython compares element 0, `bool(Column == x)` is `False`, and the
@@ -51,6 +109,48 @@ Nothing is released yet. There is no tagged version.
   EVE DNS shapes so T1 and T2 exercise the one that broke D-003.
 
 ### Added
+- **Chunk 24 (Milestone 5) — the case as a document, and the brief on the screen (ADR-032).**
+  `GET /api/v1/incidents/{id}/report.md` and `make export REF=AEG-2026-0001` render one case as
+  Markdown, and **the same case renders to the same bytes**: every collection sorted to a key
+  that is unique, dictionaries serialised with sorted keys, floats to a fixed precision, a naive
+  timestamp read as UTC rather than against the machine's zone, and no "generated at" line
+  anywhere. Two exports can be diffed, and a difference means the case changed.
+- The export **writes nothing to the case**. A report that recorded its own export in the
+  timeline would change the case the next export renders — the defect Chunk 23 found in the
+  evidence packet — so `report_exported` stays a timeline type this project does not write. It
+  is still audited as `report.exported` (FR-10.3), because the audit log is not something the
+  report renders.
+- **Nothing in the document can become markup.** A rule id, an entity value, an analyst's note
+  and a model's summary are all strings this project did not write, and a Markdown viewer is a
+  renderer like any other. Every untrusted value is backslash-escaped — every ASCII punctuation
+  character, which CommonMark defines as escapable, rather than a chosen subset — or fenced with
+  a fence longer than anything inside it. The test renders the document with a real CommonMark
+  parser and asserts on the tokens, given a case poisoned in every string field at once.
+  Characters that reorder text without being visible — bidirectional overrides, zero-width
+  spaces, the byte-order mark — are written out as their own code points (`<U+202E>`) rather than
+  stripped: a report about somebody who used one must still show that they did.
+- The report carries the case verbatim, **including the parts that never leave** — real
+  addresses, real hostnames, the analyst's own words — and says so in its own first paragraph.
+  `domain/redaction` is for the other direction, where the reader is a third party.
+- It has every section FR-9.1 names — the case and how its severity was derived, the assets the
+  inventory matched, every alert with its evidence, the timeline, the briefs with their claims and
+  sources, what the document does not cover, and an appendix naming the ingest batches the
+  evidence rests on — plus the notes, which FR-9.1 does not ask for and an analyst reading a case
+  would miss.
+- **The dashboard's brief panel** shows the newest brief: the summary, claims, recommendations
+  in the analyst's own words, sources and limitations, with every uncited external claim tagged
+  `UNVERIFIED` and the committed offline sample labelled as not-a-model. Model prose goes through
+  `SafeMarkdown`, exactly like an analyst's note. A viewer reads it; only an analyst is offered
+  the control that asks for one.
+- **`CitationList` is the first anchor to somewhere else this dashboard has ever drawn.** A
+  source is a link only when it is `https` — parsed with `new URL`, not prefix-matched — and
+  carries `rel="noopener noreferrer nofollow"` and `target="_blank"`. Credentials are refused
+  too, because `https://attack.mitre.org@evil.test` goes to `evil.test`. Anything else is printed
+  as text with a line saying why, since a source nobody can follow is still evidence of what the
+  model said.
+- The download is a route handler in the dashboard, not a link to the API: the browser never
+  learns the API's address, so the bytes come through this app.
+
 - **Chunk 23 (Milestone 5) — briefs are stored, served, and append-only (ADR-031).** Revision
   `0005_brief_tables` adds `investigation_briefs` and `brief_citations`, and the runtime role
   gets `SELECT, INSERT` on both and nothing else — the grant `audit_log` has, for the same

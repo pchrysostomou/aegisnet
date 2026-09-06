@@ -7,8 +7,9 @@ can reproduce rather than a moment from somebody's laptop.
 | File | What it shows |
 |---|---|
 | `incident-queue.png` | The queue: the three cases correlation opened from the scenario, with severity as a number and a word, and the filters |
-| `incident-case.png` | `AEG-2026-0001` — four alerts from four rules, the timeline, the status control offering the workflow's legal moves, and the notes |
+| `incident-case.png` | `AEG-2026-0001` — four alerts from four rules, the timeline, the status control offering the workflow's legal moves, the investigation brief with its claims and sources, the Markdown download, and the notes |
 | `assets.png` | The asset inventory the detectors attribute traffic to |
 
 Everything in them is synthetic: RFC 1918 and RFC 5737 addresses, `.test` hostnames, and
-accounts created for the run.
+accounts created for the run. The brief in `incident-case.png` is the committed offline sample
+(`samples/briefs/`), labelled as such on the page — no model wrote it and no call was made.

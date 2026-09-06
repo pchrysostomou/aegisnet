@@ -49,6 +49,7 @@ from aegisnet.services.detection_service import AlertNotFoundError, SweepError
 from aegisnet.services.event_read_service import EventNotFoundError, EventQueryError
 from aegisnet.services.incident_service import IncidentNotFoundError
 from aegisnet.services.ingest_service import BatchNotFoundError, IngestLimitExceededError
+from aegisnet.services.report_service import ReportIncidentNotFoundError
 
 logger = get_logger(__name__)
 
@@ -259,6 +260,7 @@ def register_error_handlers(app: FastAPI) -> None:
         IncidentNotFoundError,
         BriefIncidentNotFoundError,
         BriefNotFoundError,
+        ReportIncidentNotFoundError,
     ):
         app.add_exception_handler(missing, not_found_handler)
     for conflict in (HostnameConflictError, NetworkOverlapError, IllegalTransitionError):

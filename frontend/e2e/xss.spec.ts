@@ -42,7 +42,10 @@ test("hostile note content renders as text and executes nothing", async ({ page 
 
   await page.getByLabel(/What you found/).fill(payload);
   await page.getByRole("button", { name: "Add note" }).click();
-  await expect(page.getByText(MARKER)).toBeVisible();
+  // `.first()`: a note is never edited or deleted, so running this suite twice against one
+  // stack leaves two identical probes and a bare `getByText` becomes a strict-mode violation.
+  // The claim is that the marker is on the page, not that it is there exactly once.
+  await expect(page.getByText(MARKER).first()).toBeVisible();
 
   // Nothing executed.
   expect(await page.evaluate(() => "__pwned" in window)).toBe(false);

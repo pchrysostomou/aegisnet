@@ -42,6 +42,33 @@ test("a viewer forging the request is refused by the API", async ({ page, reques
   }
 });
 
+test("a viewer reads a brief and cannot ask for one", async ({ page }) => {
+  // `briefs.read` is a viewer permission and `briefs.generate` is not: a brief is a narrative
+  // about alerts a viewer may already read, and asking for one spends a budget and sends an
+  // evidence packet outward (ADR-031).
+  await page.goto("/incidents");
+  await page.getByRole("link", { name: /AEG-/ }).first().click();
+  await expect(page.getByRole("heading", { level: 3, name: "Investigation brief" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Ask for a brief|Ask again/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Generate/ })).toHaveCount(0);
+});
+
+test("a viewer may export the case, because the document holds nothing new to them", async ({
+  page,
+}) => {
+  await page.goto("/incidents");
+  await page.getByRole("link", { name: /AEG-/ }).first().click();
+  // Wait for the case to be on screen before reading its id: reading the URL straight after a
+  // click can catch the list page and ask for /incidents/incidents/report.md.
+  await expect(page.getByRole("heading", { level: 3, name: "Investigation brief" })).toBeVisible();
+  const id = new URL(page.url()).pathname.split("/").pop() ?? "";
+
+  await expect(page.getByRole("link", { name: "Download the case as Markdown" })).toBeVisible();
+  const exported = await page.request.get(`/incidents/${id}/report.md`);
+  expect(exported.status()).toBe(200);
+  expect(await exported.text()).toMatch(/^# AEG/);
+});
+
 test("a viewer is not offered the audit section", async ({ page }) => {
   await page.goto("/incidents");
   await expect(page.getByRole("link", { name: "Audit" })).toHaveCount(0);

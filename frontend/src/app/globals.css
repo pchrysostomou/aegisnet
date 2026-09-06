@@ -266,3 +266,49 @@ tr.inactive td { color: var(--muted-text); font-style: italic; }
 .result-error { color: var(--sev-4); }
 .result-success { color: var(--sev-2); }
 td.detail { max-width: 26rem; overflow-wrap: anywhere; color: var(--muted-text); font-size: 0.8rem; }
+
+/* ---- investigation brief (Chunk 24) ---- */
+.case-actions { margin: 0.9rem 0 0; }
+.brief {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+  margin-bottom: 1rem;
+}
+.brief h4 {
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted-text);
+  margin: 1rem 0 0.4rem;
+}
+.brief .badges { align-items: baseline; }
+.brief-offline_fixture { color: var(--sev-3); }
+/* Reuses --sev-4, which the contrast test already proves against both themes. */
+.badge.unverified {
+  color: var(--sev-4);
+  border: 1px solid currentColor;
+  border-radius: var(--radius);
+  padding: 0 0.35rem;
+  letter-spacing: 0.04em;
+}
+.claims, .advice { list-style: none; margin: 0; padding: 0; }
+.claims li, .advice li {
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.claims li:last-child, .advice li:last-child { border-bottom: none; }
+.claim-external { border-left: 3px solid var(--border); padding-left: 0.6rem; }
+.inline-prose { display: inline; }
+.inline-prose p { display: inline; margin: 0; }
+.citation-ref { color: var(--muted-text); }
+.citations { margin: 0; padding-left: 1.4rem; }
+.citations li { padding: 0.3rem 0; }
+.citation-id { color: var(--muted-text); }
+.citation-url { color: var(--muted-text); overflow-wrap: anywhere; }
+.notice-inline { color: var(--muted-text); font-size: 0.85rem; }
+.entry-brief_generated { border-left-color: var(--sev-3); }
+.entry-report_exported { border-left-color: var(--border); }
+.control-note { font-size: 0.82rem; color: var(--muted-text); max-width: 44rem; margin: 0; }
+.brief-failed { color: var(--sev-5); }

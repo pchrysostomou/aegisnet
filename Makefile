@@ -11,7 +11,7 @@ BACKEND := backend
 
 .PHONY: correlate incidents incident test-correlation \
         lab-preflight lab-up lab-traffic lab-capture lab-export lab-sanitize lab-down lab-clean eval-lab test-security \
-        test-detectors gen-fixtures eval gen-scenario demo-scenario run-detectors alerts recompute-baselines baselines brief create-user users create-service-token revoke-service-token service-tokens \
+        test-detectors gen-fixtures eval gen-scenario demo-scenario run-detectors alerts recompute-baselines baselines brief export create-user users create-service-token revoke-service-token service-tokens \
         help bootstrap bootstrap-force verify-ignore require-env compose-config \
         build up down compose-ps compose-logs compose-down compose-test pin-digests clean \
         backend-install lint format format-check typecheck test test-cov check \
@@ -323,6 +323,10 @@ brief: require-env ## Ask for an investigation brief on one case (REF=AEG-2026-0
 
 incident: require-env ## Show one incident by case number or id (REF=AEG-2026-0001)
 	$(COMPOSE) run --rm api python -m aegisnet.cli incident $(REF)
+
+export: require-env ## Write one case out as Markdown (REF=AEG-2026-0001, > case.md)
+	@# Deterministic: the same case produces the same bytes, so two exports can be diffed.
+	$(COMPOSE) run --rm --no-TTY api python -m aegisnet.cli export $(REF)
 
 test-correlation: ## The correlation and incident suites: the grouping policy, the workflow, the API
 	cd $(BACKEND) && ENV=test $(UV) run pytest tests/unit/test_correlation_domain.py \

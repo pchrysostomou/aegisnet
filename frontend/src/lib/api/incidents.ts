@@ -4,13 +4,16 @@
  */
 import { readAccessToken } from "@/lib/session";
 
-import { apiRequest } from "./client";
+import { apiRequest, apiText } from "./client";
 import {
+  brief,
+  briefList,
   incidentDetail,
   incidentPage,
   note,
   notePage,
   timelinePage,
+  type BriefList,
   type IncidentDetail,
   type IncidentPage,
   type IncidentStatus,
@@ -20,6 +23,15 @@ import {
 } from "./schemas";
 
 export const PAGE_SIZE = 25;
+
+/** Asking for a brief can legitimately take minutes: the API allows a 30-second call and two
+ * retries, so the default 10-second budget would abort a request the API then completes — the
+ * analyst would be told it failed while a brief was quietly stored, and would press the button
+ * again. The wait belongs to whichever is longer, and it is the API's. */
+export const BRIEF_TIMEOUT_MS = 150_000;
+
+/** A large case is assembled from several queries. Longer than a list, far shorter than a brief. */
+export const REPORT_TIMEOUT_MS = 60_000;
 
 export interface IncidentFilters {
   status?: IncidentStatus;
@@ -115,4 +127,35 @@ export async function addNote(id: string, body: string): Promise<Note> {
     body: { body },
   });
   return data;
+}
+
+/** Every brief written about a case, newest version first. A viewer may read these: a brief is
+ * a narrative about alerts they can already see (ADR-031). */
+export async function listBriefs(id: string): Promise<BriefList> {
+  const { data } = await apiRequest(`/api/v1/incidents/${encodeURIComponent(id)}/briefs`, {
+    schema: briefList,
+    accessToken: await token(),
+  });
+  return data;
+}
+
+/** Ask for a brief. Answers `201` even when the answer could not be produced — a failure is a
+ * stored brief with a reason, not an error (ADR-031) — so the caller re-reads and shows it. */
+export async function generateBrief(id: string): Promise<void> {
+  await apiRequest(`/api/v1/incidents/${encodeURIComponent(id)}/briefs`, {
+    schema: brief,
+    method: "POST",
+    accessToken: await token(),
+    timeoutMs: BRIEF_TIMEOUT_MS,
+  });
+}
+
+/** The case as Markdown, straight through. Not `apiRequest`: that one parses JSON against a
+ * schema, and this body is a document. */
+export async function exportReport(id: string): Promise<string> {
+  return apiText(
+    `/api/v1/incidents/${encodeURIComponent(id)}/report.md`,
+    await token(),
+    REPORT_TIMEOUT_MS,
+  );
 }

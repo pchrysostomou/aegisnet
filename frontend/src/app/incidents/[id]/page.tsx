@@ -3,13 +3,15 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { SeverityBadge, StatusBadge } from "@/components/badges";
+import { BriefPanel } from "@/components/brief-panel";
 import { SafeMarkdown } from "@/components/safe-markdown";
 import { Timestamp } from "@/components/timestamp";
 import { ApiError } from "@/lib/api/client";
-import { getIncident, listNotes } from "@/lib/api/incidents";
+import { getIncident, listBriefs, listNotes } from "@/lib/api/incidents";
 import type { TimelineEntry } from "@/lib/api/schemas";
 import { canWrite, currentUserOrNull } from "@/lib/session";
 
+import { BriefForm } from "./brief-form";
 import { NoteForm } from "./note-form";
 import { StatusControl } from "./status-control";
 
@@ -36,8 +38,9 @@ export default async function IncidentPage({ params }: { params: Promise<{ id: s
 
   let incident;
   let notes;
+  let briefs;
   try {
-    [incident, notes] = await Promise.all([getIncident(id), listNotes(id)]);
+    [incident, notes, briefs] = await Promise.all([getIncident(id), listNotes(id), listBriefs(id)]);
   } catch (error) {
     if (error instanceof ApiError && (error.isNotFound || error.status === 422)) notFound();
     if (error instanceof ApiError && error.isForbidden) {
@@ -96,6 +99,12 @@ export default async function IncidentPage({ params }: { params: Promise<{ id: s
             </div>
           ) : null}
         </dl>
+        <p className="case-actions">
+          {/* Same-origin on purpose: the browser never learns the API's address (ADR-026). */}
+          <a className="button secondary" href={`/incidents/${incident.id}/report.md`}>
+            Download the case as Markdown
+          </a>
+        </p>
         {incident.closure_reason ? (
           <p className="closure">
             <strong>Closed because:</strong> {incident.closure_reason}
@@ -172,6 +181,13 @@ export default async function IncidentPage({ params }: { params: Promise<{ id: s
             );
           })}
         </ol>
+      </section>
+
+      <section aria-labelledby="brief-heading">
+        <h3 id="brief-heading">Investigation brief</h3>
+        {/* A viewer reads a brief; only an analyst may ask for one (ADR-031). */}
+        <BriefPanel briefs={briefs} />
+        {mayWrite ? <BriefForm id={incident.id} existing={briefs.length} /> : null}
       </section>
 
       <section aria-labelledby="notes-heading">

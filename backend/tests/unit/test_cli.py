@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from aegisnet.cli import EXIT_FAILED, EXIT_USAGE, build_parser, main
-from tests.conftest import REPO_ROOT
+from tests.conftest import REPO_ROOT, make_settings
 
 pytestmark = pytest.mark.unit
 
@@ -65,5 +65,68 @@ def test_usage_errors_exit_with_status_two(argv: list[str]) -> None:
 
 def test_help_documents_every_command() -> None:
     text = build_parser().format_help()
-    for command in ("datasets", "import-dataset", "batch"):
+    for command in ("datasets", "import-dataset", "batch", "brief", "export"):
         assert command in text
+
+
+# ---------------------------------------------------------------- the report export
+
+
+def test_export_writes_the_document_and_not_json(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Every other command prints sorted JSON through `_emit`. This one must not: the point of
+    an export is its bytes, and a JSON wrapper would put an escaping layer between the operator
+    and the thing `make export > case.md` is supposed to produce (ADR-032)."""
+    from io import StringIO
+
+    from aegisnet import cli
+
+    document = "# AEG\\-2026\\-0001 — a case\n\n> not redacted\n"
+    monkeypatch.setattr(cli, "_run", lambda _settings, _action: ("AEG-2026-0001", document))
+
+    out = StringIO()
+    assert cli.cmd_export(object(), "AEG-2026-0001", out) == 0  # type: ignore[arg-type]
+    assert out.getvalue() == document, "byte for byte, with nothing added"
+    assert capsys.readouterr().out == "", "and nothing on stdout beside it"
+
+
+def test_export_of_an_unknown_case_fails_the_way_every_other_command_does(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from io import StringIO
+
+    from aegisnet import cli
+
+    monkeypatch.setattr(cli, "_run", lambda _settings, _action: None)
+    out = StringIO()
+    assert cli.cmd_export(object(), "AEG-2026-9999", out) == EXIT_FAILED  # type: ignore[arg-type]
+    assert out.getvalue() == "", "no half a document"
+    assert json.loads(capsys.readouterr().out) == {"error": "no incident AEG-2026-9999"}
+
+
+def test_export_of_a_uuid_that_is_not_a_case_prints_an_envelope_not_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A case *number* that does not exist comes back as `None` and is handled in the command.
+    A well-formed uuid that does not exist takes the other branch, reaches the store, and comes
+    back as an exception — which `main` has to know about, or the operator gets a stack trace
+    where every other command prints `{"error": ...}`. `brief` had the same hole."""
+    from aegisnet import cli
+    from aegisnet.services.brief_service import BriefIncidentNotFoundError
+    from aegisnet.services.report_service import ReportIncidentNotFoundError
+
+    missing = "00000000-0000-0000-0000-000000000000"
+    for command, error in (
+        ("export", ReportIncidentNotFoundError(missing)),
+        ("brief", BriefIncidentNotFoundError(missing)),
+    ):
+
+        def raise_it(_settings: object, _action: object, err: Exception = error) -> None:
+            raise err
+
+        monkeypatch.setattr(cli, "_run", raise_it)
+        monkeypatch.setattr(cli, "get_settings", make_settings)
+        monkeypatch.setattr(cli, "configure_logging", lambda **_kwargs: None)
+        assert cli.main([command, missing]) == EXIT_FAILED, command
+        assert json.loads(capsys.readouterr().out) == {"error": missing}, command

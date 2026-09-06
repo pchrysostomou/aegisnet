@@ -182,6 +182,22 @@ named passing test or an explicit accepted-risk entry.
   T-3.1's boundary from acquiring a second, quieter copy of the evidence. A checkout with no key is
   served a committed fixture stored under a distinct `source`, so nothing can present it as
   something a model said.
+- Chunk 24 added the two places this project's own text meets a renderer it does not control
+  (ADR-032). **The exported report** is a Markdown document opened in whatever viewer the operator
+  has: a rule id, an entity value, an analyst's note and a model's summary all reach it, so every
+  untrusted value is backslash-escaped or fenced and the *structure* is the report's alone. The
+  test renders the document with a real CommonMark parser and asserts on the tokens rather than on
+  absent substrings, given a case poisoned in every string field at once — and it found a defect on
+  its first run: a code span inside a GFM table cell is broken by a pipe, which turned a
+  `javascript:` URL two cells later into a link (T-1.3, T-4.4). **The dashboard's brief panel** is
+  the first place model-written prose is shown to a person; it renders through `SafeMarkdown` like
+  an analyst's note, and `CitationList` is the first and only anchor to an external origin this app
+  has ever drawn — https only, parsed rather than prefix-matched, `rel="noopener noreferrer
+  nofollow"`, `target="_blank"`, and anything else printed as text with a line saying why (T-4.4).
+  The report is **not** redacted and says so in its own first paragraph: ADR-029's boundary is for a
+  third party, and this document is for the operator who can already read all of it (TB-1, not
+  TB-3). The export writes no timeline entry — one would change the case the next export renders —
+  but does write `report.exported`, which the report does not render (FR-10.3, T-2.5).
 - Milestone 1 rows whose mitigation has no named test yet: the
   query-timeout and load-test parts of T-2.6 (evaluation plan), and the read-only root filesystem and digest
   pinning parts of T-5.1 (M6). Rows outside Milestone 1's scope keep their planning-phase wording: T-1.3

@@ -95,6 +95,7 @@ from aegisnet.services.detection_service import DetectionService
 from aegisnet.services.event_read_service import EventReadService
 from aegisnet.services.incident_service import IncidentService
 from aegisnet.services.ingest_service import IngestService, limits_from_settings
+from aegisnet.services.report_service import ReportService
 
 
 class FakeIngestStore:
@@ -321,7 +322,12 @@ class FakeEventStore:
         row = self.rows.get(event_id)
         if row is None:
             return None
-        return row if include_payload else event_row_stub(row.id, None)
+        # The SQL store returns the row it has, minus the payload column. Building a fresh
+        # stub here would answer differently from the port this stands in for — every other
+        # field would be a new uuid or a stub time, which is how a real caller of
+        # `row.batch_id` gets a batch that does not exist (fakes.py, the same class of
+        # defect as `FakeAlertStore.get` raising where the store returns empty tuples).
+        return row if include_payload else replace(row, payload=None)
 
     async def load(
         self, start: datetime, end: datetime, *, max_events: int
@@ -1065,7 +1071,10 @@ class FakeAlertStore:
         record = self.rows.get(alert_id)
         if record is None:
             return None
-        events, assets = self.links[alert_id]
+        # An alert with no link rows is a real state, and the SQL store returns empty tuples
+        # for it rather than raising — a test that puts a row in `rows` directly should get the
+        # same answer here.
+        events, assets = self.links.get(alert_id, ((), ()))
         return AlertDetail(alert=record, events=events, assets=assets)
 
 
@@ -1158,6 +1167,14 @@ class FakeWiring:
         self.incident_store = FakeIncidentStore(self.alert_store)
         self.incidents = IncidentService(self.incident_store, clock=self.clock)
         self.brief_store = FakeBriefStore()
+        self.reports = ReportService(
+            self.incident_store,
+            self.brief_store,
+            alerts=self.alert_store,
+            events=self.event_store,
+            ingest=self.ingest_store,
+            assets=self.assets,
+        )
         self.briefs = BriefService(
             self.incident_store,
             self.brief_store,
@@ -1203,6 +1220,7 @@ class FakeWiring:
             enqueue_baselines=enqueue_baselines,
             incidents=self.incidents,
             briefs=self.briefs,
+            reports=self.reports,
         )
 
     def factory(self) -> object:

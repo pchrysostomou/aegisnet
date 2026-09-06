@@ -90,7 +90,7 @@ aspirational:
 | Authentication and authorisation: Argon2id users with lockout, 15-minute HS256 access tokens, rotating refresh cookies with reuse detection, hashed service tokens for sensors, deny-by-default permission on every route | ✅ [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md), [`SECURITY.md`](SECURITY.md) |
 | Audit trail (append-only, bounded detail, admin read API) covering logins, denials, refused uploads and rejected import ids, and Redis rate limits that fail closed for login and ingest | ✅ [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md) |
 | Operator CLI (`python -m aegisnet.cli`) for datasets, batches, assets, events, users and service tokens; `make` targets for every operator task | ✅ |
-| Tests: 1 152 hermetic tests (unit, integration, security, detectors) at 94 % coverage, 79 database tests against a real PostgreSQL, a CI stack job that logs in, ingests over HTTP, watches the post-ingest sweep and reads the alerts | ✅ [`docs/STATUS.md`](docs/STATUS.md) |
+| Tests: 1 249 hermetic tests (unit, integration, security, detectors) at 94 % coverage, 79 database tests against a real PostgreSQL, twenty-one Playwright tests against a running stack, and a CI stack job that logs in, ingests over HTTP, watches the post-ingest sweep and reads the alerts | ✅ [`docs/STATUS.md`](docs/STATUS.md) |
 | All five detection rules as pure, versioned functions over bounded windows with derived, bounded evidence and a recorded severity formula: D-001 port scan, D-002 auth-failure burst, D-003 DNS anomaly / tunnelling, D-004 periodic beaconing, D-005 outbound volume anomaly against per-asset baselines; 34 labelled positive and hard-negative cases pinned to their generator (`make test-detectors`) | ✅ Milestone 2, Chunks 8, 10 and 11 ([ADR-017](docs/adr/ADR-017-detector-interface-and-labelled-fixtures.md), [ADR-019](docs/adr/ADR-019-baselines-precomputed-and-address-keyed.md), [`docs/detection-rules.md`](docs/detection-rules.md)) |
 | The baseline job: each asset's hourly outbound history summarised into `asset_baselines` (mean, stddev, p95, sampled hours) by `make recompute-baselines`, the `recompute_baselines` actor or an admin's `POST /detections/baselines/recompute`; D-005 abstains without a baseline | ✅ Milestone 2, Chunk 11 ([ADR-019](docs/adr/ADR-019-baselines-precomputed-and-address-keyed.md)) |
 | The sweep: six detection tables, the registry synced from code, one load per interval sliced on each rule's grid, severity from the asset's criticality with a stored rationale, dedup by a UNIQUE key, per-rule failure isolation in `detector_runs`, the `run_detectors` actor, `make run-detectors`, and the read API for alerts, rules and runs plus the admin sweep trigger | ✅ Milestone 2, Chunk 9 ([ADR-018](docs/adr/ADR-018-detection-sweep-alert-storage-and-failure-isolation.md), [`docs/api-milestone-2.md`](docs/api-milestone-2.md)) |
@@ -106,8 +106,9 @@ aspirational:
 | The outbound boundary, built before anything can cross it: a case becomes an evidence packet of **derived numbers and stable tokens** — `asset-A`, `ext-1` — with an allow-list that drops any field nobody classified and says so, a denylist behind it, and hard byte caps | ✅ Milestone 5, Chunk 21 ([ADR-029](docs/adr/ADR-029-nothing-leaves-that-was-not-named.md)); no client and no key exist yet, and the canary suite found a real leak on its first run |
 | The client and the contract for what comes back: recommendations are an **enum** of things a person does, never prose that could be wired to a firewall; an external claim needs an https citation and an uncited one is kept and marked `UNVERIFIED` rather than deleted; a brief has no field through which it could change a severity or a status | ✅ Milestone 5, Chunk 22 ([ADR-030](docs/adr/ADR-030-the-model-is-a-witness-not-an-authority.md), [`docs/perplexity-integration.md`](docs/perplexity-integration.md)); off by default, and **no call has been made from this repository** — every test runs against committed fixtures |
 | Briefs, stored and served: **append-only in the grant** — `SELECT, INSERT` and nothing else, so a brief cannot be edited after the fact — versioned per case, with **a failure stored as a brief** (`http_503`, `safety_rejected`, `budget_exhausted`) rather than raised, and a committed offline sample so a checkout with no key still shows the whole path | ✅ Milestone 5, Chunk 23 ([ADR-031](docs/adr/ADR-031-a-brief-is-append-only-and-a-failure-is-a-brief.md), [`docs/api-milestone-5.md`](docs/api-milestone-5.md)); a brief appends one timeline line and cannot touch a severity, a status or an alert — asserted, not assumed |
+| The case as a document, and the brief on the screen: `GET /incidents/{id}/report.md` and `make export REF=` render **the same bytes every time** — every collection sorted to a unique key, no clock in the document, and nothing written by exporting it — while the dashboard's brief panel shows the summary through `SafeMarkdown`, tags every uncited claim `UNVERIFIED`, and links a source only if it is `https` | ✅ Milestone 5, Chunk 24 ([ADR-032](docs/adr/ADR-032-the-report-changes-nothing-and-escapes-everything.md), [`docs/api-milestone-5.md`](docs/api-milestone-5.md)); the report escapes every untrusted value, and the test renders it with a real CommonMark parser rather than grepping for strings — which found a defect on its first run |
 | Real sensor output reads correctly: a flow event is filed under the instant the conversation began, not when Suricata announced it, and a DNS record's direction comes from its own type rather than from the presence of a response code | ✅ Chunk 14 ([ADR-022](docs/adr/ADR-022-event-time-and-dns-direction.md)); the two defects the lab found, with four of five rules firing on the real capture afterwards — [`docs/evaluation.md`](docs/evaluation.md) §9 |
-| The deterministic case report, the dashboard's brief panel, and the hardening and measured-accuracy milestone | ⬜ Chunk 24 and Milestone 6 ([roadmap](#roadmap)) |
+| Hardening, measured detection accuracy, the release checklist | ⬜ Milestone 6 ([roadmap](#roadmap)) |
 
 ---
 
@@ -310,6 +311,8 @@ curl -X POST -H "Authorization: Bearer $ACCESS" -H 'content-type: application/js
     -d '{"from":"2026-09-01T00:00:00Z","to":"2026-09-01T02:00:00Z"}' "$API/detections/sweeps"   # 202: the worker runs every rule
 curl -H "Authorization: Bearer $ACCESS" "$API/detections/runs?limit=5"   # one row per rule: success / error / skipped
 curl -H "Authorization: Bearer $ACCESS" "$API/alerts?limit=5"            # none from the benign corpus, by design
+curl -H "Authorization: Bearer $ACCESS" "$API/incidents/<id>/briefs"     # every brief, newest version first
+curl -H "Authorization: Bearer $ACCESS" "$API/incidents/<id>/report.md"  # the case as a document; twice gives the same bytes
 
 # The operator CLI covers the same ground without a token (JSON out).
 docker compose run --rm api python -m aegisnet.cli resolve 10.10.0.53
@@ -317,6 +320,8 @@ docker compose run --rm api python -m aegisnet.cli assets -q resolver
 docker compose run --rm api python -m aegisnet.cli events --from 2026-09-01T00:00:00Z \
     --to 2026-09-02T00:00:00Z --type dns --limit 5
 docker compose run --rm api python -m aegisnet.cli service-tokens
+make brief REF=AEG-2026-0001              # a brief; the offline sample unless BRIEF_ENABLED and a key are set
+make export REF=AEG-2026-0001 > case.md   # the case as Markdown, deterministic
 make run-detectors FROM=2026-09-01T00:00:00Z TO=2026-09-01T02:00:00Z   # the same sweep, inline, one JSON line
 make recompute-baselines WINDOW_DAYS=7                                   # per-asset outbound baselines for D-005
 docker compose logs scheduler                                            # the two periodic actors and their cron lines
@@ -458,7 +463,7 @@ reporting, as described in [`SECURITY.md`](SECURITY.md).
 │   │   └── cli.py           python -m aegisnet.cli
 │   └── tests/               unit · integration · security · detectors · db (opt-in, real PostgreSQL)
 │       └── fixtures/labelled/  labelled detector cases, rendered by tools/gen_labelled_fixtures.py
-├── frontend/                Next.js analyst dashboard (sign-in, queue, case view; /api/health)
+├── frontend/                Next.js analyst dashboard (sign-in, queue, case view, brief panel, report download)
 ├── infra/                   PostgreSQL role init script, .env bootstrap
 │   └── lab/                 the opt-in isolated Suricata lab: compose file, sensor config, target, generator
 ├── samples/                 committed synthetic corpus, one sanitised real lab capture, asset seeds, dataset registry, the offline brief
@@ -479,7 +484,7 @@ reporting, as described in [`SECURITY.md`](SECURITY.md).
 | M2 | Five deterministic detectors (port scan, auth-failure burst, DNS anomaly, periodic beaconing, outbound volume anomaly) with labelled fixtures; the isolated Suricata lab | ✅ Complete (Chunks 8–13); every acceptance criterion in [`docs/delivery-plan.md`](docs/delivery-plan.md) is ticked with evidence. The lab's two findings are open defects with a chunk of their own, not unmet criteria |
 | M3 | Correlation into incidents, timeline, analyst workflow | ✅ **Complete** (Chunks 15–17): the grouping policy, the four incident tables, the workflow state machine, the incidents API with audited transitions, notes and the role matrix, and the multi-stage scenario with its correlation metrics. Every M3 acceptance criterion has evidence |
 | M4 | Analyst dashboard (Next.js) | ✅ **Complete** (Chunks 18–20): sign-in and the session model, the typed API boundary, the incident queue, the case view with its timeline, workflow controls and notes, the `SafeMarkdown` renderer, the asset inventory, the audit viewer, and the Playwright suite. Every M4 acceptance criterion has evidence |
-| M5 | Investigation brief via Perplexity, with redaction canaries | 🟡 Chunks 21–23 done: the redaction boundary, the hardened client, the brief schema with citation and safety checks, and the two append-only tables with their routes, their CLI and the offline sample. The Markdown export and the dashboard panel remain. Off by default; **no call has been made from this repository** |
+| M5 | Investigation brief via Perplexity, with redaction canaries | ✅ **Complete** (Chunks 21–24): the redaction boundary and its canary suite, the hardened client, the brief schema with its citation and safety checks, the two append-only tables with their routes and CLI, the committed offline sample, the deterministic `report.md` export and the dashboard's brief panel. All eight M5 acceptance criteria are ticked with evidence. Off by default; **no call has ever been made from this repository** |
 | M6 | Hardening, evaluation with measured accuracy, documentation, release | ⬜ |
 
 Detector accuracy is **unmeasured** and no claim is made until Milestone 6
@@ -499,7 +504,7 @@ Detector accuracy is **unmeasured** and no claim is made until Milestone 6
 | [`docs/api-milestone-1.md`](docs/api-milestone-1.md) | Milestone 1 API contract and acceptance criteria |
 | [`docs/api-milestone-2.md`](docs/api-milestone-2.md) | Alerts, rules, runs, baselines, the sweep trigger and the post-ingest sweep |
 | [`docs/api-milestone-3.md`](docs/api-milestone-3.md) | Incidents: the workflow table, the case routes, notes, and the audit actions a transition writes |
-| [`docs/api-milestone-5.md`](docs/api-milestone-5.md) | Briefs: generating one, reading a version, what a failure looks like, and the daily budget |
+| [`docs/api-milestone-5.md`](docs/api-milestone-5.md) | Briefs and the Markdown export: generating one, reading a version, what a failure looks like, the daily budget, and what the document is |
 | [`samples/scenarios/`](samples/scenarios) | The multi-stage correlation scenario and the ground truth `make eval` scores against |
 | [`samples/briefs/`](samples/briefs) | The offline brief a checkout with no key is served, and why it is committed |
 | [`docs/screenshots/`](docs/screenshots) | The dashboard on the committed scenario, regenerated by `pnpm e2e:shots` |
@@ -509,7 +514,7 @@ Detector accuracy is **unmeasured** and no claim is made until Milestone 6
 | [`docs/delivery-plan.md`](docs/delivery-plan.md) | Six-milestone plan |
 | [`docs/evaluation.md`](docs/evaluation.md) | Detection evaluation methodology; §8 holds the `make eval` table (synthetic T1/T2, pinned by a test), §9 the first lab run and what it found |
 | [`docs/detection-rules.md`](docs/detection-rules.md) | The rule contract and each detector's specification, guards and hard negatives |
-| [`docs/adr/`](docs/adr) | Architecture decision records (ADR-009 … ADR-031) |
+| [`docs/adr/`](docs/adr) | Architecture decision records (ADR-009 … ADR-032) |
 | [`infra/lab/README.md`](infra/lab/README.md) | The lab runbook: what is safe about it, how to run it, what each traffic shape is for |
 | [`PLANNING.md`](PLANNING.md) | Index of the Milestone 0 planning package |
 | [`backend/README.md`](backend/README.md) | What the backend package contains today |

@@ -416,12 +416,16 @@ class FakeUserStore:
         self.rows[user_id] = UserRecord(**values)  # type: ignore[arg-type]
 
     async def record_failure(
-        self, user_id: UUID, now: datetime, *, lock_until: datetime | None
+        self, user_id: UUID, now: datetime, *, lock_until: datetime | None, reset: bool = False
     ) -> None:
         current = self.rows[user_id]
-        changes: dict[str, object] = {"failed_login_count": current.failed_login_count + 1}
+        changes: dict[str, object] = {
+            "failed_login_count": 1 if reset else current.failed_login_count + 1
+        }
         if lock_until is not None:
             changes["locked_until"] = lock_until
+        elif reset:
+            changes["locked_until"] = None
         self._replace(user_id, **changes)
 
     async def record_success(self, user_id: UUID, now: datetime) -> None:

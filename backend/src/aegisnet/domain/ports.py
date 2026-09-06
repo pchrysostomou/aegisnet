@@ -776,9 +776,15 @@ class UserStore(Protocol):
     async def get_by_email(self, email: str) -> UserRecord | None: ...
 
     async def record_failure(
-        self, user_id: UUID, now: datetime, *, lock_until: datetime | None
+        self, user_id: UUID, now: datetime, *, lock_until: datetime | None, reset: bool = False
     ) -> None:
-        """Increment the failure count; when ``lock_until`` is given, lock the account."""
+        """Increment the failure count; when ``lock_until`` is given, lock the account.
+
+        ``reset`` starts the count again at one rather than incrementing, and drops the stale
+        lock that anchored it. Clearing the anchor is load-bearing: forgiving the count while
+        leaving ``locked_until`` in the past would forgive it again on every later failure, so
+        the account could never escalate at all (T-2.1).
+        """
         ...
 
     async def record_success(self, user_id: UUID, now: datetime) -> None:

@@ -60,6 +60,16 @@ class Settings(BaseSettings):
     # retention job is not a reason to give that up (ADR-033).
     postgres_retention_user: str = "aegisnet_retention"
     postgres_retention_password: SecretStr = SecretStr(f"__{PLACEHOLDER_MARKER}__")
+    # How long any one statement may run (T-2.6). Two budgets, because two workloads share
+    # one *principal*: the API, the four actors and the CLI all connect as `aegisnet_app`, and
+    # a value loose enough for a 200 000-event sweep load is far too loose to bound a request.
+    # A privilege belongs to a role, which is why the grants live in a migration; a statement
+    # budget belongs to a workload, so it is set where the engine is built.
+    db_statement_timeout_ms: Annotated[int, Field(ge=1000, le=120_000)] = 5_000
+    # The worker, the CLI and the retention prune. The actors already carry a 30-minute
+    # Dramatiq time limit, so five minutes per *statement* sits an order of magnitude below the
+    # per-job ceiling and still bounds one runaway.
+    db_job_statement_timeout_ms: Annotated[int, Field(ge=1000, le=3_600_000)] = 300_000
 
     # ---- redis
     redis_host: str = "redis"
@@ -92,8 +102,25 @@ class Settings(BaseSettings):
     refresh_ttl_days: Annotated[int, Field(ge=1, le=90)] = 14
     login_max_failures: Annotated[int, Field(ge=1)] = 5
     login_lockout_minutes: Annotated[int, Field(ge=1)] = 15
+    # The first lock is `login_lockout_minutes`; each further failure past the threshold doubles
+    # it, up to this ceiling (T-2.1). The ceiling is an hour rather than a day for a concrete
+    # reason: there is no unlock command, so it is also the longest an operator can be shut out
+    # of their own deployment with no way back in.
+    login_lockout_max_minutes: Annotated[int, Field(ge=1)] = 60
+    # A lock that ended this long ago is forgotten, so the escalation is not permanent for an
+    # account that never manages a successful login.
+    login_failure_reset_hours: Annotated[int, Field(ge=1)] = 24
     cookie_secure: bool = True
+    # Per account. The per-address budget below is a *different* control with a different
+    # failure mode, and one number served both until Chunk 28: raising it because a dozen
+    # analysts share one NAT address would also have widened how many guesses an attacker gets
+    # against a single account. They are separate settings now, at the same default, so an
+    # operator can move one without moving the other (T-2.1).
     rate_limit_login_per_15min: Annotated[int, Field(ge=1)] = 5
+    # Per client address. Proxy headers are not trusted, so behind a NAT or a reverse proxy this
+    # is one budget for everybody — see R-9. Raise it for such a deployment; the per-account
+    # limit above and the lengthening lockout are what bound guessing at one account.
+    rate_limit_login_ip_per_15min: Annotated[int, Field(ge=1)] = 5
     rate_limit_ingest_per_min: Annotated[int, Field(ge=1)] = 30
     rate_limit_ingest_bytes_per_hour: Annotated[int, Field(ge=1024)] = 200 * 1024 * 1024
     rate_limit_read_per_min: Annotated[int, Field(ge=1)] = 120
@@ -198,6 +225,23 @@ class Settings(BaseSettings):
                 + ", ".join(sorted(offenders))
                 + " — run `make bootstrap` to generate a local .env"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _background_budget_is_never_tighter_than_the_request_budget(self) -> Settings:
+        """A typo that inverted these would stop the sweep and the import while leaving the
+        request path unbounded — the opposite of what both numbers are for (T-2.6)."""
+        if self.db_job_statement_timeout_ms < self.db_statement_timeout_ms:
+            raise ValueError(
+                "DB_JOB_STATEMENT_TIMEOUT_MS must not be tighter than DB_STATEMENT_TIMEOUT_MS"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _lockout_ceiling_is_never_below_the_first_lock(self) -> Settings:
+        """A ceiling under the first lock would make the curve a shrink (T-2.1)."""
+        if self.login_lockout_max_minutes < self.login_lockout_minutes:
+            raise ValueError("LOGIN_LOCKOUT_MAX_MINUTES must not be below LOGIN_LOCKOUT_MINUTES")
         return self
 
     @model_validator(mode="after")

@@ -25,6 +25,7 @@ from aegisnet.domain.enums import ServiceTokenRole, UserRole
 from aegisnet.domain.ports import UserRecord
 from aegisnet.services.auth_service import (
     CLOCK_SKEW_SECONDS,
+    MAX_LOCKOUT_STEP,
     MIN_SECRET_BYTES,
     AuthPolicy,
     AuthService,
@@ -52,11 +53,15 @@ POLICY = AuthPolicy(
     refresh_ttl=timedelta(days=14),
     max_failures=3,
     lockout=timedelta(minutes=15),
+    lockout_ceiling=timedelta(minutes=60),
+    failure_reset=timedelta(hours=24),
 )
 
 
 class Harness:
-    def __init__(self) -> None:
+    def __init__(self, policy: AuthPolicy = POLICY) -> None:
+        """`policy` is a parameter so a test can bend one number — the curve's ceiling, the
+        forgiveness window — without every other test in the file inheriting it."""
         self.clock = Clock()
         self.users = FakeUserStore()
         self.refresh = FakeRefreshTokenStore()
@@ -68,7 +73,7 @@ class Harness:
             self.service,
             self.denylist,
             secret=SECRET,
-            policy=POLICY,
+            policy=policy,
             clock=self.clock,
             hasher=TEST_HASHER,
         )
@@ -350,3 +355,126 @@ async def test_current_user_requires_an_active_account(h: Harness) -> None:
     h.users.deactivate(user.id)
     with pytest.raises(NotAuthenticatedError):
         await h.auth.current_user(principal)
+
+
+# ---------------------------------------------------------------- the lock lengthens (T-2.1)
+
+
+async def test_each_lock_is_twice_the_last_until_the_ceiling(h: Harness) -> None:
+    """A flat lock is a fixed price an attacker pays per batch of guesses. Doubling it makes the
+    next batch cost more without ever becoming a permanent denial of service (T-2.1).
+
+    Driven entirely on the injected clock: nothing here sleeps, and the assertion is on the
+    stored `locked_until` rather than on how long a call took.
+    """
+    user = await h.register()
+    wrong = "wrong password here"
+
+    async def lock_again() -> timedelta:
+        """One more wrong password past the threshold; returns the lock it produced."""
+        started = h.clock.now
+        failure = await h.rejected(password=wrong)
+        assert failure.locked, "past the threshold every failure locks"
+        locked_until = (await h.user(user.id)).locked_until
+        assert locked_until is not None
+        return locked_until - started
+
+    for _ in range(POLICY.max_failures - 1):
+        assert not (await h.rejected(password=wrong)).locked
+
+    assert await lock_again() == timedelta(minutes=15), "the first lock is the configured one"
+    h.clock.advance(timedelta(minutes=15))
+    assert await lock_again() == timedelta(minutes=30)
+    h.clock.advance(timedelta(minutes=30))
+    assert await lock_again() == timedelta(minutes=60)
+    h.clock.advance(timedelta(minutes=60))
+    assert await lock_again() == timedelta(minutes=60), "the ceiling holds"
+
+
+async def test_a_lock_nobody_touched_for_long_enough_is_forgotten(h: Harness) -> None:
+    """Otherwise the escalation is permanent: an account locked once and never successfully
+    logged into carries its count for ever, so its owner meets the ceiling on their first typo
+    a month later."""
+    user = await h.register()
+    wrong = "wrong password here"
+    for _ in range(POLICY.max_failures):
+        await h.rejected(password=wrong)
+    assert (await h.user(user.id)).failed_login_count == POLICY.max_failures
+
+    # Long after the lock ended, one wrong password starts the count again rather than
+    # escalating — and the stale anchor goes with it, or it would forgive for ever.
+    h.clock.advance(POLICY.lockout + POLICY.failure_reset)
+    failure = await h.rejected(password=wrong)
+
+    assert not failure.locked, "a forgiven account is one failure in, not at the threshold"
+    forgiven = await h.user(user.id)
+    assert forgiven.failed_login_count == 1
+    assert forgiven.locked_until is None, "the anchor was left behind and would forgive again"
+
+    # And from there the ladder starts at the bottom, not where it left off.
+    for _ in range(POLICY.max_failures - 2):
+        assert not (await h.rejected(password=wrong)).locked
+    started = h.clock.now
+    assert (await h.rejected(password=wrong)).locked
+    again = await h.user(user.id)
+    assert again.locked_until is not None
+    assert again.locked_until - started == POLICY.lockout
+
+
+async def test_a_lock_that_ended_recently_still_escalates(h: Harness) -> None:
+    """The other side of the same rule: forgiveness is for an account nobody has touched, not
+    for an attacker who waits out each lock and comes back."""
+    user = await h.register()
+    wrong = "wrong password here"
+    for _ in range(POLICY.max_failures):
+        await h.rejected(password=wrong)
+
+    h.clock.advance(POLICY.lockout + timedelta(minutes=1))  # the lock ended, recently
+    started = h.clock.now
+    assert (await h.rejected(password=wrong)).locked
+    escalated = await h.user(user.id)
+    assert escalated.locked_until is not None
+    assert escalated.locked_until - started == timedelta(minutes=30), "it did not escalate"
+
+
+async def test_a_successful_login_still_puts_the_ladder_back_to_the_bottom(h: Harness) -> None:
+    user = await h.register()
+    wrong = "wrong password here"
+    for _ in range(POLICY.max_failures):
+        await h.rejected(password=wrong)
+    h.clock.advance(POLICY.lockout + timedelta(seconds=1))
+    await h.login()
+
+    for _ in range(POLICY.max_failures - 1):
+        assert not (await h.rejected(password=wrong)).locked
+    started = h.clock.now
+    assert (await h.rejected(password=wrong)).locked
+    fresh = await h.user(user.id)
+    assert fresh.locked_until is not None
+    assert fresh.locked_until - started == POLICY.lockout
+
+
+async def test_a_longer_lock_changes_nothing_the_caller_can_see(h: Harness) -> None:
+    """The generic-failure property has to survive the curve. An attacker must not be able to
+    read the escalation off the response, or the lock becomes an oracle for which accounts are
+    real and how hard somebody has been trying (T-2.1, T-2.4)."""
+    await h.register()
+    wrong = "wrong password here"
+    for _ in range(POLICY.max_failures + 3):
+        await h.rejected(password=wrong)
+
+    deep = await h.rejected(password=wrong)
+    unknown = await h.rejected(email="nobody@example.test", password=wrong)
+
+    assert deep.reason == "locked" and unknown.reason == "unknown_user"
+    # The reason is for the audit log and never leaves the service; what a caller sees is the
+    # route's identical 401, which `tests/integration/test_auth_routes.py` pins.
+    assert deep.user_id is not None and unknown.user_id is None
+
+
+def test_the_curve_is_bounded_even_for_a_counter_an_attacker_drives(h: Harness) -> None:
+    """`2 ** step` on an unbounded counter is a big-integer computation before it is a long
+    lock. The shift is capped, and the ceiling is what actually decides the answer."""
+    assert h.auth._lockout_for(POLICY.max_failures) == POLICY.lockout
+    assert h.auth._lockout_for(10**6) == POLICY.lockout_ceiling
+    assert h.auth._lockout_for(POLICY.max_failures + MAX_LOCKOUT_STEP + 5) == POLICY.lockout_ceiling

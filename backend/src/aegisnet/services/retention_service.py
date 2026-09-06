@@ -153,8 +153,10 @@ def build_retention(settings: Settings) -> tuple[RetentionService, AsyncEngine, 
     write and cannot delete. The prune runs on the first and the audit row on the second, so no
     single credential in this deployment can both remove rows and account for having done it.
     """
-    pruning = db_engine.create_engine_for(settings.retention_url)
-    writing = db_engine.create_engine(settings)
+    pruning = db_engine.create_engine_for(
+        settings.retention_url, statement_timeout_ms=settings.db_job_statement_timeout_ms
+    )
+    writing = db_engine.create_job_engine(settings)
     service = RetentionService(
         SqlRetentionStore(pruning),
         AuditService(SqlAuditStore(make_session_factory(writing))),

@@ -16,6 +16,7 @@ from typing import Any, Final
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import DBAPIError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from aegisnet.adapters.files.registry import (
@@ -147,6 +148,40 @@ async def validation_exception_handler(
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content=_envelope("validation_failed", "Request failed validation.", details),
+    )
+
+
+STATEMENT_TIMEOUT_SQLSTATE: Final = "57014"
+"""PostgreSQL's `query_canceled`. What `statement_timeout` produces (T-2.6)."""
+
+
+async def database_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """A statement the database gave up on is a `503`, not a `500`.
+
+    Only the cancellation is treated this way; every other driver error keeps the generic
+    500 path, delegated to explicitly rather than re-raised so nothing depends on middleware
+    ordering. The distinction is worth drawing because the two mean different things to an
+    operator: a cancelled statement is a query that asked for too much, and retrying a smaller
+    one is a sensible next step, which `service_unavailable` and `Retry-After` say.
+
+    Nothing about the statement reaches the response or the log line. The engine is built with
+    `hide_parameters=True`, so the bound values are not in the exception's string form either.
+    """
+    sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+    if sqlstate != STATEMENT_TIMEOUT_SQLSTATE:
+        return await unhandled_exception_handler(request, exc)
+    matched = request.scope.get("route")
+    logger.warning(
+        "statement_timeout",
+        extra={
+            "route": getattr(matched, "path", None) or "unmatched",
+            "method": KNOWN_METHODS.get(request.method, "other"),
+        },
+    )
+    return _respond(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "service_unavailable",
+        "The database gave up on that query. Ask for a narrower window or page.",
     )
 
 
@@ -291,6 +326,7 @@ def register_error_handlers(app: FastAPI) -> None:
     ):
         app.add_exception_handler(too_large, payload_too_large_handler)
     app.add_exception_handler(UploadTimeoutError, upload_timeout_handler)
+    app.add_exception_handler(DBAPIError, database_error_handler)
     for invalid in (
         ValidationFailedError,
         EventQueryError,

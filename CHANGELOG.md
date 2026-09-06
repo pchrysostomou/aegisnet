@@ -9,6 +9,30 @@ Nothing is released yet. There is no tagged version.
 ## [Unreleased]
 
 ### Added
+- **A lockout that lengthens** (T-2.1). Each failure past the threshold doubles the lock — 15, 30,
+  60, 60 minutes — so a batch of guesses costs more than the last instead of a flat fifteen
+  minutes. A lock nobody has touched for a day is forgotten, or the escalation would be permanent
+  for an account that never manages a successful login; the anchor is `locked_until` and
+  deliberately not `updated_at`, which a role change also touches. The ceiling is an hour rather
+  than a day because there is no unlock command, so it is also the longest an operator can be shut
+  out of their own deployment. Nothing about the escalation is visible to the caller.
+- **Statement timeouts, in two budgets** (T-2.6). Rate limits bound what a caller may ask for and
+  nothing bounded what the database then spent. `DB_STATEMENT_TIMEOUT_MS` (5 s) holds the request
+  path; `DB_JOB_STATEMENT_TIMEOUT_MS` (5 min) holds the worker, the CLI and the retention prune,
+  because a sweep over 200 000 events legitimately does more work than a request should. The
+  migrator gets none at all, asked for explicitly, because an index build over a populated table
+  must never be cancelled half way. A cancelled statement answers `503`, not `500`.
+- `RATE_LIMIT_LOGIN_IP_PER_15MIN`, so the per-address and per-account login budgets are separate
+  numbers at the same default. One setting fed both, which meant an office behind one NAT address
+  could only buy itself room by also widening how many guesses an attacker gets at one account.
+
+### Changed
+- `create_engine(settings)` is gone. `create_api_engine` and `create_job_engine` name the budget a
+  call site is asking for, and the keyword is required — a default is how the gap above would
+  re-open. Engines also set `hide_parameters=True`, the companion to `echo=False`: untrusted bound
+  values stay out of the string form of any driver error.
+
+### Added
 - **A deadline on an upload, because no size cap is reached by a body that simply stops** (T-1.4).
   `INGEST_UPLOAD_TIMEOUT_SECONDS` (120 s) bounds the body read itself, including the multipart
   parse, which is where a multipart body is actually read. The partial spool entry is discarded and

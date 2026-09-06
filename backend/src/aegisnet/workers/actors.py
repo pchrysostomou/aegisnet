@@ -80,7 +80,7 @@ async def sweep_after(summary: BatchSummary, engine: AsyncEngine, settings: Sett
 
 async def run_import(batch_id: UUID, dataset_id: str, source_label: str) -> None:
     settings = get_settings()
-    engine = db_engine.create_engine(settings)
+    engine = db_engine.create_job_engine(settings)
     try:
         service = IngestService(
             SqlIngestStore(make_session_factory(engine)), limits_from_settings(settings)
@@ -119,7 +119,7 @@ async def run_upload(batch_id: UUID, spool_name: str) -> None:
     settings = get_settings()
     spool = Spool(settings.spool_dir)
     spool.ensure_writable()
-    engine = db_engine.create_engine(settings)
+    engine = db_engine.create_job_engine(settings)
     try:
         service = IngestService(
             SqlIngestStore(make_session_factory(engine)), limits_from_settings(settings)
@@ -156,7 +156,7 @@ def import_upload(batch_id: str, spool_name: str, source_label: str) -> None:
 async def run_sweep(window_start: datetime, window_end: datetime) -> None:
     """One detection sweep over ``[window_start, window_end)`` (ADR-018)."""
     settings = get_settings()
-    engine = db_engine.create_engine(settings)
+    engine = db_engine.create_job_engine(settings)
     try:
         sessions = make_session_factory(engine)
         service = DetectionService(
@@ -194,7 +194,7 @@ def run_detectors(window_start: str, window_end: str) -> None:
 async def run_baselines(window_days: int) -> None:
     """Recompute ``asset_baselines`` over the last ``window_days`` (ADR-019)."""
     settings = get_settings()
-    engine = db_engine.create_engine(settings)
+    engine = db_engine.create_job_engine(settings)
     try:
         sessions = make_session_factory(engine)
         service = BaselineService(

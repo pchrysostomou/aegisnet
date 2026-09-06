@@ -110,14 +110,18 @@ class SqlUserStore:
             return None if row is None else _user(row)
 
     async def record_failure(
-        self, user_id: UUID, now: datetime, *, lock_until: datetime | None
+        self, user_id: UUID, now: datetime, *, lock_until: datetime | None, reset: bool = False
     ) -> None:
         values: dict[str, object] = {
-            "failed_login_count": User.failed_login_count + 1,
+            "failed_login_count": 1 if reset else User.failed_login_count + 1,
             "updated_at": now,
         }
         if lock_until is not None:
             values["locked_until"] = lock_until
+        elif reset:
+            # The forgiven lock is the thing that anchored the count; leaving it would forgive
+            # the count again on the next failure and the account could never escalate.
+            values["locked_until"] = None
         async with self._sessions() as session, session.begin():
             await session.execute(update(User).where(User.id == user_id).values(**values))
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import DBAPIError
 
 from aegisnet.api.errors import GENERIC_SERVER_MESSAGE
 
@@ -108,3 +109,50 @@ def test_known_statuses_map_to_stable_codes(
     response = client.get(f"/_test/status/{status}")
     assert response.status_code == status
     assert _error(response.json())["code"] == code
+
+
+class _Cancelled:
+    """What asyncpg puts on `DBAPIError.orig` when `statement_timeout` fires."""
+
+    sqlstate = "57014"
+
+
+def test_a_cancelled_statement_is_a_service_unavailable_and_not_a_500(
+    app: FastAPI, client: TestClient
+) -> None:
+    """T-2.6: the bound is only useful if what comes back is the documented envelope. A raw
+    `DBAPIError` would reach the generic 500 path, which is safe but says the wrong thing — a
+    cancelled statement is a query that asked for too much, and a narrower one is worth trying.
+    """
+
+    @app.get("/_test/slow-query")
+    async def _slow() -> None:
+        raise DBAPIError("SELECT …", {"secret": "value"}, _Cancelled())
+
+    response = client.get("/_test/slow-query")
+
+    assert response.status_code == 503
+    body = _error(response.json())
+    assert body["code"] == "service_unavailable"
+    assert body["correlation_id"]
+    # Nothing about the statement or its parameters comes back.
+    assert "SELECT" not in response.text and "secret" not in response.text
+
+
+def test_every_other_database_error_is_still_a_generic_500(
+    app: FastAPI, client: TestClient
+) -> None:
+    """The handler must not turn every driver failure into a 503: a broken connection or a
+    constraint violation is not a query that asked for too much."""
+
+    class _Broken:
+        sqlstate = "08006"  # connection_failure
+
+    @app.get("/_test/broken-db")
+    async def _broken() -> None:
+        raise DBAPIError("SELECT …", {}, _Broken())
+
+    response = client.get("/_test/broken-db")
+
+    assert response.status_code == 500
+    assert _error(response.json())["code"] == "internal_error"

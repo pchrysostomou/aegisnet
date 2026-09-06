@@ -138,6 +138,8 @@ async def test_the_auth_service_runs_end_to_end_on_the_sql_stores(stores: Stores
             refresh_ttl=timedelta(days=14),
             max_failures=5,
             lockout=timedelta(minutes=15),
+            lockout_ceiling=timedelta(minutes=60),
+            failure_reset=timedelta(hours=24),
         ),
         clock=clock,
         hasher=TEST_HASHER,

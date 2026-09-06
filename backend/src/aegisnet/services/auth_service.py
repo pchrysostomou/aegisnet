@@ -69,6 +69,12 @@ def utc_now() -> datetime:
     return datetime.now(tz=UTC)
 
 
+MAX_LOCKOUT_STEP: Final = 16
+"""A bound on the shift, not on the policy. `2 ** step` on a counter an attacker increments is a
+big-integer computation long before it is a long lock, and any ceiling under 65 536 times the base
+is reached far below this."""
+
+
 @dataclass(frozen=True, slots=True)
 class AuthPolicy:
     issuer: str
@@ -76,6 +82,8 @@ class AuthPolicy:
     refresh_ttl: timedelta
     max_failures: int
     lockout: timedelta
+    lockout_ceiling: timedelta
+    failure_reset: timedelta
 
     @classmethod
     def from_settings(cls, settings: Settings) -> AuthPolicy:
@@ -85,6 +93,8 @@ class AuthPolicy:
             refresh_ttl=timedelta(days=settings.refresh_ttl_days),
             max_failures=settings.login_max_failures,
             lockout=timedelta(minutes=settings.login_lockout_minutes),
+            lockout_ceiling=timedelta(minutes=settings.login_lockout_max_minutes),
+            failure_reset=timedelta(hours=settings.login_failure_reset_hours),
         )
 
 
@@ -176,14 +186,52 @@ class AuthService:
             self._verify(user.password_hash, password)
             return None, LoginFailure("locked", user.id, locked=True)
         if not self._verify(user.password_hash, password):
-            failures = user.failed_login_count + 1
+            prior = self._prior_failures(user, now)
+            failures = prior + 1
             lock_until = (
-                now + self._policy.lockout if failures >= self._policy.max_failures else None
+                now + self._lockout_for(failures) if failures >= self._policy.max_failures else None
             )
-            await self._users.record_failure(user.id, now, lock_until=lock_until)
+            await self._users.record_failure(
+                user.id,
+                now,
+                lock_until=lock_until,
+                reset=prior == 0 and user.failed_login_count > 0,
+            )
             return None, LoginFailure("wrong_password", user.id, locked=lock_until is not None)
         await self._users.record_success(user.id, now)
         return await self._issue(user, now, ip, user_agent), None
+
+    def _lockout_for(self, failures: int) -> timedelta:
+        """How long the account is locked after `failures` consecutive wrong passwords.
+
+        The first lock is the configured one and each further failure doubles it, to a ceiling:
+        15, 30, 60, 60 … minutes with the shipped settings. A flat lock is a fixed price an
+        attacker pays per batch of guesses; a doubling one makes the price of the next batch
+        grow without ever becoming a permanent denial of service against the account's owner
+        (T-2.1).
+        """
+        step = min(failures - self._policy.max_failures, MAX_LOCKOUT_STEP)
+        doubled: timedelta = self._policy.lockout * 2**step
+        return min(doubled, self._policy.lockout_ceiling)
+
+    def _prior_failures(self, user: UserRecord, now: datetime) -> int:
+        """The count the next failure builds on, forgetting an escalation nobody has touched.
+
+        Without this the curve is permanent: an account that is locked once and then never
+        logs in successfully carries its count forever, so a genuine owner returning a month
+        later meets the ceiling on their first typo. `locked_until` is the anchor because it
+        *is* the time of the most recent escalation — every failure past the threshold writes a
+        new one. Deliberately not `updated_at`, which a role change or a password change also
+        touches: a security decision must not be silently reset by an unrelated write.
+
+        There is no decay below the first lock. Four failures a year apart still lock on the
+        fifth, which is what `SECURITY.md` publishes and what the M1 test asserts; this exists
+        to stop the *escalation* being permanent, not to forgive the lock.
+        """
+        if user.locked_until is None:
+            return user.failed_login_count
+        forgiven = now - user.locked_until >= self._policy.failure_reset
+        return 0 if forgiven else user.failed_login_count
 
     def _verify(self, password_hash: str, password: str) -> bool:
         try:

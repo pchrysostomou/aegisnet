@@ -167,3 +167,42 @@ def test_malformed_login_bodies_are_422(client: TestClient, body: dict[str, obje
     response = client.post(LOGIN, json=body)
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_failed"
+
+
+async def test_the_address_budget_and_the_account_budget_are_separate_numbers(
+    wiring: FakeWiring, tmp_path: Path
+) -> None:
+    """One setting fed both until Chunk 28, which meant a deployment behind a NAT could only
+    buy itself room by also widening how many guesses an attacker gets at a single account
+    (T-2.1, R-9). They are independent now, and this proves it by moving one.
+
+    The shipped defaults are unchanged and equal; what changed is that they *can* differ.
+    """
+    settings = make_settings(
+        cookie_secure=False,
+        spool_dir=tmp_path / "spool",
+        secret_key=TEST_SECRET_KEY,
+        rate_limit_login_ip_per_15min=9,
+        rate_limit_login_per_15min=2,
+    )
+    wiring = FakeWiring(settings, settings.spool_dir)
+    await wiring.add_user("ana@example.test", UserRole.analyst, "correct horse battery")
+
+    with TestClient(create_app(settings, services_factory=wiring.factory())) as client:  # type: ignore[arg-type]
+        # Two wrong passwords for one account spend that account's budget, and the third is
+        # refused by the account limit while the address still has room.
+        for _ in range(2):
+            assert _login(client, "ana@example.test", "wrong").status_code == 401
+        assert _login(client, "ana@example.test", "wrong").status_code == 429
+
+        # A different account from the same address is still served: the address budget is its
+        # own number and has not been spent by the account above.
+        other = _login(client, "someone-else@example.test", "wrong")
+        assert other.status_code == 401, "the account budget was charged to the address"
+
+
+def test_the_shipped_login_budgets_are_equal_so_nothing_loosened(tmp_path: Path) -> None:
+    """Splitting the setting must not have quietly widened anything. The defaults are the same
+    number they always were; only the ability to move them apart is new."""
+    shipped = make_settings(secret_key=TEST_SECRET_KEY, spool_dir=tmp_path / "spool")
+    assert shipped.rate_limit_login_ip_per_15min == shipped.rate_limit_login_per_15min == 5

@@ -168,7 +168,7 @@ class Services:
     """Every service on one engine, built per command and disposed afterwards."""
 
     def __init__(self, settings: Settings) -> None:
-        self._engine = db_engine.create_engine(settings)
+        self._engine = db_engine.create_job_engine(settings)
         # Lazy: nothing connects until something asks. The brief path is the only user, and it
         # refuses before it reaches the budget when the feature is off — so a checkout with no
         # key never opens this.

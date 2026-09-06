@@ -85,5 +85,5 @@ unavailable.
 - Argon2id verification is intentionally slow; the test suite injects a cheap
   `PasswordHasher` and the login path performs a dummy verification for unknown accounts
   so timing does not reveal existence.
-- Deferred to Milestone 6: exponential backoff, password reset, MFA, session management
+- Deferred to Milestone 6: ~~exponential backoff~~ (delivered in Chunk 29, ADR-036), password reset, MFA, session management
   over HTTP, trusting proxy headers behind TLS termination, read-only root filesystems.

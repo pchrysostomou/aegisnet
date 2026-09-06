@@ -22,9 +22,9 @@ from typing import Any
 
 from alembic import context
 from sqlalchemy import Connection
-from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
+from aegisnet.adapters.db.engine import create_engine_for
 from aegisnet.adapters.db.models import Base
 from aegisnet.config import get_settings
 from aegisnet.logging import configure_logging
@@ -68,7 +68,9 @@ async def _run_async() -> None:
     configure_logging(level=settings.log_level, secrets=settings.secret_values())
     config.attributes.setdefault("app_role", settings.postgres_app_user)
     config.attributes.setdefault("retention_role", settings.postgres_retention_user)
-    engine = create_async_engine(settings.migration_url, poolclass=NullPool)
+    # statement_timeout_ms=0 on purpose: a migration that builds a GIST index over a
+    # populated `events` table must never be cancelled half way (T-2.6).
+    engine = create_engine_for(settings.migration_url, statement_timeout_ms=0, poolclass=NullPool)
     try:
         async with engine.connect() as connection:
             await connection.run_sync(_run_on_connection)

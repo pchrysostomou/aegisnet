@@ -170,7 +170,7 @@ def _lifespan(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings: Settings = app.state.settings
-        engine = db_engine.create_engine(settings)
+        engine = db_engine.create_api_engine(settings)
         cache = redis_client.create_client(settings)
         app.state.db_engine = engine
         app.state.redis = cache

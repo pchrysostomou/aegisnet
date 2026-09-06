@@ -29,9 +29,14 @@ table: fixes land on `main`.
   wrong password, an inactive account and a locked account; the reason goes to the audit
   trail, never to the caller. A dummy Argon2id verification runs for unknown addresses so
   the response time does not reveal whether an account exists.
-- **Lockout**: after `LOGIN_MAX_FAILURES` (5) consecutive failures the account is locked
-  for `LOGIN_LOCKOUT_MINUTES` (15). The counter resets on success. Exponential backoff is
-  deferred to Milestone 6.
+- **Lockout**: after `LOGIN_MAX_FAILURES` (5) consecutive failures the account is locked for
+  `LOGIN_LOCKOUT_MINUTES` (15), and **each further failure doubles the lock** up to
+  `LOGIN_LOCKOUT_MAX_MINUTES` (60) — 15, 30, 60, 60 … The ceiling is an hour rather than a day
+  because there is no unlock command, so it is also the longest an operator can be shut out of
+  their own deployment with no way back in. The counter resets on a successful login, and a lock
+  nobody has touched for `LOGIN_FAILURE_RESET_HOURS` (24) is forgotten, so the escalation is not
+  permanent for an account that never manages to log in. None of this is visible to the caller:
+  a locked account, a wrong password and an unknown address all answer with the same `401`.
 - **Access tokens** carry `iss`, `sub`, `role`, `email`, `iat`, `exp`, `jti`. Verification
   requires every claim, checks the signature and issuer, and checks `exp`/`iat` against
   the service clock with 30 s of tolerance rather than against PyJWT's wall clock, so a
@@ -141,9 +146,17 @@ same reason this table is (ADR-031).
 Fixed windows in Redis, one counter per limit, subject and window; `429` with
 `Retry-After` when exceeded.
 
+**Statement budgets.** Rate limits bound what a caller may ask for; `DB_STATEMENT_TIMEOUT_MS`
+(5 s) bounds what the database then spends on it. The worker, the CLI and the retention prune get
+`DB_JOB_STATEMENT_TIMEOUT_MS` (5 min), because a sweep over 200 000 events legitimately does more
+work than a request should, and the migrator gets none at all — an index build over a populated
+table must never be cancelled half way. A cancelled statement answers `503 service_unavailable`,
+which is the honest thing to say: the query asked for too much and a narrower one may work.
+
 | Limit | Default | Subject | If Redis is down |
 |---|---|---|---|
-| Login | 5 / 15 min | client address **and** account (hashed) | refuse (`429`) |
+| Login, per account | `RATE_LIMIT_LOGIN_PER_15MIN` (5) | account (hashed) | refuse (`429`) |
+| Login, per address | `RATE_LIMIT_LOGIN_IP_PER_15MIN` (5) | client address | refuse (`429`) |
 | Ingest requests | 30 / min | token or user | refuse |
 | Ingest bytes | 200 MiB / hour | token or user | refuse |
 | Reads | 120 / min | principal | allow, log an error |
@@ -152,7 +165,7 @@ Fixed windows in Redis, one counter per limit, subject and window; `429` with
 | Brief asks, per analyst | `BRIEF_USER_DAILY_LIMIT` / UTC day | the user | refuse |
 | Brief asks, per case | `BRIEF_INCIDENT_DAILY_LIMIT` / UTC day | the incident | refuse |
 
-The first five are measured, not just declared: `make load-test` fires whole budgets at once
+The first six are measured, not just declared: `make load-test` fires whole budgets at once
 against a running stack and `docs/evaluation.md` §10 records what came back — 120 of 180
 concurrent reads allowed, `429` with a usable `Retry-After` for the rest, login refused after five
 wrong passwords, and the fixed-window edge costing exactly one extra budget and never more. The

@@ -66,12 +66,11 @@ async def login(
 ) -> TokenResponse:
     ip = client_ip(request)
     ip_key = "unknown" if ip is None else str(ip)
-    limit = svc.settings.rate_limit_login_per_15min
     await enforce_limit(
         svc.limiter,
         "login_ip",
         ip_key,
-        limit=limit,
+        limit=svc.settings.rate_limit_login_ip_per_15min,
         window_seconds=LOGIN_WINDOW_SECONDS,
         fail_open=False,
     )
@@ -79,7 +78,7 @@ async def login(
         svc.limiter,
         "login_account",
         hashed_subject(body.email),
-        limit=limit,
+        limit=svc.settings.rate_limit_login_per_15min,
         window_seconds=LOGIN_WINDOW_SECONDS,
         fail_open=False,
     )

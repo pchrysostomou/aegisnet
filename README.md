@@ -90,7 +90,7 @@ aspirational:
 | Authentication and authorisation: Argon2id users with lockout, 15-minute HS256 access tokens, rotating refresh cookies with reuse detection, hashed service tokens for sensors, deny-by-default permission on every route | ✅ [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md), [`SECURITY.md`](SECURITY.md) |
 | Audit trail (append-only, bounded detail, admin read API) covering logins, denials, refused uploads and rejected import ids, and Redis rate limits that fail closed for login and ingest | ✅ [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md) |
 | Operator CLI (`python -m aegisnet.cli`) for datasets, batches, assets, events, users and service tokens; `make` targets for every operator task | ✅ |
-| Tests: 1 265 hermetic tests (unit, integration, security, detectors) at 94 % coverage, 89 database tests against a real PostgreSQL, twenty-one Playwright tests against a running stack, and a CI stack job that logs in, ingests over HTTP, watches the post-ingest sweep and reads the alerts | ✅ [`docs/STATUS.md`](docs/STATUS.md) |
+| Tests: 1 294 hermetic tests (unit, integration, security, detectors) at 94 % coverage, 89 database tests against a real PostgreSQL, five opt-in load tests against a running stack, twenty-one Playwright tests against a running stack, and a CI stack job that logs in, ingests over HTTP, watches the post-ingest sweep and reads the alerts | ✅ [`docs/STATUS.md`](docs/STATUS.md) |
 | All five detection rules as pure, versioned functions over bounded windows with derived, bounded evidence and a recorded severity formula: D-001 port scan, D-002 auth-failure burst, D-003 DNS anomaly / tunnelling, D-004 periodic beaconing, D-005 outbound volume anomaly against per-asset baselines; 34 labelled positive and hard-negative cases pinned to their generator (`make test-detectors`) | ✅ Milestone 2, Chunks 8, 10 and 11 ([ADR-017](docs/adr/ADR-017-detector-interface-and-labelled-fixtures.md), [ADR-019](docs/adr/ADR-019-baselines-precomputed-and-address-keyed.md), [`docs/detection-rules.md`](docs/detection-rules.md)) |
 | The baseline job: each asset's hourly outbound history summarised into `asset_baselines` (mean, stddev, p95, sampled hours) by `make recompute-baselines`, the `recompute_baselines` actor or an admin's `POST /detections/baselines/recompute`; D-005 abstains without a baseline | ✅ Milestone 2, Chunk 11 ([ADR-019](docs/adr/ADR-019-baselines-precomputed-and-address-keyed.md)) |
 | The sweep: six detection tables, the registry synced from code, one load per interval sliced on each rule's grid, severity from the asset's criticality with a stored rationale, dedup by a UNIQUE key, per-rule failure isolation in `detector_runs`, the `run_detectors` actor, `make run-detectors`, and the read API for alerts, rules and runs plus the admin sweep trigger | ✅ Milestone 2, Chunk 9 ([ADR-018](docs/adr/ADR-018-detection-sweep-alert-storage-and-failure-isolation.md), [`docs/api-milestone-2.md`](docs/api-milestone-2.md)) |
@@ -109,6 +109,7 @@ aspirational:
 | The case as a document, and the brief on the screen: `GET /incidents/{id}/report.md` and `make export REF=` render **the same bytes every time** — every collection sorted to a unique key, no clock in the document, and nothing written by exporting it — while the dashboard's brief panel shows the summary through `SafeMarkdown`, tags every uncited claim `UNVERIFIED`, and links a source only if it is `https` | ✅ Milestone 5, Chunk 24 ([ADR-032](docs/adr/ADR-032-the-report-changes-nothing-and-escapes-everything.md), [`docs/api-milestone-5.md`](docs/api-milestone-5.md)); the report escapes every untrusted value, and the test renders it with a real CommonMark parser rather than grepping for strings — which found a defect on its first run |
 | A retention policy the runtime role cannot carry out: `aegisnet_retention` is a **third database role** holding `SELECT, DELETE` on the four tables with a period and no ability to write anywhere, so `audit_log` and the brief tables stay append-only for the application while still having a bound. An event an alert still points at is kept regardless of age | ✅ Milestone 6, Chunk 25 ([ADR-033](docs/adr/ADR-033-deletion-is-a-different-principal.md)); **off by default**, `make retention` is a dry run, and the record of a prune is written by the role that could not have done it |
 | The published rate limits, measured under concurrency rather than one request at a time: `make load-test` fires a whole budget at once against a running stack, and the fixed-window edge the limiter's own docstring warns about is **measured at exactly 2× the limit** rather than assumed | ✅ Milestone 6, Chunk 26 ([`docs/evaluation.md`](docs/evaluation.md) §10); opt-in, joins the stack's network, and deletes the login budget it burns so it cannot lock an operator out of their own deployment |
+| The threat model, parsed by the suite: `THREAT_MODEL.md` §6 maps every one of the thirty-six threats to the tests that hold its mitigation up — as pytest node ids, vitest and Playwright titles and CI jobs — and a checker fails on a renamed test, a deleted row, a status the evidence does not support or an invented residual-risk id. `docs/evaluation.md` §8 gained the provenance §6 had always asked for: the commit the corpus was measured at, the generator seed and the rule versions | ✅ Milestone 6, Chunk 27 ([ADR-034](docs/adr/ADR-034-the-threat-model-is-checked-by-the-suite.md)); writing the matrix found three places the model claimed more than the code did, and the eight `partial` rows are what M6 still owes |
 | Real sensor output reads correctly: a flow event is filed under the instant the conversation began, not when Suricata announced it, and a DNS record's direction comes from its own type rather than from the presence of a response code | ✅ Chunk 14 ([ADR-022](docs/adr/ADR-022-event-time-and-dns-direction.md)); the two defects the lab found, with four of five rules firing on the real capture afterwards — [`docs/evaluation.md`](docs/evaluation.md) §9 |
 | The threat-model coverage matrix, the demo script and the release checklist | ⬜ Milestone 6, remaining ([roadmap](#roadmap)) |
 
@@ -235,7 +236,11 @@ flowchart LR
 
 Full detail, including the disclosure process, is in [`SECURITY.md`](SECURITY.md); the
 threat catalogue with the test that verifies each mitigation is in
-[`THREAT_MODEL.md`](THREAT_MODEL.md).
+[`THREAT_MODEL.md`](THREAT_MODEL.md). Its **§6 coverage matrix** is the section to read if you
+want to know what is proven rather than intended: one row per threat, the tests named as node
+ids, and a status of `test`, `partial` or `accepted`. It is parsed by the suite
+(`tests/security/test_threat_coverage.py`), so a renamed test breaks the document that cites
+it — and the eight `partial` rows are the honest list of what M6 still owes (ADR-034).
 
 | Permission | viewer | analyst | admin | ingest_service |
 |---|:-:|:-:|:-:|:-:|
@@ -257,6 +262,9 @@ threat catalogue with the test that verifies each mitigation is in
   and field count; control characters never reach a log line or a screen.
 - The audit table accepts inserts only, enforced by PostgreSQL grants rather than by
   application code.
+- Nothing under `src/` starts a process except the one adapter that asks git which commit a
+  published evaluation number was measured at, and a test holds that exception to that one
+  module.
 
 ---
 
@@ -363,8 +371,11 @@ make test-db           # the database suite against an ephemeral PostgreSQL 16 (
 make test-detectors    # the detector suite alone: bounds, severity, every rule, every labelled fixture
 make gen-fixtures      # regenerate the labelled fixtures after a case definition changes
 make eval              # T1 + T2 + correlation metrics into docs/evaluation.md §8 (tests pin the blocks; run it after touching a rule)
+#                        needs a git checkout with history: §8 publishes the commit the corpus was measured at, and
+#                        refuses while the corpus is uncommitted — so it is gen-synthetic, commit, then eval
 make demo-scenario     # the M3 story end to end: one host, four rules, one escalated case
-make test-security     # the security-marked suite: compose policy, payload limits, RBAC, the lab
+make test-security     # the security-marked suite: compose policy, payload limits, RBAC, the lab,
+#                        and the checker that holds THREAT_MODEL.md §6 to the tests it names
 ```
 
 The lab is opt-in and separate; nothing below starts unless you ask for it by name.
@@ -490,7 +501,7 @@ reporting, as described in [`SECURITY.md`](SECURITY.md).
 | M3 | Correlation into incidents, timeline, analyst workflow | ✅ **Complete** (Chunks 15–17): the grouping policy, the four incident tables, the workflow state machine, the incidents API with audited transitions, notes and the role matrix, and the multi-stage scenario with its correlation metrics. Every M3 acceptance criterion has evidence |
 | M4 | Analyst dashboard (Next.js) | ✅ **Complete** (Chunks 18–20): sign-in and the session model, the typed API boundary, the incident queue, the case view with its timeline, workflow controls and notes, the `SafeMarkdown` renderer, the asset inventory, the audit viewer, and the Playwright suite. Every M4 acceptance criterion has evidence |
 | M5 | Investigation brief via Perplexity, with redaction canaries | ✅ **Complete** (Chunks 21–24): the redaction boundary and its canary suite, the hardened client, the brief schema with its citation and safety checks, the two append-only tables with their routes and CLI, the committed offline sample, the deterministic `report.md` export and the dashboard's brief panel. All eight M5 acceptance criteria are ticked with evidence. Off by default; **no call has ever been made from this repository** |
-| M6 | Hardening, evaluation with measured accuracy, documentation, release | 🟡 Chunks 25–26 done: the retention policy with its third database role (ADR-033), and the rate limits measured under concurrency ([`docs/evaluation.md`](docs/evaluation.md) §10). The threat-model coverage matrix, the demo script and the release checklist remain |
+| M6 | Hardening, evaluation with measured accuracy, documentation, release | 🟡 Chunks 25–27 done: the retention policy with its third database role (ADR-033), the rate limits measured under concurrency ([`docs/evaluation.md`](docs/evaluation.md) §10), and the threat-model coverage matrix the suite parses, alongside the provenance §8 had been missing ([ADR-034](docs/adr/ADR-034-the-threat-model-is-checked-by-the-suite.md)). What remains is the eight `partial` rows that matrix now names, the fresh-clone reproduction transcript, the demo script and the release checklist |
 
 Detector accuracy is **unmeasured** and no claim is made until Milestone 6
 ([`docs/evaluation.md`](docs/evaluation.md)). The full plan with acceptance gates is in
@@ -504,7 +515,7 @@ Detector accuracy is **unmeasured** and no claim is made until Milestone 6
 |---|---|
 | [`docs/STATUS.md`](docs/STATUS.md) | What is built, what is not, and the evidence for every verification |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Components, data flow, technology rationale |
-| [`THREAT_MODEL.md`](THREAT_MODEL.md) | Threats, mitigations, the test that verifies each, residual risks |
+| [`THREAT_MODEL.md`](THREAT_MODEL.md) | Threats, mitigations, the test that verifies each, residual risks, and the §6 coverage matrix the suite parses |
 | [`SECURITY.md`](SECURITY.md) | Credential model, RBAC matrix, audit actions, rate limits, disclosure |
 | [`docs/api-milestone-1.md`](docs/api-milestone-1.md) | Milestone 1 API contract and acceptance criteria |
 | [`docs/api-milestone-2.md`](docs/api-milestone-2.md) | Alerts, rules, runs, baselines, the sweep trigger and the post-ingest sweep |
@@ -517,9 +528,9 @@ Detector accuracy is **unmeasured** and no claim is made until Milestone 6
 | [`docs/data-model.md`](docs/data-model.md) | PostgreSQL schema design |
 | [`docs/PRD.md`](docs/PRD.md) | Product requirements |
 | [`docs/delivery-plan.md`](docs/delivery-plan.md) | Six-milestone plan |
-| [`docs/evaluation.md`](docs/evaluation.md) | Detection evaluation methodology; §8 holds the `make eval` table (synthetic T1/T2, pinned by a test), §9 the first lab run and what it found |
+| [`docs/evaluation.md`](docs/evaluation.md) | Detection evaluation methodology; §8 holds the `make eval` table (synthetic T1/T2, pinned by a test, with the corpus commit, seed and rule versions it was measured at), §9 the first lab run and what it found, §10 the rate limits measured under concurrency |
 | [`docs/detection-rules.md`](docs/detection-rules.md) | The rule contract and each detector's specification, guards and hard negatives |
-| [`docs/adr/`](docs/adr) | Architecture decision records (ADR-009 … ADR-033) |
+| [`docs/adr/`](docs/adr) | Architecture decision records (ADR-009 … ADR-034) |
 | [`infra/lab/README.md`](infra/lab/README.md) | The lab runbook: what is safe about it, how to run it, what each traffic shape is for |
 | [`PLANNING.md`](PLANNING.md) | Index of the Milestone 0 planning package |
 | [`backend/README.md`](backend/README.md) | What the backend package contains today |

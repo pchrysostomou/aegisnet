@@ -225,11 +225,18 @@ review pass · tag `v1.0.0`.
       `Retry-After` inside the window, login refused after five wrong passwords, and the fixed-window edge
       measured at exactly 2× the limit. Numbers and their limits in `docs/evaluation.md` §10.
 - [ ] All containers run as non-root; compose publishes only `127.0.0.1` ports (verified test).
-- [ ] `docs/evaluation.md` reports precision/recall for all five detectors on the labelled corpus, with the
-      command used and the corpus commit sha.
+- [x] `docs/evaluation.md` reports precision/recall for all five detectors on the labelled corpus, with the
+      command used and the corpus commit sha — §8, written by `make eval` and pinned by a test. Chunk 27
+      added the commit (`6ff7d3c798ed`, the one that last changed the cases or the corpus), the generator
+      seed and the rule versions, so the line now carries everything §6 asks for; `tests/unit/test_provenance.py`
+      checks the published sha against git. The numbers are synthetic and the section says so above its own
+      table — this criterion is about provenance, not about accuracy on real traffic (R-1).
 - [ ] A fresh-clone reproduction run by following only the README succeeds; transcript committed.
 - [ ] Coverage gates met (≥85% on `domain/`, ≥70% overall).
-- [ ] Every `THREAT_MODEL.md` mitigation maps to a named passing test or an accepted-risk entry.
+- [ ] Every `THREAT_MODEL.md` mitigation maps to a named passing test or an accepted-risk entry — the
+      mapping exists and is machine-checked (§6, Chunk 27, ADR-034), and it says twenty-eight rows are
+      verified and eight are `partial`. The criterion is met when no `partial` remains; each one names
+      what is missing.
 - [ ] Release checklist fully ticked, then `v1.0.0` tagged.
 
 **Commands.** `make ci-local` · `make eval` · `make load-test` · `make release-check`.

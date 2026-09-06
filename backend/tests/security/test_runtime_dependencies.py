@@ -88,3 +88,60 @@ def test_the_alias_table_describes_real_dependencies() -> None:
     declared = _declared()
     stale = {i: d for i, d in IMPORT_TO_DISTRIBUTION.items() if d not in declared}
     assert not stale, stale
+
+
+# The one module allowed to start a process, and the reason it is allowed to. T-1.2 bans a
+# shell reached by attacker-influenced data; `git log` with a fixed argv is not that. Keeping
+# the exception in one named place is what stops the distinction being lost later.
+MAY_START_A_PROCESS = frozenset({Path("adapters/files/provenance.py")})
+PROCESS_MODULES = frozenset({"subprocess", "pty", "multiprocessing"})
+OS_RUNNERS = frozenset({"system", "popen", "spawnl", "spawnv", "execv", "execvp", "execl"})
+
+
+def _process_starters(tree: ast.AST) -> list[str]:
+    """Every way this codebase could start a process, named. Two shapes are looked for: an
+    import of a process module, and an attribute call on `os` that runs something."""
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            found += [a.name for a in node.names if a.name.split(".")[0] in PROCESS_MODULES]
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            if node.module.split(".")[0] in PROCESS_MODULES:
+                found.append(node.module)
+        elif isinstance(node, ast.Attribute):
+            value = node.value
+            if isinstance(value, ast.Name) and value.id == "os" and node.attr in OS_RUNNERS:
+                found.append(f"os.{node.attr}")
+    return sorted(set(found))
+
+
+def test_only_the_provenance_adapter_starts_a_process() -> None:
+    """T-1.2, held to an allowlist of one rather than to a habit.
+
+    `subprocess` arrived in `src/` for the first time in Chunk 27, to answer "which commit are
+    these numbers measured from". That is a fine reason and the next one might not be, so the
+    ban becomes a list: a second module reaching for a process fails here and somebody has to
+    decide in the open, the way the lab sensor's one capability was.
+    """
+    offenders = {}
+    for path in sorted(SRC.rglob("*.py")):
+        relative = path.relative_to(SRC)
+        if relative in MAY_START_A_PROCESS:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        if starters := _process_starters(tree):
+            offenders[str(relative)] = starters
+    assert not offenders, (
+        f"these modules start a process, and only {sorted(MAY_START_A_PROCESS)[0]} may: "
+        f"{offenders}"
+    )
+
+
+def test_the_allowlisted_module_is_the_one_that_actually_needs_it() -> None:
+    """An allowlist entry for a module that stopped shelling out is an entry that will excuse
+    the next one to start."""
+    for relative in MAY_START_A_PROCESS:
+        path = SRC / relative
+        assert path.is_file(), f"{relative} is allowlisted and does not exist"
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        assert _process_starters(tree), f"{relative} no longer starts a process; drop the entry"

@@ -379,7 +379,8 @@ eval: ## Score the rules (T1/T2) and correlation on the scenario; refresh docs/e
 
 # Regenerates the committed synthetic corpus byte-for-byte (seeded). After changing the
 # generator, run this, then update sha256 in samples/registry.yml; the integration suite
-# fails until the checksum matches.
+# fails until the checksum matches. Commit the new corpus before `make eval`: §8 publishes the
+# commit its numbers were measured at, and the harness refuses bytes that are not at one.
 gen-synthetic: ## Regenerate samples/synthetic/benign-baseline-01 from its fixed seed
 	python3 tools/gen_synthetic_eve.py --seed 20260905 --events 2000
 

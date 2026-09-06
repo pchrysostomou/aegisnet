@@ -34,7 +34,7 @@ Commands:
     brief REF                      ask for an investigation brief on one case
     eval-correlation               score correlation on the committed multi-stage scenario
     eval-detectors                 score the rules on the labelled cases and the benign corpus;
-                                   run inside the checkout, no paths accepted
+                                   run inside the git checkout, no paths accepted
 
 Every result is one JSON object on stdout; exit status 0 on success, 1 on a failure the
 operator can act on (failed batch, registry or inventory error), 2 on usage errors.
@@ -81,6 +81,7 @@ from aegisnet.adapters.db.incident_store import SqlIncidentStore
 from aegisnet.adapters.db.ingest_store import SqlIngestStore
 from aegisnet.adapters.db.session import make_session_factory
 from aegisnet.adapters.files.labelled import LabelledCaseError
+from aegisnet.adapters.files.provenance import ProvenanceError, corpus_commit
 from aegisnet.adapters.files.registry import RegistryError, contained_path, load_registry
 from aegisnet.adapters.perplexity import PerplexityClient, RedisDailyBudget
 from aegisnet.adapters.queue.broker import install as install_broker
@@ -440,7 +441,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     evaluation = commands.add_parser(
         "eval-detectors",
-        help="T1/T2 metrics into docs/evaluation.md §8; run inside the checkout, no database",
+        help="T1/T2 metrics into docs/evaluation.md §8; run inside the git checkout, no database",
     )
     evaluation.add_argument(
         "--no-write", action="store_true", help="print the block without touching the document"
@@ -968,17 +969,22 @@ def cmd_eval(args: argparse.Namespace) -> int:
     """No path is accepted: the cases, the corpus and the document sit at fixed places under
     the repository root found above the working directory. Exit 1 when a labelled case
     misses its label, after writing the report anyway: the document must show the
-    regression, not hide it."""
+    regression, not hide it.
+
+    It also refuses outright when the corpus carries uncommitted changes, because §8 publishes
+    the commit those bytes live at and there is no honest answer for bytes that live nowhere.
+    Regenerating a corpus is therefore commit-then-`make eval`, in that order."""
     try:
         root = repository_root(Path.cwd())
         report = run_evaluation(root / CASES_DIR, root / CORPUS_FILE)
-        block = render(report)
+        commit = corpus_commit(root, (root / CASES_DIR, root / CORPUS_FILE))
+        block = render(report, corpus_commit=commit)
         if not args.no_write:
             document = root / RESULTS_DOC
             document.write_text(
                 replace_results(document.read_text(encoding="utf-8"), block), encoding="utf-8"
             )
-    except (EvaluationError, LabelledCaseError, OSError) as error:
+    except (EvaluationError, LabelledCaseError, ProvenanceError, OSError) as error:
         print(f"error: {error}", file=sys.stderr)  # noqa: T201 - CLI output
         return 1
     if args.json:
@@ -992,9 +998,12 @@ def cmd_eval(args: argparse.Namespace) -> int:
                 "corpus": {
                     "name": report.corpus_name,
                     "sha256": report.corpus_sha256,
+                    "commit": commit,
+                    "seed": report.corpus_seed,
                     "events": report.corpus_events,
                     "rejected": report.corpus_rejected,
                 },
+                "rule_versions": dict(report.rule_versions),
             }
         )
     else:

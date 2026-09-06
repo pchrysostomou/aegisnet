@@ -20,9 +20,14 @@ const ENTITIES: Record<string, string> = {
 };
 
 /** Tags removed, entities decoded: the string a person actually reads on the page. Asserting
- * on the raw markup would only be asserting that React escapes, which is not the claim. */
+ * on the raw markup would only be asserting that React escapes, which is not the claim.
+ *
+ * `[^<>]` rather than `[^>]`: a class that can swallow the opening delimiter lets one failed
+ * attempt overlap the next, which is quadratic on a run of `<`. Excluding it means an attempt
+ * stops at the next delimiter and the scan is linear — the same rule the redaction scanner's
+ * patterns follow (ADR-029). */
 const visibleText = (html: string) =>
-  html.replace(/<[^>]*>/g, "").replace(/&(?:lt|gt|quot|#x27|amp);/g, (match) => ENTITIES[match]);
+  html.replace(/<[^<>]*>/g, "").replace(/&(?:lt|gt|quot|#x27|amp);/g, (match) => ENTITIES[match]);
 
 describe("a citation URL came from a language model (T-4.4)", () => {
   // The rule is the scheme, not the host. This app keeps no list of acceptable domains and

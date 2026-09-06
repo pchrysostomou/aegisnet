@@ -9,6 +9,11 @@ Nothing is released yet. There is no tagged version.
 ## [Unreleased]
 
 ### Fixed
+- Two assertions that could not fail, both found by SonarCloud's reliability gate.
+  `assert render_report(**case) == render_report(**case)` reads as a tautology and the analyser
+  is right to say so — the two calls are bound to variables now, which is also how the test says
+  what it means. And `[^>]*` in a tag-stripping helper is quadratic on a run of `<`, because a
+  class that can swallow the opening delimiter lets one failed attempt overlap the next.
 - **A code span in a table cell cannot be made safe, so it is not one.** The pipe escape that
   fixed the first version of this was itself broken: a backslash cannot be escaped inside a code
   span, so a value already containing `\|` emits two backslashes and a renderer that consumes

@@ -176,8 +176,13 @@ def whole_case() -> dict[str, object]:
 
 
 def test_the_same_case_renders_to_the_same_bytes() -> None:
+    """Two calls, two results, compared. Written as `render(...) == render(...)` it reads as a
+    tautology — and a static analyser is right to say so, because the only thing that makes it
+    meaningful is that the function might not be a function of its arguments."""
     case = whole_case()
-    assert render_report(**case) == render_report(**case)  # type: ignore[arg-type]
+    first = render_report(**case)  # type: ignore[arg-type]
+    second = render_report(**case)  # type: ignore[arg-type]
+    assert first == second
 
 
 def test_the_order_the_rows_arrive_in_cannot_change_the_document() -> None:

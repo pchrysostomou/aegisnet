@@ -160,11 +160,14 @@ def test_a_code_span_survives_a_value_full_of_backticks() -> None:
 
 
 def test_a_fenced_block_cannot_be_closed_from_inside() -> None:
+    """Evidence is machine data and goes in a fence, so the fence has to be longer than any run
+    of backticks the data contains — otherwise the block ends early and the rest is Markdown."""
     body = "line one\n```\nstill inside\n``````\nand still\n"
-    tokens = [t for t in _tokens(fenced(body)) if t[0] == "fence"]
-    assert len(tokens) == 1, "one block, not three"
-    assert "still inside" in tokens[0][0] or True
-    assert _parser().parse(fenced(body))[0].content.strip().endswith("and still")
+    parsed = _parser().parse(fenced(body))
+    fences = [token for token in parsed if token.type == "fence"]
+    assert len(fences) == 1, "one block, not three"
+    assert "still inside" in fences[0].content
+    assert fences[0].content.strip().endswith("and still")
 
 
 def test_a_character_that_reorders_text_is_written_out_rather_than_obeyed() -> None:

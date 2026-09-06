@@ -83,7 +83,7 @@ describe("a reason or an action this app has never heard of", () => {
 
   it.each(prototypeKeys)("shows the failure reason %s as itself", (reason) => {
     const html = render([brief({ status: "failed", summary: null, failure_reason: reason })]);
-    expect(html).toContain(reason === "__proto__" ? "__proto__" : reason);
+    expect(html).toContain(reason);
     expect(html).toContain("The request did not complete");
   });
 

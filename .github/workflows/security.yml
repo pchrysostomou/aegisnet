@@ -96,7 +96,7 @@ jobs:
           docker pull redis:7-alpine
 
       - name: Scan the project images
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: aegisnet-api:latest
@@ -110,7 +110,7 @@ jobs:
           format: table
 
       - name: Scan the dashboard image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: aegisnet-web:latest
@@ -120,7 +120,7 @@ jobs:
           format: table
 
       - name: Scan the datastore images this project pulls rather than builds
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: postgres:16-alpine
@@ -130,7 +130,7 @@ jobs:
           format: table
 
       - name: Scan redis
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: redis:7-alpine

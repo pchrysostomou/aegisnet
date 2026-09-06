@@ -12,6 +12,7 @@ be scanned or fail here.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
@@ -103,14 +104,24 @@ def test_the_scan_runs_on_every_push_and_again_on_a_schedule() -> None:
     assert "push" in triggers and "schedule" in triggers
 
 
+EXACT_RELEASE = re.compile(r"^v?\d+\.\d+\.\d+$")
+
+
 def test_the_scanner_action_is_pinned_to_an_exact_release() -> None:
     """Every action in this repository is pinned; a scanner that could change under us is a
-    scanner whose green means less than it looks."""
+    scanner whose green means less than it looks.
+
+    An exact `x.y.z`, with or without the `v` this publisher happens to use — not a moving major
+    like `@v0` and not a branch. The first version of this test required a leading digit, which
+    encoded a guess about the tag format rather than the property being asserted, and the guess
+    was wrong: `aquasecurity/trivy-action` publishes `v0.36.0`, and the job failed on the runner
+    with "unable to find version" before anything was scanned.
+    """
     for step in _scan_steps():
         uses = str(step["uses"])
         assert "@" in uses, uses
         version = uses.split("@", 1)[1]
-        assert version[0].isdigit(), f"{uses} is not pinned to an exact release"
+        assert EXACT_RELEASE.fullmatch(version), f"{uses} is not pinned to an exact release"
 
 
 def test_the_job_builds_what_it_scans_rather_than_scanning_a_stale_tag() -> None:

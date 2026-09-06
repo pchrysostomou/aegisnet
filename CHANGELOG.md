@@ -25,6 +25,10 @@ Nothing is released yet. There is no tagged version.
   Makefile recipe is a check nobody runs.
 
 ### Fixed
+- `actions/upload-artifact` was pinned at `v4` in the e2e job and `v7` everywhere else. `v4`
+  runs on Node 20, which GitHub removes from hosted runners on 2026-09-16, so that job was
+  ten days from breaking. Found by auditing every `uses:` after the Trivy action failed to
+  resolve — the fix for one mistake surfacing a larger one.
 - `/app/samples` did not exist in the api image, so Docker created the bind-mount destination at
   container start — a write to the container layer, which `read_only` forbids. Both that and the
   web cache directory are created in their Dockerfiles now. Measuring before changing is what

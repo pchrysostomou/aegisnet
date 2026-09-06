@@ -4,6 +4,49 @@ All notable changes to AegisNet are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Work after the `v1.0.0` tag. It is here rather than under 1.0.0 because none of it is in that
+tag — the entry below it says "there is no Dependabot configuration", which was true when it was
+written and is superseded by the first item here.
+
+### Added
+- `.github/dependabot.yml`. The project has claimed Dependabot since Milestone 1 and meant
+  *alerts*, which surface an advisory and never open a pull request that fixes it. Four
+  ecosystems, grouped weekly so one maintainer does not learn to ignore it. It also hands R-10
+  the digest updater that risk's reasoning said did not exist — the decision to keep tags stands
+  until somebody revisits it deliberately, but the argument for it has changed.
+- The two ingest rate limits, fired at once (`tests/load/`). `SECURITY.md` and the release
+  checklist both named this gap; the load suite is seven tests now. They skip without
+  `AEGISNET_LOAD_INGEST_TOKEN`, which the Makefile and the test manifest pass through.
+- `make lab-soak HOURS=24`. D-005 has never judged real traffic and no larger run can change
+  that: it abstains until an asset has 24 *sampled hours*, so the constraint is wall-clock, not
+  volume. This is the mechanism and says plainly that it is not the measurement.
+
+### Fixed
+- The last `[^>]*` regex SonarCloud flags as super-linear. Not in either file `docs/STATUS.md`
+  named — those line numbers were stale — but in `citation-list.test.tsx`, three lines above the
+  comment in that same file explaining the `[^<>]` rule. None left in the repository.
+- The Quickstart told a reader to run `make brief` and `make export` after ingesting the benign
+  corpus, which produces zero alerts by design and therefore zero cases, so both wrote
+  `{"error": "no incident AEG-2026-0001"}` into the `case.md` the walkthrough opens. Step 6 runs
+  `make demo-scenario` first now.
+- `test_every_route_declares_a_permission_or_is_on_the_public_allowlist` asserted
+  `len(guarded) >= len(CASES)` — a count, which numbers satisfy and coverage does not. A guarded
+  route the matrix had never heard of left it green. It now asserts every guarded route is
+  reached by a matrix row.
+- Seventy-six further stale claims across seventeen files, from the pre-tag audit's non-blocking
+  findings; twenty-two more were refused as already overtaken or simply wrong.
+
+### Changed
+- The `org.opencontainers.image.revision` label is gone from both images. It read `${GIT_SHA}`
+  and SonarCloud rated the result a security finding on new code; four bisection rounds located
+  it, because a private project offers no way to read the finding itself. Removing the label was
+  chosen over leaving the Dockerfile excluded from analysis — a green badge bought by not
+  looking is the trade this project refused for the image scan in Chunk 30.
+- Dependabot ignores redis `>=7.0`: `dramatiq[redis]` caps it at `<7.0`, so the update it
+  proposed was unresolvable rather than merely unwelcome. Nothing applicable is suppressed.
+
 ## [1.0.0] — 2026-09-06
 
 The first tagged release. Everything below this heading was built chunk by chunk across six

@@ -67,9 +67,9 @@ def test_the_image_scan_covers_every_image_the_stack_runs() -> None:
     }
 
     missing_pulled = pulled - scanned
-    assert (
-        not missing_pulled
-    ), f"these images are pulled by the stack and never scanned: {sorted(missing_pulled)}"
+    assert not missing_pulled, (
+        f"these images are pulled by the stack and never scanned: {sorted(missing_pulled)}"
+    )
     # One scan target per distinct build, named after the compose project's image naming.
     assert len(built) == 2, f"the stack builds {len(built)} distinct images; the job scans 2"
     assert {"aegisnet-api:latest", "aegisnet-web:latest"} <= scanned
@@ -111,9 +111,9 @@ def test_an_image_this_project_only_pulls_is_reported_and_not_gated_on() -> None
     theirs = [s for s in _scan_steps() if not str(s["with"]["image-ref"]).startswith(BUILT_HERE)]
     assert theirs, "the images this project pulls are not scanned at all"
     for step in theirs:
-        assert (
-            str(step["with"].get("exit-code")) == "0"
-        ), f"{step.get('name')} gates on an image nobody here can fix"
+        assert str(step["with"].get("exit-code")) == "0", (
+            f"{step.get('name')} gates on an image nobody here can fix"
+        )
         assert step["with"].get("severity") == "HIGH,CRITICAL", "it must still look"
 
 

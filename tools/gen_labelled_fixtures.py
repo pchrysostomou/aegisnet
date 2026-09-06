@@ -1122,8 +1122,8 @@ def labels_for(case: Case) -> str:
         for b in case.baselines:
             lines.append(
                 f'  - {{ address: "{b["address"]}", metric: {b["metric"]}, '
-                f'window_days: {b["window_days"]}, mean: {b["mean"]}, stddev: {b["stddev"]}, '
-                f'p95: {b["p95"]}, sample_count: {b["sample_count"]} }}'
+                f"window_days: {b['window_days']}, mean: {b['mean']}, stddev: {b['stddev']}, "
+                f"p95: {b['p95']}, sample_count: {b['sample_count']} }}"
             )
     lines.append(f'notes: "{case.notes}"')
     return "\n".join(lines) + "\n"

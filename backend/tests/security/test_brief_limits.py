@@ -133,9 +133,9 @@ async def test_a_loop_on_one_case_does_not_cost_an_analyst_their_other_cases(
     for _ in range(4):
         assert _ask(client, analyst_headers, loud).status_code == 429
 
-    assert (
-        _ask(client, analyst_headers, other).status_code == 201
-    ), "a loop on one case spent the analyst's whole day"
+    assert _ask(client, analyst_headers, other).status_code == 201, (
+        "a loop on one case spent the analyst's whole day"
+    )
 
 
 async def test_one_analysts_day_is_their_own_and_does_not_spend_anybody_elses(

@@ -132,8 +132,7 @@ def test_only_the_provenance_adapter_starts_a_process() -> None:
         if starters := _process_starters(tree):
             offenders[str(relative)] = starters
     assert not offenders, (
-        f"these modules start a process, and only {sorted(MAY_START_A_PROCESS)[0]} may: "
-        f"{offenders}"
+        f"these modules start a process, and only {sorted(MAY_START_A_PROCESS)[0]} may: {offenders}"
     )
 
 

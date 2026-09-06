@@ -57,7 +57,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_GET(self) -> None:  # noqa: N802 - stdlib naming
+    def do_GET(self) -> None:
         path = self.path.split("?", 1)[0]
         if path == "/healthz":
             self._send(200, b"ok\n")
@@ -75,7 +75,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(200, BODY)
 
-    def do_POST(self) -> None:  # noqa: N802 - stdlib naming
+    def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", "0") or 0)
         read = 0
         while read < length:

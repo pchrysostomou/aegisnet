@@ -39,9 +39,9 @@ def test_labelled_case(directory: Path) -> None:
         for r in results
         if r.entity.type.value == entity["type"] and r.entity.value == entity["value"]
     ]
-    assert (
-        len(matching) == 1
-    ), f"{labels['case_id']}: expected one result for {entity}, got {results}"
+    assert len(matching) == 1, (
+        f"{labels['case_id']}: expected one result for {entity}, got {results}"
+    )
     others = [r for r in results if r not in matching]
     assert others == [], f"{labels['case_id']}: unexpected extra results {others}"
     [result] = matching

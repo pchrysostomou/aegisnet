@@ -44,7 +44,7 @@ def test_cron_lines_follow_the_settings() -> None:
     assert baseline_cron(2) == "0 2 * * *"
     with pytest.raises(ValueError, match="divide 60"):
         sweep_cron(7)
-    with pytest.raises(ValueError, match="0..23"):
+    with pytest.raises(ValueError, match=r"0\.\.23"):
         baseline_cron(24)
 
 

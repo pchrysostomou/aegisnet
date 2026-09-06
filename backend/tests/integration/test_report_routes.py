@@ -197,9 +197,9 @@ def test_a_viewer_may_export_and_an_unknown_case_is_a_not_found_envelope(
     missing = client.get(f"{INCIDENTS}/{uuid4()}/report.md", headers=analyst_headers)
     assert missing.status_code == 404
     assert missing.json()["error"]["code"] == "not_found"
-    assert missing.headers["content-type"].startswith(
-        "application/json"
-    ), "an error is the envelope every other route uses, not Markdown"
+    assert missing.headers["content-type"].startswith("application/json"), (
+        "an error is the envelope every other route uses, not Markdown"
+    )
 
 
 async def test_the_appendix_names_the_import_the_evidence_came_from(

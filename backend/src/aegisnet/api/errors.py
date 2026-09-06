@@ -26,6 +26,7 @@ from aegisnet.adapters.files.registry import (
 )
 from aegisnet.adapters.files.spool import SpoolTooLargeError
 from aegisnet.api.deps import RateLimitedError, client_ip, correlation_id
+from aegisnet.api.v1.briefs import BriefNotFoundError
 from aegisnet.domain.assets import (
     AssetNotFoundError,
     BulkTooLargeError,
@@ -43,6 +44,7 @@ from aegisnet.domain.enums import AuditResult
 from aegisnet.domain.incidents import IllegalTransitionError, NoteBodyError
 from aegisnet.domain.pagination import InvalidCursorError
 from aegisnet.logging import correlation_id_var, get_logger
+from aegisnet.services.brief_service import BriefIncidentNotFoundError
 from aegisnet.services.detection_service import AlertNotFoundError, SweepError
 from aegisnet.services.event_read_service import EventNotFoundError, EventQueryError
 from aegisnet.services.incident_service import IncidentNotFoundError
@@ -255,6 +257,8 @@ def register_error_handlers(app: FastAPI) -> None:
         AlertNotFoundError,
         DatasetNotFoundError,
         IncidentNotFoundError,
+        BriefIncidentNotFoundError,
+        BriefNotFoundError,
     ):
         app.add_exception_handler(missing, not_found_handler)
     for conflict in (HostnameConflictError, NetworkOverlapError, IllegalTransitionError):

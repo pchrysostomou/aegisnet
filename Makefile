@@ -11,7 +11,7 @@ BACKEND := backend
 
 .PHONY: correlate incidents incident test-correlation \
         lab-preflight lab-up lab-traffic lab-capture lab-export lab-sanitize lab-down lab-clean eval-lab test-security \
-        test-detectors gen-fixtures eval gen-scenario demo-scenario run-detectors alerts recompute-baselines baselines create-user users create-service-token revoke-service-token service-tokens \
+        test-detectors gen-fixtures eval gen-scenario demo-scenario run-detectors alerts recompute-baselines baselines brief create-user users create-service-token revoke-service-token service-tokens \
         help bootstrap bootstrap-force verify-ignore require-env compose-config \
         build up down compose-ps compose-logs compose-down compose-test pin-digests clean \
         backend-install lint format format-check typecheck test test-cov check \
@@ -315,6 +315,11 @@ correlate: require-env ## Group uncorrelated alerts into incidents (FROM=... TO=
 
 incidents: require-env ## List incidents, newest first (OPEN=1 hides closed cases)
 	$(COMPOSE) run --rm api python -m aegisnet.cli incidents $(if $(OPEN),--open,)
+
+brief: require-env ## Ask for an investigation brief on one case (REF=AEG-2026-0001)
+	@# Off unless BRIEF_ENABLED and a key are set. Without them this serves the committed
+	@# offline brief, clearly labelled, so the feature can be seen without sending anything.
+	$(COMPOSE) run --rm api python -m aegisnet.cli brief $(REF)
 
 incident: require-env ## Show one incident by case number or id (REF=AEG-2026-0001)
 	$(COMPOSE) run --rm api python -m aegisnet.cli incident $(REF)

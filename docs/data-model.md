@@ -1,12 +1,17 @@
 # AegisNet — PostgreSQL Data Model
 
-Target: PostgreSQL 16. All migrations via Alembic. Status: **Milestone 1 tables implemented**
-by revision `0001_m1_baseline` (`ingest_batches`, `events`, `ingest_rejects`, `assets`,
-`asset_networks`, `users`, `service_tokens`, `refresh_tokens`, `audit_log`); the rest is planned.
+Target: PostgreSQL 16. All migrations via Alembic. Status: **head is `0005_brief_tables`.**
+`0001_m1_baseline` (`ingest_batches`, `events`, `ingest_rejects`, `assets`, `asset_networks`,
+`users`, `service_tokens`, `refresh_tokens`, `audit_log`), `0002_asset_network_delete_grant`,
+`0003_detection_tables` (`detection_rules`, `detector_runs`, `alerts`, `alert_events`,
+`alert_assets`, `asset_baselines`), `0004_incident_tables` (`incidents`, `incident_alerts`,
+`incident_timeline`, `incident_notes`) and `0005_brief_tables` (`investigation_briefs`,
+`brief_citations`) are implemented; anything below still described in the future tense is
+planned.
 Implementation notes that refine this document are in
 [ADR-012](adr/ADR-012-migrations-in-package-and-role-grants.md): `audit_log` carries no foreign
 keys, `service_tokens.created_by` is nullable, and hash columns carry a 32-byte length check.
-Last updated: 2026-09-04
+Last updated: 2026-09-06
 
 Conventions: `uuid` primary keys (`gen_random_uuid()`, pgcrypto), all times `timestamptz` in UTC,
 `created_at`/`updated_at` on mutable tables, soft-delete only where noted, JSONB for open-ended structures with a
@@ -221,37 +226,60 @@ stored: the timeline records that a note exists and how long it is, and the audi
 (ADR-024).
 
 ### `investigation_briefs`
-Immutable, versioned. Regeneration = new row.
+Implemented by revision `0005_brief_tables` (Chunk 23). **Append-only**: the runtime role holds
+`SELECT` and `INSERT` and nothing else — no `UPDATE`, no `DELETE` — the same grant `audit_log`
+has and for the same reason. A brief records what a model said at a moment next to exactly what
+was asked; one that can be edited afterwards is evidence of nothing (ADR-031).
+
+Regenerating writes the next version rather than replacing one. A *failed* attempt is stored
+too, so "the API was down at 03:10" is a row rather than a gap.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | uuid PK | |
-| `incident_id` | uuid FK | |
-| `version` | int | unique with `incident_id` |
-| `status` | enum(`pending`,`complete`,`failed`,`schema_rejected`,`safety_rejected`) | |
-| `model` | text | model identifier used |
-| `packet_hash` | bytea(32) | hash of the redacted `CaseEvidencePacket` — cache key + egress audit |
-| `packet_size_bytes` | int | proves size cap held |
+| `incident_id` | uuid FK → `incidents` ON DELETE CASCADE | |
+| `version` | int | UNIQUE with `incident_id`; allocated in the writing transaction, so a race loses rather than overwrites |
+| `status` | enum(`complete`,`failed`) | schema and safety rejections are `failed` with a reason |
+| `source` | enum(`perplexity`,`offline_fixture`) | the fixture is the committed sample served when the feature is off; never presented as a model's words |
+| `packet_hash` | text (sha256 hex) | exactly what was sent, content-addressed — the cache key and the egress record |
 | `packet_truncated` | bool | explicit truncation disclosure |
-| `observed_facts` | jsonb | array of strings, each tied to alert/evidence refs |
-| `hypotheses` | jsonb | `[{statement, supporting_refs, likelihood}]` |
-| `confidence_overall` | enum(`low`,`medium`,`high`) | |
-| `uncertainty_notes` | jsonb | |
-| `evidence_gaps` | jsonb | |
-| `safe_triage_steps` | jsonb | ordered, read-only actions |
-| `containment_recommendations` | jsonb | **advisory for human review only** |
-| `limitations` | jsonb | |
-| `raw_response_meta` | jsonb | token counts, latency, retry count — **no raw log data** |
-| `error_detail` | text NULL | |
-| `created_at` / `created_by` | | |
+| `model` | text NULL | null unless a model actually answered |
+| `summary` | text NULL | |
+| `limitations` | text NULL | what the packet did not say |
+| `claims` | jsonb | `[{text, kind: observed\|external, citations: [int], verified: bool}]` |
+| `recommendations` | jsonb | `[{action, detail}]`, `action` from the nine-verb vocabulary in `domain/briefs/safety.py` |
+| `has_unverified` | bool | any external claim that cited nothing; rendered `UNVERIFIED`, never dropped |
+| `failure_reason` | text NULL | short and machine-readable — see `docs/api-milestone-5.md` |
+| `prompt_tokens` / `completion_tokens` | int NULL | what the call cost |
+| `requested_by` | uuid FK → `users` ON DELETE SET NULL | |
+| `created_at` | timestamptz | |
+
+Constraints: `UNIQUE (incident_id, version)`; `version >= 1`;
+`(status = 'complete') = (summary IS NOT NULL)`; `(status = 'failed') = (failure_reason IS NOT NULL)`.
+The last two are what stop a complete brief with nothing to say, or a failed one with no reason,
+from being storable at all. Index: `(incident_id, version DESC)`.
+
+The packet itself is stored nowhere — only its hash. It is reconstructible from the case, and
+keeping a copy would mean keeping a second, unredacted-looking record of the same evidence.
 
 ### `brief_citations`
-Enforces the "citations or UNVERIFIED" rule at the schema level.
+The sources a brief pointed at, one row each. Append-only on the same grant.
 
-`id`, `brief_id` FK, `claim` text, `url` text NULL, `title` text NULL, `publisher` text NULL,
-`accessed_at` timestamptz NULL, `verification_status` enum(`verified_url_present`,`unverified_no_citation`,`unresolvable_url`),
-`claim_kind` enum(`external_intel`,`general_background`).
-Constraint: `verification_status = 'verified_url_present'` requires `url IS NOT NULL`.
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `brief_id` | uuid FK → `investigation_briefs` ON DELETE CASCADE | |
+| `citation_id` | int | the number a claim refers to it by; UNIQUE with `brief_id` |
+| `url` | text | |
+| `title` | text | |
+| `created_at` | timestamptz | |
+
+Constraint: `url LIKE 'https://%'`. The domain refuses a non-https citation first; the database
+says it again, because a citation is a link somebody will click.
+
+The "citations or `UNVERIFIED`" rule lives on the claim rather than here: an external claim that
+cited nothing is kept with `verified: false` and shown marked (ADR-030), which is more useful to
+an analyst than a claim that quietly disappeared.
 
 ---
 
@@ -286,5 +314,5 @@ Persisted only for audit of repeated abuse: `id`, `subject_type`, `subject_id`, 
 ## Retention
 
 Configurable, defaults: `events` 90 days, `ingest_rejects` 30 days, `detector_runs` 30 days,
-`audit_log` 365 days, `incidents`/`alerts`/`briefs` indefinite. Implemented as a scheduled job in a later
+`audit_log` 365 days, `incidents`/`alerts`/`investigation_briefs` indefinite. Implemented as a scheduled job in a later
 milestone; documented here so the schema does not need changes later.

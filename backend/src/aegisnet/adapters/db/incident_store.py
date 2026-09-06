@@ -284,6 +284,12 @@ class SqlIncidentStore:
             await session.refresh(row)
             return _note(row)
 
+    async def add_timeline_entry(
+        self, incident_id: UUID, entry: NewTimelineEntry, *, now: datetime
+    ) -> None:
+        async with self._sessions() as session, session.begin():
+            await self._append_one(session, incident_id, entry, now=now)
+
     async def list_notes(
         self, incident_id: UUID, *, limit: int, cursor: str | None
     ) -> Page[NoteRecord]:

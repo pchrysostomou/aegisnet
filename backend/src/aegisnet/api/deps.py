@@ -37,6 +37,7 @@ from aegisnet.services.asset_service import AssetService
 from aegisnet.services.audit_service import AuditReadService, AuditService
 from aegisnet.services.auth_service import AuthService
 from aegisnet.services.baseline_service import BaselineService
+from aegisnet.services.brief_service import BriefService
 from aegisnet.services.detection_service import DetectionService
 from aegisnet.services.event_read_service import EventReadService
 from aegisnet.services.incident_service import IncidentService
@@ -78,6 +79,7 @@ class AppServices:
     enqueue_baselines: Callable[[int], Awaitable[str]]
     """Queues ``recompute_baselines(window_days)``; returns a message id."""
     incidents: IncidentService
+    briefs: BriefService
 
 
 def services(request: Request) -> AppServices:

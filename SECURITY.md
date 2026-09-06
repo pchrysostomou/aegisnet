@@ -69,11 +69,13 @@ never downgraded to anonymous. A denial is `403 forbidden` and is audited as
 | `events.read` — list, stats (no payload) | ✓ | ✓ | ✓ | |
 | `alerts.read` — alerts, alert detail, the rule registry | ✓ | ✓ | ✓ | |
 | `incidents.read` — cases, their alerts, timeline and notes | ✓ | ✓ | ✓ | |
+| `briefs.read` — investigation briefs on a case | ✓ | ✓ | ✓ | |
 | `assets.write` — create, patch | | ✓ | ✓ | |
 | `events.payload` — payload in lists, `GET /events/{id}` | | ✓ | ✓ | |
 | `ingest.read` — batches, rejects | | ✓ | ✓ | |
 | `detections.read` — detector runs | | ✓ | ✓ | |
 | `incidents.write` — status transitions, notes | | ✓ | ✓ | |
+| `briefs.generate` — ask for a brief (spends budget, sends a packet outward) | | ✓ | ✓ | |
 | `assets.admin` — bulk create, deactivate | | | ✓ | |
 | `ingest.write` — `POST /ingest/eve` | | | ✓ | ✓ |
 | `ingest.import` — `POST /ingest/import` | | | ✓ | |
@@ -99,7 +101,8 @@ Actions written today: `auth.login_success`, `auth.login_failed`, `auth.refresh`
 `ingest.import_requested`, `ingest.refused`, `asset.created`, `asset.updated`,
 `asset.deactivated`, `user.created`, `service_token.created`, `service_token.revoked`,
 `detection.sweep_requested`, `detection.baselines_requested`,
-`incident.status_changed`, `incident.status_change_refused`, `incident.note_added`.
+`incident.status_changed`, `incident.status_change_refused`, `incident.note_added`,
+`brief.generated`.
 Admins read the trail at `GET /api/v1/audit` (newest first, filters, keyset cursors).
 
 An incident transition writes `incident.status_changed` on success and
@@ -110,6 +113,14 @@ length. **No analyst free text reaches this table**: the 512-character cap and t
 control-character strip would make an audited copy differ from the note it claims to be, and the
 credential-key filter cannot see into prose. The text lives in `incident_notes`, and a closure
 reason lives on the case and in its timeline (ADR-024).
+
+Asking for a brief writes `brief.generated` — `success` when one was produced, `error` when it
+could not be, with the reason. The detail carries the version, the status, the source and the
+**SHA-256 of the evidence packet**: which question was asked, not the question itself and not the
+answer. The packet is written nowhere, because a copy of it would be a second, quieter record of
+the same evidence; it is reconstructible from the case, and the hash is what makes two attempts
+comparable. The brief's own words live in `investigation_briefs`, which is append-only for the
+same reason this table is (ADR-031).
 
 ## Rate limits
 
@@ -123,9 +134,13 @@ Fixed windows in Redis, one counter per limit, subject and window; `429` with
 | Ingest bytes | 200 MiB / hour | token or user | refuse |
 | Reads | 120 / min | principal | allow, log an error |
 | Everything else | 60 / min | principal | allow, log an error |
+| Outbound briefs | `BRIEF_DAILY_BUDGET` / UTC day | the whole deployment | refuse — the counter is the cap |
 
 Fail-closed for the routes an attacker would push on, fail-open for reads so an analyst
-is not locked out by a cache outage. The client address is the transport peer; proxy
+is not locked out by a cache outage. The brief budget is the exception to "per principal": it is
+one number for the deployment, counted in Redis rather than in each process, because the API, the
+worker and the CLI each hold their own client and three private counters are three caps. An
+attempt past it is not a `429` — it is a stored brief with `failure_reason: budget_exhausted`. The client address is the transport peer; proxy
 headers are not trusted in Milestone 1 because nothing terminates TLS in front of the API.
 
 ## Ingest hardening

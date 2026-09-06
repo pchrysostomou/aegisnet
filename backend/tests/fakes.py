@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from aegisnet.adapters.db.auth_store import EmailTakenError
 from aegisnet.adapters.files.spool import Spool
+from aegisnet.adapters.perplexity import PerplexityClient
 from aegisnet.api.deps import AppServices
 from aegisnet.config import Settings
 from aegisnet.domain.assets import (
@@ -60,6 +61,7 @@ from aegisnet.domain.ports import (
     BatchFilter,
     BatchProvenance,
     BatchSummary,
+    BriefRecord,
     DetectorRunRecord,
     EventQuery,
     EventRow,
@@ -69,6 +71,7 @@ from aegisnet.domain.ports import (
     IncidentRecord,
     NetworkView,
     NewAlert,
+    NewBrief,
     NewIncident,
     NewTimelineEntry,
     NoteRecord,
@@ -87,6 +90,7 @@ from aegisnet.services.asset_service import AssetService
 from aegisnet.services.audit_service import AuditReadService, AuditService
 from aegisnet.services.auth_service import AuthPolicy, AuthService
 from aegisnet.services.baseline_service import BaselineService
+from aegisnet.services.brief_service import BriefService
 from aegisnet.services.detection_service import DetectionService
 from aegisnet.services.event_read_service import EventReadService
 from aegisnet.services.incident_service import IncidentService
@@ -355,6 +359,9 @@ class FakeEventStore:
 
 
 # Cheap Argon2 parameters: the tests prove the flow, not the hardness.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+"""The checkout, for the committed samples the offline brief lives in."""
+
 TEST_HASHER = PasswordHasher(time_cost=1, memory_cost=8 * 1024, parallelism=1)
 STUB_TIME = datetime(2026, 9, 1, tzinfo=UTC)
 
@@ -807,6 +814,12 @@ class FakeIncidentStore:
         self.rows[incident_id] = replace(self.rows[incident_id], updated_at=now)
         return note
 
+    async def add_timeline_entry(
+        self, incident_id: UUID, entry: NewTimelineEntry, *, now: datetime
+    ) -> None:
+        if incident_id in self.rows:
+            self._append_one(incident_id, entry, now)
+
     async def list_notes(
         self, incident_id: UUID, *, limit: int, cursor: str | None
     ) -> Page[NoteRecord]:
@@ -936,6 +949,54 @@ class FakeIncidentStore:
                 created_at=now,
             )
         )
+
+
+class FakeBriefStore:
+    """Append-only in memory, with the same version allocation the SQL store does."""
+
+    def __init__(self) -> None:
+        self.rows: list[BriefRecord] = []
+
+    async def create(self, brief: NewBrief, now: datetime) -> BriefRecord:
+        version = 1 + max(
+            (r.version for r in self.rows if r.incident_id == brief.incident_id), default=0
+        )
+        record = BriefRecord(
+            id=uuid4(),
+            incident_id=brief.incident_id,
+            version=version,
+            status=brief.status,
+            source=brief.source,
+            packet_hash=brief.packet_hash,
+            packet_truncated=brief.packet_truncated,
+            model=brief.model,
+            summary=brief.summary,
+            limitations=brief.limitations,
+            claims=list(brief.claims),
+            recommendations=list(brief.recommendations),
+            has_unverified=brief.has_unverified,
+            failure_reason=brief.failure_reason,
+            prompt_tokens=brief.prompt_tokens,
+            completion_tokens=brief.completion_tokens,
+            requested_by=brief.requested_by,
+            created_at=now,
+            citations=tuple(brief.citations),
+        )
+        self.rows.append(record)
+        return record
+
+    async def list(self, incident_id: UUID) -> tuple[BriefRecord, ...]:
+        found = [r for r in self.rows if r.incident_id == incident_id]
+        return tuple(sorted(found, key=lambda r: r.version, reverse=True))
+
+    async def get(self, incident_id: UUID, version: int) -> BriefRecord | None:
+        return next(
+            (r for r in self.rows if r.incident_id == incident_id and r.version == version), None
+        )
+
+    async def latest(self, incident_id: UUID) -> BriefRecord | None:
+        found = await self.list(incident_id)
+        return found[0] if found else None
 
 
 class FakeAlertStore:
@@ -1096,6 +1157,14 @@ class FakeWiring:
         )
         self.incident_store = FakeIncidentStore(self.alert_store)
         self.incidents = IncidentService(self.incident_store, clock=self.clock)
+        self.brief_store = FakeBriefStore()
+        self.briefs = BriefService(
+            self.incident_store,
+            self.brief_store,
+            PerplexityClient(settings),
+            samples_dir=REPO_ROOT / "samples",
+            clock=self.clock,
+        )
         self.sweeps: list[tuple[datetime, datetime]] = []
         self.baseline_requests: list[int] = []
 
@@ -1133,6 +1202,7 @@ class FakeWiring:
             baselines=self.baselines,
             enqueue_baselines=enqueue_baselines,
             incidents=self.incidents,
+            briefs=self.briefs,
         )
 
     def factory(self) -> object:

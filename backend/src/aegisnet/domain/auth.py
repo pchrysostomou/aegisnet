@@ -38,6 +38,8 @@ class Permission(StrEnum):
     detections_run = "detections.run"
     incidents_read = "incidents.read"
     incidents_write = "incidents.write"
+    briefs_read = "briefs.read"
+    briefs_generate = "briefs.generate"
 
 
 _VIEWER: Final = frozenset(
@@ -48,6 +50,7 @@ _VIEWER: Final = frozenset(
         Permission.events_read,
         Permission.alerts_read,
         Permission.incidents_read,
+        Permission.briefs_read,
     }
 )
 _ANALYST: Final = _VIEWER | frozenset(
@@ -57,6 +60,7 @@ _ANALYST: Final = _VIEWER | frozenset(
         Permission.ingest_read,
         Permission.detections_read,
         Permission.incidents_write,
+        Permission.briefs_generate,
     }
 )
 _ADMIN: Final = _ANALYST | frozenset(

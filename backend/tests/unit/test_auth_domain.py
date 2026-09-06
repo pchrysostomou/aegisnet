@@ -47,10 +47,15 @@ def test_the_viewer_reads_without_payloads_and_the_analyst_cannot_administer() -
         # A case is the readable form of alerts a viewer may already read, so reading one
         # tells them nothing new; changing one is an analyst's job (ADR-024).
         Permission.incidents_read,
+        # A brief is a narrative about those same alerts. *Asking* for one spends money and
+        # sends a packet outside the deployment, which is an analyst's call (ADR-031).
+        Permission.briefs_read,
     }
     assert {Permission.events_payload, Permission.assets_write, Permission.ingest_read} <= analyst
     assert Permission.incidents_write in analyst
     assert Permission.incidents_write not in viewer
+    assert Permission.briefs_generate in analyst
+    assert Permission.briefs_generate not in viewer
     admin_only = {
         Permission.assets_admin,
         Permission.ingest_write,

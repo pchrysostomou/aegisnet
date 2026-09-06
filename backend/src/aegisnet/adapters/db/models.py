@@ -53,6 +53,8 @@ from aegisnet.domain.enums import (
     AssetEnvironment,
     AuditResult,
     BaselineMetric,
+    BriefSource,
+    BriefStatus,
     DetectorRunStatus,
     EntityType,
     EventType,
@@ -105,6 +107,8 @@ INCIDENT_STATUS = _enum(IncidentStatus, "incident_status")
 TIMELINE_ENTRY_TYPE = _enum(TimelineEntryType, "timeline_entry_type")
 INCIDENT_ALERT_SOURCE = _enum(IncidentAlertSource, "incident_alert_source")
 BASELINE_METRIC = _enum(BaselineMetric, "baseline_metric")
+BRIEF_STATUS = _enum(BriefStatus, "brief_status")
+BRIEF_SOURCE = _enum(BriefSource, "brief_source")
 
 ENUM_TYPES = (
     SOURCE_TYPE,
@@ -125,6 +129,8 @@ ENUM_TYPES = (
     INCIDENT_STATUS,
     TIMELINE_ENTRY_TYPE,
     INCIDENT_ALERT_SOURCE,
+    BRIEF_STATUS,
+    BRIEF_SOURCE,
 )
 
 
@@ -690,6 +696,84 @@ class IncidentNote(Base):
     )
 
 
+class InvestigationBriefRow(Base):
+    """One attempt at a narrative about one case (ADR-030, ADR-031).
+
+    Immutable: the runtime role may SELECT and INSERT and nothing else. Regenerating writes a
+    new version rather than replacing this one, so an analyst can see that the first answer was
+    refused and why. `packet_hash` records exactly what was sent to get it.
+    """
+
+    __tablename__ = "investigation_briefs"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    incident_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[BriefStatus] = mapped_column(BRIEF_STATUS, nullable=False)
+    source: Mapped[BriefSource] = mapped_column(BRIEF_SOURCE, nullable=False)
+    packet_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    packet_truncated: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    limitations: Mapped[str | None] = mapped_column(Text, nullable=True)
+    claims: Mapped[list[Any]] = mapped_column(
+        pg.JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    recommendations: Mapped[list[Any]] = mapped_column(
+        pg.JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    has_unverified: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    requested_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        UniqueConstraint("incident_id", "version", name="uq_investigation_briefs_version"),
+        CheckConstraint("version >= 1", name="ck_investigation_briefs_version_positive"),
+        CheckConstraint(
+            "(status = 'complete') = (summary IS NOT NULL)",
+            name="ck_investigation_briefs_summary_matches_status",
+        ),
+        CheckConstraint(
+            "(status = 'failed') = (failure_reason IS NOT NULL)",
+            name="ck_investigation_briefs_reason_matches_status",
+        ),
+        Index("ix_investigation_briefs_incident", "incident_id", text("version DESC")),
+    )
+
+
+class BriefCitation(Base):
+    """A source a brief pointed at. https only, said here as well as in the domain, because a
+    citation is a link somebody will click."""
+
+    __tablename__ = "brief_citations"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    brief_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("investigation_briefs.id", ondelete="CASCADE"), nullable=False
+    )
+    citation_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = _now()
+
+    __table_args__ = (
+        UniqueConstraint("brief_id", "citation_id", name="uq_brief_citations_citation_id"),
+        CheckConstraint("url LIKE 'https://%'", name="ck_brief_citations_https"),
+        Index("ix_brief_citations_brief_id", "brief_id"),
+    )
+
+
 M2_TABLES: tuple[str, ...] = (
     "detection_rules",
     "detector_runs",
@@ -707,10 +791,23 @@ M3_TABLES: tuple[str, ...] = (
     "incident_notes",
 )
 
-ALL_TABLES: tuple[str, ...] = M1_TABLES + M2_TABLES + M3_TABLES
+M5_TABLES: tuple[str, ...] = (
+    "investigation_briefs",
+    "brief_citations",
+)
+"""The two brief tables revision 0005 adds (Milestone 5, Chunk 23)."""
+
+ALL_TABLES: tuple[str, ...] = M1_TABLES + M2_TABLES + M3_TABLES + M5_TABLES
 
 
-APP_ROLE_READ_WRITE_TABLES: tuple[str, ...] = tuple(t for t in ALL_TABLES if t != "audit_log")
+APP_ROLE_APPEND_ONLY_TABLES: tuple[str, ...] = ("audit_log", *M5_TABLES)
+"""Tables the runtime role may SELECT and INSERT and nothing else. The audit log because it is
+evidence of what people did; the brief tables because a brief is evidence of what a model said
+and of exactly what was sent to get it. Regenerating writes a new version."""
+
+APP_ROLE_READ_WRITE_TABLES: tuple[str, ...] = tuple(
+    t for t in ALL_TABLES if t not in APP_ROLE_APPEND_ONLY_TABLES
+)
 """Tables on which the runtime role receives SELECT, INSERT and UPDATE. Soft-delete is the
 rule for assets and events are append-only; the retention job that will need DELETE on
 events arrives in a later milestone with its own revision."""

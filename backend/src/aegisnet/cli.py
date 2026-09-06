@@ -31,6 +31,7 @@ Commands:
     correlate --from --to          group uncorrelated alerts into incidents
     incidents                      list incidents, newest first
     incident REF                   one incident by case number or id
+    brief REF                      ask for an investigation brief on one case
     eval-correlation               score correlation on the committed multi-stage scenario
     eval-detectors                 score the rules on the labelled cases and the benign corpus;
                                    run inside the checkout, no paths accepted
@@ -57,6 +58,7 @@ from uuid import UUID
 import yaml
 from pydantic import ValidationError
 
+from aegisnet.adapters.cache import redis_client
 from aegisnet.adapters.db import engine as db_engine
 from aegisnet.adapters.db.asset_store import SqlAssetStore
 from aegisnet.adapters.db.audit_store import SqlAuditStore
@@ -67,6 +69,7 @@ from aegisnet.adapters.db.auth_store import (
     SqlServiceTokenStore,
     SqlUserStore,
 )
+from aegisnet.adapters.db.brief_store import SqlBriefStore
 from aegisnet.adapters.db.detection_store import (
     SqlAlertStore,
     SqlBaselineStore,
@@ -79,6 +82,7 @@ from aegisnet.adapters.db.ingest_store import SqlIngestStore
 from aegisnet.adapters.db.session import make_session_factory
 from aegisnet.adapters.files.labelled import LabelledCaseError
 from aegisnet.adapters.files.registry import RegistryError, contained_path, load_registry
+from aegisnet.adapters.perplexity import PerplexityClient, RedisDailyBudget
 from aegisnet.adapters.queue.broker import install as install_broker
 from aegisnet.adapters.queue.detection_queue import RedisDetectionQueue
 from aegisnet.adapters.queue.ingest_queue import RedisIngestQueue
@@ -101,6 +105,7 @@ from aegisnet.services.asset_service import AssetService
 from aegisnet.services.audit_service import AuditService
 from aegisnet.services.auth_service import AuthPolicy, AuthService
 from aegisnet.services.baseline_service import BaselineService
+from aegisnet.services.brief_service import BriefService
 from aegisnet.services.correlation_service import (
     CorrelationService,
     summarise,
@@ -161,6 +166,10 @@ class Services:
 
     def __init__(self, settings: Settings) -> None:
         self._engine = db_engine.create_engine(settings)
+        # Lazy: nothing connects until something asks. The brief path is the only user, and it
+        # refuses before it reaches the budget when the feature is off — so a checkout with no
+        # key never opens this.
+        self._cache = redis_client.create_client(settings)
         sessions = make_session_factory(self._engine)
         self.ingest = IngestService(SqlIngestStore(sessions), limits_from_settings(settings))
         asset_store = SqlAssetStore(sessions)
@@ -179,6 +188,17 @@ class Services:
         self.baselines = BaselineService(asset_store, events_store, baseline_store)
         self.incidents = SqlIncidentStore(sessions)
         self.correlation = CorrelationService(self.incidents, SqlAlertStore(sessions))
+        self.briefs = BriefService(
+            self.incidents,
+            SqlBriefStore(sessions),
+            PerplexityClient(
+                settings,
+                # The same counter the API spends from: one cap for the deployment, not one
+                # per process (ADR-031).
+                budget=RedisDailyBudget(self._cache, settings.brief_daily_budget),
+            ),
+            samples_dir=settings.samples_dir,
+        )
         self.auth = AuthService(
             SqlUserStore(sessions),
             SqlRefreshTokenStore(sessions),
@@ -191,6 +211,7 @@ class Services:
 
     async def dispose(self) -> None:
         await db_engine.dispose(self._engine)
+        await redis_client.close(self._cache)
 
 
 def _plain(value: object) -> object:
@@ -384,6 +405,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     incident = commands.add_parser("incident", help="show one incident by case number or id")
     incident.add_argument("reference", help="AEG-2026-0001 or a uuid")
+
+    brief = commands.add_parser(
+        "brief", help="ask for an investigation brief on one case (off unless BRIEF_ENABLED)"
+    )
+    brief.add_argument("reference", help="AEG-2026-0001 or a uuid")
 
     commands.add_parser("baselines", help="list the stored baselines")
 
@@ -751,6 +777,32 @@ def cmd_incident(settings: Settings, reference: str) -> int:
     return EXIT_OK
 
 
+def cmd_brief(settings: Settings, reference: str) -> int:
+    """Ask for a brief and print what was stored.
+
+    A failure is a stored brief, not an error, so this exits 0 for a `failed` one too: the
+    operator asked, something answered, and the record says what. Exit 1 is reserved for "there
+    is no such case".
+    """
+
+    async def action(services: Services) -> object:
+        try:
+            incident_id = UUID(reference)
+        except ValueError:
+            detail = await services.incidents.get_by_case_number(reference)
+            if detail is None:
+                return None
+            incident_id = detail.incident.id
+        return await services.briefs.generate(incident_id)
+
+    record = _run(settings, action)
+    if record is None:
+        _emit({"error": f"no incident {reference}"})
+        return EXIT_FAILED
+    _emit(record)
+    return EXIT_OK
+
+
 def cmd_alerts(settings: Settings, args: argparse.Namespace) -> int:
     query = AlertFilter(
         severity_min=args.severity_min, rule_id=args.rule, limit=args.limit, cursor=args.cursor
@@ -923,6 +975,8 @@ def dispatch(settings: Settings, samples_dir: Path, args: argparse.Namespace) ->
             return cmd_correlate(settings, args)
         case "incidents":
             return cmd_incidents(settings, args)
+        case "brief":
+            return cmd_brief(settings, args.reference)
         case "incident":
             return cmd_incident(settings, args.reference)
         case "baselines":

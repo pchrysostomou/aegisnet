@@ -161,6 +161,24 @@ class TimelineEntryType(StrEnum):
 
 
 @unique
+class BriefStatus(StrEnum):
+    """A brief either says something or says why it does not. A failed attempt is stored, so
+    "the API was down" is visible rather than looking like nobody asked."""
+
+    complete = "complete"
+    failed = "failed"
+
+
+@unique
+class BriefSource(StrEnum):
+    """Where the words came from. A reviewer without an API key still sees the feature, and
+    must never mistake the committed fixture for something a model actually said."""
+
+    perplexity = "perplexity"
+    offline_fixture = "offline_fixture"
+
+
+@unique
 class IncidentAlertSource(StrEnum):
     """Who put an alert in a case. A rule's arithmetic and an analyst's judgement are both
     legitimate, and telling them apart later matters more than either."""

@@ -22,6 +22,8 @@ from aegisnet.domain.enums import (
     AssetEnvironment,
     AuditResult,
     BaselineMetric,
+    BriefSource,
+    BriefStatus,
     DetectorRunStatus,
     EntityType,
     EventType,
@@ -589,6 +591,13 @@ class IncidentStore(Protocol):
         """Append a note and its timeline line together; ``None`` when there is no such case."""
         ...
 
+    async def add_timeline_entry(
+        self, incident_id: UUID, entry: NewTimelineEntry, *, now: datetime
+    ) -> None:
+        """Append one line. For things that happen *to* a case without changing it — a brief
+        being generated, a report exported — where there is no status move to carry it."""
+        ...
+
     async def list_notes(
         self, incident_id: UUID, *, limit: int, cursor: str | None
     ) -> Page[NoteRecord]:
@@ -611,6 +620,79 @@ class IncidentStore(Protocol):
     async def get_by_case_number(
         self, case_number: str, *, timeline_limit: int = DETAIL_TIMELINE_LIMIT
     ) -> IncidentDetail | None: ...
+
+
+# ---------------------------------------------------------------- briefs (M5, ADR-031)
+
+
+@dataclass(frozen=True, slots=True)
+class CitationRecord:
+    citation_id: int
+    url: str
+    title: str
+
+
+@dataclass(frozen=True, slots=True)
+class NewBrief:
+    """One attempt, complete or failed. The store allocates the version, because two requests
+    asking for "the next one" must not both get it."""
+
+    incident_id: UUID
+    status: BriefStatus
+    source: BriefSource
+    packet_hash: str
+    packet_truncated: bool
+    model: str | None = None
+    summary: str | None = None
+    limitations: str | None = None
+    claims: list[dict[str, Any]] = field(default_factory=list)
+    recommendations: list[dict[str, Any]] = field(default_factory=list)
+    has_unverified: bool = False
+    failure_reason: str | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    requested_by: UUID | None = None
+    citations: tuple[CitationRecord, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class BriefRecord:
+    id: UUID
+    incident_id: UUID
+    version: int
+    status: BriefStatus
+    source: BriefSource
+    packet_hash: str
+    packet_truncated: bool
+    model: str | None
+    summary: str | None
+    limitations: str | None
+    claims: list[dict[str, Any]]
+    recommendations: list[dict[str, Any]]
+    has_unverified: bool
+    failure_reason: str | None
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    requested_by: UUID | None
+    created_at: datetime
+    citations: tuple[CitationRecord, ...] = ()
+
+
+class BriefStore(Protocol):
+    """Append-only. There is no update and no delete, because a brief is a record of what a
+    model said and of exactly what was sent to get it (ADR-031)."""
+
+    async def create(self, brief: NewBrief, now: datetime) -> BriefRecord:
+        """Allocate the next version for this case and write the brief with its citations."""
+        ...
+
+    async def list(self, incident_id: UUID) -> tuple[BriefRecord, ...]:
+        """Newest version first."""
+        ...
+
+    async def get(self, incident_id: UUID, version: int) -> BriefRecord | None: ...
+
+    async def latest(self, incident_id: UUID) -> BriefRecord | None: ...
 
 
 @dataclass(frozen=True, slots=True)

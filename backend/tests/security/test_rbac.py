@@ -99,6 +99,9 @@ CASES: list[Case] = [
         {"body": "looked at this"},
         None,
     ),
+    ("GET", f"/api/v1/incidents/{ZERO}/briefs", Permission.briefs_read, None, None),
+    ("GET", f"/api/v1/incidents/{ZERO}/briefs/1", Permission.briefs_read, None, None),
+    ("POST", f"/api/v1/incidents/{ZERO}/briefs", Permission.briefs_generate, None, None),
 ]
 ROLES = ["viewer", "analyst", "admin", "ingest_service"]
 
@@ -141,24 +144,21 @@ def test_every_route_declares_a_permission_or_is_on_the_public_allowlist(app: Fa
 
 
 def test_every_matrix_case_hits_a_route_with_the_permission_it_claims(app: FastAPI) -> None:
-    by_route = {
-        (method, route.path): _permission_of(route)
-        for route in _api_routes(app)
-        for method in route.methods
-    }
+    """Each matrix row must reach a real route holding the permission it claims.
+
+    Matched by asking the router, not by substituting placeholder names into the path. The
+    old version guessed at `{asset_id}`, `{event_id}` and so on, which could not represent a
+    route with two parameters — and silently reported "no such route" when one appeared,
+    which is the wrong failure for a test whose job is to notice a route with no permission.
+    """
     for method, path, permission, _body, _params in CASES:
-        template = path.replace(str(ZERO), "{asset_id}")
-        candidates = {
-            by_route.get((method, template.replace("{asset_id}", placeholder)))
-            for placeholder in (
-                "{asset_id}",
-                "{event_id}",
-                "{batch_id}",
-                "{alert_id}",
-                "{incident_id}",
-            )
-        }
-        assert permission in candidates, (method, path)
+        matched = [
+            _permission_of(route)
+            for route in _api_routes(app)
+            if method in route.methods and route.path_regex.match(path)
+        ]
+        assert matched, f"{method} {path} matched no route"
+        assert permission in matched, (method, path, matched)
 
 
 @pytest.fixture(params=ROLES)

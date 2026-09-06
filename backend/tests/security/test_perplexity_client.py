@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +20,7 @@ import pytest
 from aegisnet.adapters.perplexity import (
     SYSTEM_PROMPT,
     BriefUnavailableError,
-    DailyBudget,
+    InMemoryDailyBudget,
     PerplexityClient,
     packet_hash,
 )
@@ -212,18 +213,44 @@ async def test_the_daily_budget_is_a_hard_stop() -> None:
     assert len(sent) == 2
 
 
-def test_the_budget_resets_on_a_new_day_and_not_before() -> None:
-    from datetime import UTC, datetime, timedelta
+async def test_the_budget_resets_on_a_new_day_and_not_before() -> None:
+    now = datetime(2026, 9, 6, 23, 30, tzinfo=UTC)
+    budget = InMemoryDailyBudget(2, clock=lambda: now)
+    await budget.take()
+    await budget.take()
+    with pytest.raises(BriefUnavailableError):
+        await budget.take()
+    now += timedelta(hours=1)
+    await budget.take()
+    assert budget.used == 1
+
+
+async def test_the_shared_budget_is_one_cap_for_every_process_that_spends_it() -> None:
+    """The reason it moved to Redis (ADR-031): the API, the worker and the CLI each build their
+    own client, so a counter in one of them caps that one and lets the other two spend again."""
+    import fakeredis
+
+    from aegisnet.adapters.perplexity import RedisDailyBudget
 
     now = datetime(2026, 9, 6, 23, 30, tzinfo=UTC)
-    budget = DailyBudget(2, clock=lambda: now)
-    budget.take()
-    budget.take()
-    with pytest.raises(BriefUnavailableError):
-        budget.take()
-    now += timedelta(hours=1)
-    budget.take()
-    assert budget.used == 1
+    shared = fakeredis.FakeAsyncRedis()
+    api = RedisDailyBudget(shared, 2, clock=lambda: now)
+    cli = RedisDailyBudget(shared, 2, clock=lambda: now)
+    try:
+        await api.take()
+        await cli.take()
+        with pytest.raises(BriefUnavailableError) as refused:
+            await api.take()
+        assert refused.value.reason == "budget_exhausted"
+        assert await cli.used() == 3, "a refused attempt still counts as one that tried"
+
+        tomorrow = now + timedelta(hours=1)
+        fresh = RedisDailyBudget(shared, 2, clock=lambda: tomorrow)
+        await fresh.take()
+        assert await fresh.used() == 1, "a new UTC day is a new key"
+        assert await shared.ttl(f"aegisnet:brief:budget:{now.date().isoformat()}") > 0
+    finally:
+        await shared.aclose()
 
 
 # ---------------------------------------------------------------- failure modes

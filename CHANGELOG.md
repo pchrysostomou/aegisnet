@@ -51,6 +51,30 @@ Nothing is released yet. There is no tagged version.
   EVE DNS shapes so T1 and T2 exercise the one that broke D-003.
 
 ### Added
+- **Chunk 23 (Milestone 5) — briefs are stored, served, and append-only (ADR-031).** Revision
+  `0005_brief_tables` adds `investigation_briefs` and `brief_citations`, and the runtime role
+  gets `SELECT, INSERT` on both and nothing else — the grant `audit_log` has, for the same
+  reason. A brief records what a model said next to the hash of exactly what was asked; one that
+  can be edited afterwards is evidence of nothing. Asking again writes v2 rather than replacing
+  v1, and the version is allocated inside the writing transaction so a race loses instead of
+  overwriting.
+- **A failure is a stored brief, not an error.** Disabled, unconfigured, out of budget, a 503, an
+  answer that would not parse, an answer the safety filter refused — each becomes a row with
+  `status: failed` and a short reason, answered `201`. Two check constraints keep those rows
+  honest: a complete brief must have a summary and a failed one must have a reason. "The API was
+  down at 03:10" is worth keeping; a 502 that threw it away is not.
+- `POST /api/v1/incidents/{id}/briefs` (analyst), `GET …/briefs` and `GET …/briefs/{version}`
+  (viewer), `make brief REF=AEG-2026-0001`, and `docs/api-milestone-5.md`. Generating appends one
+  `brief_generated` timeline line and one `brief.generated` audit row carrying the packet hash —
+  never the packet, never the answer. A test compares the whole case before and after: severity,
+  status, title, rule count and linked alerts are byte-identical, which is T-4.1 asserted rather
+  than merely typed.
+- **A checkout with no key still sees the feature work.** `samples/briefs/offline-brief.json` is
+  served when the feature is off or unconfigured, stored under `source: offline_fixture` so
+  nothing can present it as something a model said, and admitted through the same schema,
+  citation and safety checks a real answer faces — a fixture that could not be admitted would be
+  a fixture that lies. A real failure is never replaced by it.
+
 - **Chunk 22 (Milestone 5) — the client and the contract for what comes back (ADR-030).**
   `adapters/perplexity/` is the only code in this project that talks to somebody else, and
   `domain/briefs/` decides what may be stored. **Both are off by default and no call has been
@@ -78,7 +102,21 @@ Nothing is released yet. There is no tagged version.
 - [`docs/perplexity-integration.md`](docs/perplexity-integration.md) says what is sent, what is
   accepted, how to turn it on, and every way it fails.
 
+### Changed
+- The daily brief budget moved from process memory into Redis. The API, the worker and the CLI
+  each build their own client, so a counter inside one of them capped that one and let the other
+  two spend the same allowance again; an operator who set 50 got 150. It is now one key per UTC
+  day, incremented before the call rather than after it, so a broken endpoint cannot be retried
+  without limit.
+
 ### Fixed
+- **Generating a brief changed the next brief's question.** The evidence packet included every
+  timeline summary, and generating appends a `brief_generated` line — so asking twice about an
+  unchanged case produced two different `packet_hash` values. The content-addressed cache could
+  therefore never hit on the one case it exists for, and the model was being handed the note that
+  somebody had asked it to explain the incident. Lines that record what this tool did
+  (`brief_generated`, `report_exported`) are no longer part of the packet. Found by running
+  `brief` twice against the stack and watching the hash move; a test pins it now.
 - **The safety filter was a pydantic validator, which made it unable to do its job.** Pydantic
   converts any `ValueError` raised inside a validator into a `ValidationError`, so "the model
   recommended attacking something" arrived indistinguishable from "a field was too long" and

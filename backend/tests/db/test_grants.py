@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from aegisnet.adapters.db.models import (
     ALL_TABLES,
+    APP_ROLE_APPEND_ONLY_TABLES,
     APP_ROLE_DELETE_TABLES,
     APP_ROLE_READ_WRITE_TABLES,
 )
@@ -56,7 +57,11 @@ async def test_app_role_privilege_matrix(app_engine: AsyncEngine) -> None:
             if table in APP_ROLE_DELETE_TABLES:
                 expected.add("DELETE")
             assert await _privileges(connection, table) == expected, table
-        assert await _privileges(connection, "audit_log") == {"SELECT", "INSERT"}
+        # Append-only: the audit log because it is evidence of what people did, the brief
+        # tables because a brief is evidence of what a model said and of what was sent to get
+        # it. Regenerating writes a new version rather than editing one (ADR-031).
+        for table in APP_ROLE_APPEND_ONLY_TABLES:
+            assert await _privileges(connection, table) == {"SELECT", "INSERT"}, table
         assert await _privileges(connection, "alembic_version") == {"SELECT"}
 
 

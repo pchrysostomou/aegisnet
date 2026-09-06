@@ -20,6 +20,8 @@ from aegisnet.domain.enums import (
     AssetEnvironment,
     AuditResult,
     BaselineMetric,
+    BriefSource,
+    BriefStatus,
     DetectorRunStatus,
     EntityType,
     EventType,
@@ -44,6 +46,7 @@ from aegisnet.domain.ports import (
     AuditRow,
     BaselineRecord,
     BatchSummary,
+    BriefRecord,
     DetectorRunRecord,
     EventRow,
     EventStats,
@@ -660,6 +663,82 @@ class NotePage(BaseModel):
         return cls(items=[NoteOut.from_record(n) for n in page.items], next_cursor=page.next_cursor)
 
 
+class BriefCitationOut(BaseModel):
+    id: int
+    url: str
+    title: str
+
+
+class BriefClaimOut(BaseModel):
+    text: str
+    kind: str
+    citations: list[int]
+    verified: bool
+    """False means the model asserted something about the outside world and cited nothing for
+    it. Rendered `UNVERIFIED`; never silently dropped (ADR-030)."""
+
+
+class BriefRecommendationOut(BaseModel):
+    action: str
+    detail: str
+
+
+class BriefOut(BaseModel):
+    id: UUID
+    incident_id: UUID
+    version: int
+    status: BriefStatus
+    source: BriefSource
+    packet_hash: str
+    packet_truncated: bool
+    model: str | None
+    summary: str | None
+    limitations: str | None
+    claims: list[BriefClaimOut]
+    recommendations: list[BriefRecommendationOut]
+    citations: list[BriefCitationOut]
+    has_unverified: bool
+    failure_reason: str | None
+    created_at: datetime
+
+    @classmethod
+    def from_record(cls, record: BriefRecord) -> BriefOut:
+        return cls(
+            id=record.id,
+            incident_id=record.incident_id,
+            version=record.version,
+            status=record.status,
+            source=record.source,
+            packet_hash=record.packet_hash,
+            packet_truncated=record.packet_truncated,
+            model=record.model,
+            summary=record.summary,
+            limitations=record.limitations,
+            claims=[
+                BriefClaimOut(
+                    text=str(claim.get("text", "")),
+                    kind=str(claim.get("kind", "observed")),
+                    citations=[int(c) for c in claim.get("citations", [])],
+                    verified=bool(claim.get("verified", False)),
+                )
+                for claim in record.claims
+            ],
+            recommendations=[
+                BriefRecommendationOut(
+                    action=str(item.get("action", "")), detail=str(item.get("detail", ""))
+                )
+                for item in record.recommendations
+            ],
+            citations=[
+                BriefCitationOut(id=c.citation_id, url=c.url, title=c.title)
+                for c in record.citations
+            ],
+            has_unverified=record.has_unverified,
+            failure_reason=record.failure_reason,
+            created_at=record.created_at,
+        )
+
+
 class StatusChangeRequest(Inbound):
     status: IncidentStatus
     closure_reason: str | None = Field(default=None, max_length=MAX_CLOSURE_REASON_CHARS)
@@ -723,6 +802,7 @@ __all__ = [
     "BaselineOut",
     "BaselineRecomputeAccepted",
     "BaselineRecomputeRequest",
+    "BriefOut",
     "DetectorRunOut",
     "RuleOut",
     "SweepAccepted",

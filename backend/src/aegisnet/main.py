@@ -29,6 +29,7 @@ from aegisnet.adapters.db.auth_store import (
     SqlServiceTokenStore,
     SqlUserStore,
 )
+from aegisnet.adapters.db.brief_store import SqlBriefStore
 from aegisnet.adapters.db.detection_store import (
     SqlAlertStore,
     SqlBaselineStore,
@@ -40,6 +41,7 @@ from aegisnet.adapters.db.incident_store import SqlIncidentStore
 from aegisnet.adapters.db.ingest_store import SqlIngestStore
 from aegisnet.adapters.db.session import make_session_factory
 from aegisnet.adapters.files.spool import Spool
+from aegisnet.adapters.perplexity import PerplexityClient, RedisDailyBudget
 from aegisnet.adapters.queue.broker import install as install_broker
 from aegisnet.adapters.queue.detection_queue import RedisDetectionQueue
 from aegisnet.adapters.queue.ingest_queue import RedisIngestQueue
@@ -50,6 +52,7 @@ from aegisnet.api.v1 import (
     assets,
     audit,
     auth,
+    briefs,
     detections,
     events,
     health,
@@ -63,6 +66,7 @@ from aegisnet.services.asset_service import AssetService
 from aegisnet.services.audit_service import AuditReadService, AuditService
 from aegisnet.services.auth_service import AuthPolicy, AuthService
 from aegisnet.services.baseline_service import BaselineService
+from aegisnet.services.brief_service import BriefService
 from aegisnet.services.detection_service import DetectionService
 from aegisnet.services.event_read_service import EventReadService
 from aegisnet.services.incident_service import IncidentService
@@ -90,6 +94,7 @@ def build_services(settings: Settings, engine: AsyncEngine, cache: Redis) -> App
     asset_service = AssetService(asset_store)
     baseline_store = SqlBaselineStore(sessions)
     incident_store = SqlIncidentStore(sessions)
+    brief_store = SqlBriefStore(sessions)
 
     async def enqueue_upload(batch_id: UUID, spool_name: str, source_label: str) -> str:
         return queue.enqueue_upload(batch_id, spool_name, source_label)
@@ -134,6 +139,16 @@ def build_services(settings: Settings, engine: AsyncEngine, cache: Redis) -> App
         baselines=BaselineService(asset_store, events_store, baseline_store),
         enqueue_baselines=enqueue_baselines,
         incidents=IncidentService(incident_store),
+        briefs=BriefService(
+            incident_store,
+            brief_store,
+            PerplexityClient(
+                settings,
+                # The cap is shared with the worker and the CLI rather than counted here.
+                budget=RedisDailyBudget(cache, settings.brief_daily_budget),
+            ),
+            samples_dir=settings.samples_dir,
+        ),
     )
 
 
@@ -243,6 +258,7 @@ def create_app(
     app.include_router(alerts.router)
     app.include_router(detections.router)
     app.include_router(incidents.router)
+    app.include_router(briefs.router)
     return app
 
 

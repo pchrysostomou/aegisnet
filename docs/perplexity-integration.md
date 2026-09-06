@@ -67,13 +67,33 @@ PERPLEXITY_API_KEY=pplx-...
 | `PERPLEXITY_MAX_RETRIES` | `2` | retried only on 429 and 5xx, with jittered backoff |
 | `PERPLEXITY_MAX_TOKENS` | `1200` | the answer's size, and its cost |
 | `PERPLEXITY_MAX_RESPONSE_BYTES` | `262144` | checked before anything parses it |
-| `BRIEF_DAILY_BUDGET` | `50` | calls per UTC day, a hard stop |
+| `BRIEF_DAILY_BUDGET` | `50` | calls per UTC day across the whole deployment — the counter lives in Redis, so the API, the worker and the CLI spend from one number |
 
 There is no setting that disables certificate verification, and there will not be.
 
+## Asking for one
+
+```bash
+make brief REF=AEG-2026-0001            # from the command line
+```
+```
+POST /api/v1/incidents/{id}/briefs      # analyst; 201 with the brief, or with the failure
+GET  /api/v1/incidents/{id}/briefs      # viewer; every version, newest first
+GET  /api/v1/incidents/{id}/briefs/{n}  # viewer; one version
+```
+
+The routes are in [`docs/api-milestone-5.md`](api-milestone-5.md). Briefs are stored append-only
+and versioned: asking again writes v2 rather than replacing v1 (ADR-031).
+
+**With the feature off** — the state of a fresh checkout — the same call answers `201` with the
+committed sample in [`samples/briefs/`](../samples/briefs), stored under
+`source: offline_fixture`. Nothing leaves the machine, and nothing in the answer pretends a model
+wrote it. A *real* failure is never replaced by the sample: `http_503` is recorded as `http_503`.
+
 ## When it fails
 
-Every one of these produces a failed brief and leaves the incident completely usable:
+Every one of these is stored as a brief with `status: failed` and answered `201`, and leaves the
+incident completely usable:
 
 `disabled` · `unconfigured` · `budget_exhausted` · `http_401` and friends · a transport error
 (recorded by *type*, because an httpx exception carries the request and the request carries the
@@ -87,8 +107,7 @@ The packet is content-addressed: an unchanged case is answered from cache and co
 
 ## What is not built yet
 
-Chunk 22 ships the client and the schema. Storing briefs (`investigation_briefs`,
-`brief_citations`), the `POST /api/v1/incidents/{id}/brief` route, `make brief`, the
-deterministic Markdown export and the dashboard panel arrive in Chunks 23 and 24. **No call has
-been made from this repository to date** — every test runs against committed fixtures through a
-mock transport.
+The deterministic Markdown export of a case and the dashboard's brief panel arrive in Chunk 24.
+**No call has been made from this repository to date** — every test runs against committed
+fixtures through a mock transport, and the offline path is what a checkout without a key
+exercises.

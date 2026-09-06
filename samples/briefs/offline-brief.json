@@ -1,0 +1,70 @@
+{
+  "summary": "Over roughly forty minutes, asset-A did four things that are unremarkable alone and hard to explain together: it reached forty ports on one internal neighbour, failed twelve authentications inside ninety seconds, then began contacting an external address every sixty seconds, and finally sent 400 MiB outbound \u2014 about eighty times its own weekly p95. The ordering is what makes this worth an analyst's time.",
+  "claims": [
+    {
+      "text": "asset-A reached 40 distinct ports on a single internal host inside ten minutes, with no reply on any of them.",
+      "kind": "observed",
+      "citations": []
+    },
+    {
+      "text": "Twelve authentication failures from asset-A fell inside a ninety-second window.",
+      "kind": "observed",
+      "citations": []
+    },
+    {
+      "text": "Fourteen connections to one external address, sixty seconds apart with jitter near 1.6%.",
+      "kind": "observed",
+      "citations": []
+    },
+    {
+      "text": "The hour's outbound volume was far above the seven-day baseline for this asset.",
+      "kind": "observed",
+      "citations": []
+    },
+    {
+      "text": "Regular fixed-interval callbacks with very low jitter are a widely documented command-and-control pattern.",
+      "kind": "external",
+      "citations": [
+        1
+      ]
+    },
+    {
+      "text": "Port scanning followed by credential attempts is a common early sequence in intrusion reporting.",
+      "kind": "external",
+      "citations": [
+        2
+      ]
+    }
+  ],
+  "recommendations": [
+    {
+      "action": "investigate_host",
+      "detail": "Establish what asset-A was running during the window."
+    },
+    {
+      "action": "review_with_asset_owner",
+      "detail": "The owner may recognise the transfer as a scheduled job."
+    },
+    {
+      "action": "check_baseline",
+      "detail": "Confirm the seven-day baseline covers a representative week."
+    },
+    {
+      "action": "correlate_with_other_cases",
+      "detail": "Look for the same interval on other assets."
+    }
+  ],
+  "citations": [
+    {
+      "id": 1,
+      "url": "https://attack.mitre.org/techniques/T1071/",
+      "title": "Application Layer Protocol (MITRE ATT&CK)"
+    },
+    {
+      "id": 2,
+      "url": "https://attack.mitre.org/tactics/TA0006/",
+      "title": "Credential Access (MITRE ATT&CK)"
+    }
+  ],
+  "limitations": "This packet carries derived measurements only: no process, user or command-line context, and every address and name is an opaque token. It cannot tell you whether the transfer was authorised, and it is not evidence of compromise on its own."
+}

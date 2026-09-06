@@ -13,8 +13,9 @@ order:
   literal value is also in `Settings.secret_values()`, so the log scrubber would catch it even
   if this file were wrong (T-3.3).
 * **Bounded everything**: one connect/read timeout, a small number of retries with jitter,
-  a response byte cap read before parsing, and a daily call budget with a hard stop (T-3.4,
-  T-4.5).
+  a response byte cap read before parsing, and a daily call budget with a hard stop — shared
+  across processes in Redis, because a cap each process counts separately is three caps
+  (T-3.4, T-4.5).
 * **`verify` is never touched.** httpx verifies by default; there is no setting here to turn
   that off, because a setting that exists is a setting somebody sets (T-3.6).
 """
@@ -27,12 +28,13 @@ import json
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
 from typing import Any, Final
 
 import httpx
 from pydantic import ValidationError
 
+from aegisnet.adapters.perplexity.budget import BriefBudget, InMemoryDailyBudget
+from aegisnet.adapters.perplexity.errors import BriefUnavailableError
 from aegisnet.config import Settings
 from aegisnet.domain.briefs import InvestigationBrief, SafetyRejectedError, admit
 from aegisnet.logging import get_logger
@@ -69,15 +71,6 @@ probing, taking down, or otherwise acting on any system.
 """
 
 
-class BriefUnavailableError(RuntimeError):
-    """The brief cannot be produced right now — disabled, unconfigured, out of budget, or the
-    API would not answer. Never a reason to fail the incident it was about."""
-
-    def __init__(self, reason: str, detail: str = "") -> None:
-        self.reason = reason
-        super().__init__(detail or reason)
-
-
 @dataclass(frozen=True, slots=True)
 class BriefResult:
     brief: InvestigationBrief
@@ -94,39 +87,6 @@ def packet_hash(body: str) -> str:
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
-class DailyBudget:
-    """A hard stop on calls per UTC day.
-
-    In memory on purpose for now: it is a guard rail on a feature that is off by default, and a
-    process restart resetting it is a smaller problem than a distributed counter nobody
-    maintains. Chunk 23 moves it to Redis alongside the other limits.
-    """
-
-    def __init__(self, limit: int, *, clock: Callable[[], datetime] = lambda: datetime.now(UTC)):
-        self._limit = limit
-        self._clock = clock
-        self._day: date | None = None
-        self._used = 0
-
-    @property
-    def used(self) -> int:
-        self._roll()
-        return self._used
-
-    def _roll(self) -> None:
-        today = self._clock().astimezone(UTC).date()
-        if self._day != today:
-            self._day, self._used = today, 0
-
-    def take(self) -> None:
-        self._roll()
-        if self._used >= self._limit:
-            raise BriefUnavailableError(
-                "budget_exhausted", f"the daily brief budget of {self._limit} is spent"
-            )
-        self._used += 1
-
-
 class PerplexityClient:
     def __init__(
         self,
@@ -134,12 +94,12 @@ class PerplexityClient:
         *,
         transport: httpx.AsyncBaseTransport | None = None,
         sleep: Callable[[float], Any] = asyncio.sleep,
-        budget: DailyBudget | None = None,
+        budget: BriefBudget | None = None,
     ) -> None:
         self._settings = settings
         self._transport = transport
         self._sleep = sleep
-        self._budget = budget or DailyBudget(settings.brief_daily_budget)
+        self._budget = budget or InMemoryDailyBudget(settings.brief_daily_budget)
         self._cache: dict[str, InvestigationBrief] = {}
 
     @property
@@ -162,7 +122,7 @@ class PerplexityClient:
                 brief=cached, model=self._settings.perplexity_model, packet_hash=digest, cached=True
             )
 
-        self._budget.take()
+        await self._budget.take()
         payload = self._request_body(packet_body)
         raw = await self._post(payload, key.get_secret_value(), digest)
         brief = self._admit(raw, digest)
@@ -306,7 +266,6 @@ __all__ = [
     "SYSTEM_PROMPT",
     "BriefResult",
     "BriefUnavailableError",
-    "DailyBudget",
     "PerplexityClient",
     "packet_hash",
 ]

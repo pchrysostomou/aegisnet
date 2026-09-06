@@ -110,6 +110,14 @@ Nothing is released yet. There is no tagged version.
   without limit.
 
 ### Fixed
+- **The runtime image did not carry `httpx`.** It was a dev dependency, the Perplexity client
+  has imported it since Chunk 22, and nothing in the *runtime* import graph reached that client
+  until this chunk wired the brief service into the app. Every local check passed — ruff, mypy,
+  1150 tests, the database suite — and the api container then failed to start on the runner with
+  `ModuleNotFoundError`. `httpx` is a runtime dependency now, and so is `starlette`, which two
+  modules import directly and which had been relied on as fastapi's transitive. A new test walks
+  `src/` and requires every third-party import to be declared, so the next one is caught before
+  a container is built.
 - **Generating a brief changed the next brief's question.** The evidence packet included every
   timeline summary, and generating appends a `brief_generated` line — so asking twice about an
   unchanged case produced two different `packet_hash` values. The content-addressed cache could

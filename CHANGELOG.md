@@ -46,6 +46,35 @@ written and is superseded by the first item here.
   because "does it scan?" deserves an answer before somebody files it.
 
 ### Fixed
+- **The SonarCloud finding, found: a build argument baked into the image — and it was the same
+  one twice.** Ten bisection rounds located it in `backend/Dockerfile`. `ARG GIT_SHA` plus
+  `ENV GIT_SHA=${GIT_SHA}` persists a build-time value into image metadata, where
+  `docker history` prints it to anyone holding the image. That is the shape analysers flag
+  whatever the value happens to hold, because a build argument is how secrets usually reach a
+  build.
+
+  **Chunk 32 had already found this and fixed half of it.** It removed
+  `LABEL org.opencontainers.image.revision="${GIT_SHA}"` from this file after four bisection
+  rounds (E-96) and read the lesson as being about the label. The `ARG`/`ENV` pair beside it does
+  exactly the same thing and was left in place; it cost ten more rounds. A fix aimed at one
+  instance of a pattern rather than at the pattern is how the same defect gets found twice.
+
+  `GIT_SHA` reaches the container from Compose as a runtime variable now, so
+  `/api/v1/meta/version` is unchanged — and the image is better for it, since it no longer claims
+  to be one revision and a single build can serve any of them. The dead `ARG GIT_SHA` in
+  `frontend/Dockerfile` went the same way, along with the four build arguments the compose files
+  were still passing to stages that no longer declare them; a build argument sent to a stage that
+  does not want it is silently ignored, which is why nobody noticed.
+
+  Two tests now hold the whole pattern rather than one instance: no build argument may reach
+  `ENV` or `LABEL` in either image, and neither image may declare a build argument beyond the
+  base-image ones. The second failed the moment it was written, on the frontend's dead `ARG`.
+
+  Worth keeping about the method: the local `sonarqube:community` scan rated the project **B**
+  while SonarCloud rated it **C**, and that mismatch was the whole answer sitting in plain sight
+  for nine rounds. Sonar maps B to minor and C to major, so the two were never looking at the
+  same finding. Community also runs a narrower IaC rule set, which is why the Dockerfile issue
+  could not appear locally at all. **Compare the ratings before trusting a local scan's silence.**
 - **The upload spool was not gitignored.** `SPOOL_DIR` defaults to a relative `spool/`, so
   running the API natively creates one inside the checkout holding whatever was uploaded, and
   nothing in `.gitignore` covered it — in a project whose first ground rule is no real telemetry

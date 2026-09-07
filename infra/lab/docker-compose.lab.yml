@@ -63,8 +63,6 @@ services:
     build:
       context: ../../backend
       target: runtime
-      args:
-        GIT_SHA: ${GIT_SHA:-unknown}
     profiles: ["lab"]
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
@@ -148,8 +146,6 @@ services:
     build:
       context: ../../backend
       target: runtime
-      args:
-        GIT_SHA: ${GIT_SHA:-unknown}
     profiles: ["lab"]
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]

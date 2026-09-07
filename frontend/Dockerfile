@@ -31,7 +31,6 @@ RUN pnpm build
 
 # ---------------------------------------------------------------- runtime
 FROM ${NODE_IMAGE} AS runtime
-ARG GIT_SHA=unknown
 WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
@@ -41,7 +40,10 @@ ENV NODE_ENV=production \
 # Same reason as the backend image, and the same two omissions: no `image.version`, and no
 # `image.revision` — the revision label read `${GIT_SHA}` and SonarCloud rated it a security
 # finding on new code, so it went rather than the Dockerfile being carved out of the analysis
-# scope (E-96). `ARG GIT_SHA` stays for the build; nothing in this app reads it at runtime.
+# scope (E-96). The `ARG GIT_SHA` that survived alongside it is gone too: nothing in this app
+# read it, at build time or after, so it was a build argument declared for no reason — and a
+# build argument that reaches image metadata is the shape that cost this project two findings
+# (E-96, E-100). `tests/security/test_dockerfiles.py` now refuses both halves.
 LABEL org.opencontainers.image.title="aegisnet-web" \
       org.opencontainers.image.source="https://github.com/pchrysostomou/aegisnet" \
       org.opencontainers.image.licenses="MIT"

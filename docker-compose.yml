@@ -82,8 +82,6 @@ services:
     build:
       context: ./backend
       target: runtime
-      args:
-        GIT_SHA: ${GIT_SHA:-unknown}
     <<: *hardening
     tmpfs:
       # dramatiq creates its Prometheus directory at import, and Starlette rolls a
@@ -94,6 +92,12 @@ services:
       ["uvicorn", "aegisnet.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-server-header"]
     env_file: [.env]
     environment:
+      # A *runtime* variable, not a build argument. It used to be passed to the build and
+      # baked in through `ENV GIT_SHA=${GIT_SHA}`, which persists a build-time value into
+      # image metadata where `docker history` can read it — the shape SonarCloud rated a
+      # security finding twice in `backend/Dockerfile` (E-96, E-100). Passing it here keeps
+      # `/api/v1/meta/version` honest and lets one image serve any revision.
+      GIT_SHA: ${GIT_SHA:-unknown}
       POSTGRES_HOST: db
       REDIS_HOST: redis
       SAMPLES_DIR: /app/samples
@@ -128,8 +132,6 @@ services:
     build:
       context: ./backend
       target: runtime
-      args:
-        GIT_SHA: ${GIT_SHA:-unknown}
     <<: *hardening
     tmpfs:
       # Same import, plus one counter file per process under dramatiq-prometheus.
@@ -137,6 +139,12 @@ services:
     command: ["dramatiq", "aegisnet.workers.main", "--processes", "1", "--threads", "2"]
     env_file: [.env]
     environment:
+      # A *runtime* variable, not a build argument. It used to be passed to the build and
+      # baked in through `ENV GIT_SHA=${GIT_SHA}`, which persists a build-time value into
+      # image metadata where `docker history` can read it — the shape SonarCloud rated a
+      # security finding twice in `backend/Dockerfile` (E-96, E-100). Passing it here keeps
+      # `/api/v1/meta/version` honest and lets one image serve any revision.
+      GIT_SHA: ${GIT_SHA:-unknown}
       POSTGRES_HOST: db
       REDIS_HOST: redis
       SAMPLES_DIR: /app/samples
@@ -167,8 +175,6 @@ services:
     build:
       context: ./backend
       target: runtime
-      args:
-        GIT_SHA: ${GIT_SHA:-unknown}
     <<: *hardening
     tmpfs:
       # The same dramatiq import and nothing else; it only sends messages.
@@ -176,6 +182,12 @@ services:
     command: ["periodiq", "aegisnet.workers.main"]
     env_file: [.env]
     environment:
+      # A *runtime* variable, not a build argument. It used to be passed to the build and
+      # baked in through `ENV GIT_SHA=${GIT_SHA}`, which persists a build-time value into
+      # image metadata where `docker history` can read it — the shape SonarCloud rated a
+      # security finding twice in `backend/Dockerfile` (E-96, E-100). Passing it here keeps
+      # `/api/v1/meta/version` honest and lets one image serve any revision.
+      GIT_SHA: ${GIT_SHA:-unknown}
       POSTGRES_HOST: db
       REDIS_HOST: redis
     depends_on:
@@ -192,10 +204,6 @@ services:
     build:
       context: ./frontend
       target: runtime
-      args:
-        # Build metadata only, for the image's revision label; the dashboard reads nothing
-        # from it. Same source as the api and worker builds so both images name one commit.
-        GIT_SHA: ${GIT_SHA:-unknown}
     <<: *hardening
     tmpfs:
       # Insurance, and said plainly: seven hours of running wrote nothing here, because

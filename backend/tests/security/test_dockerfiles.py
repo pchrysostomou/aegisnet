@@ -106,3 +106,60 @@ def test_the_dashboard_runtime_ships_no_package_manager() -> None:
     for tool in ("/usr/local/lib/node_modules/npm", "/usr/local/bin/npx", "corepack"):
         assert tool in removed, f"the runtime stage no longer removes {tool}"
     assert "rm -rf" in removed
+
+
+# ---------------------------------------------------------------- build arguments
+
+
+@pytest.mark.parametrize("path", DOCKERFILES, ids=lambda p: p.parent.name)
+def test_no_build_argument_is_baked_into_the_image(path: Path) -> None:
+    """A build argument must not be persisted into `ENV`, a `LABEL`, or anything else that
+    survives into the image.
+
+    This has cost two SonarCloud findings in the same file, and the first fix read the lesson too
+    narrowly. Chunk 32 removed `LABEL org.opencontainers.image.revision="${GIT_SHA}"` from
+    `backend/Dockerfile` after four bisection rounds (E-96) and treated it as being about the
+    label. It was about the *pattern*: `ARG GIT_SHA` plus `ENV GIT_SHA=${GIT_SHA}` was left in
+    place, does exactly the same thing, and cost ten more rounds to find (E-100).
+
+    Why it is a vulnerability whatever the value happens to be: a build argument is how secrets
+    are most often handed to a build, and `ENV`/`LABEL` write it into image metadata that
+    `docker history` prints to anybody holding the image. An analyser cannot know that this
+    particular one is a commit hash, and should not have to.
+
+    `GIT_SHA` still reaches the running container — from Compose, as a runtime variable — so
+    `/api/v1/meta/version` is unchanged. That is also the better arrangement: the image no longer
+    claims to be one revision, so one build can serve any of them.
+    """
+    declared: set[str] = set()
+    for line in _instructions(path):
+        upper = line.upper()
+        if upper.startswith("ARG "):
+            declared.add(line.split(None, 1)[1].split("=", 1)[0].strip())
+            continue
+        if not (upper.startswith("ENV ") or upper.startswith("LABEL ")):
+            continue
+        baked = sorted(name for name in declared if f"${{{name}}}" in line or f"${name}" in line)
+        assert not baked, (
+            f"{path.parent.name}/Dockerfile bakes the build argument(s) {baked} into "
+            f"{line.split(None, 1)[0]}: {line[:90]}"
+        )
+
+
+@pytest.mark.parametrize("path", DOCKERFILES, ids=lambda p: p.parent.name)
+def test_every_build_argument_is_declared_before_it_is_used(path: Path) -> None:
+    """The base-image arguments are the only ones either file should still need.
+
+    Left as an assertion rather than a comment because the compose files pass build arguments by
+    name: one passed to a stage that never declares it is silently ignored, which is how
+    `GIT_SHA` kept being sent to three services after the Dockerfile stopped wanting it.
+    """
+    declared = {
+        line.split(None, 1)[1].split("=", 1)[0].strip()
+        for line in _instructions(path)
+        if line.upper().startswith("ARG ")
+    }
+    assert declared <= {"UV_IMAGE", "PY_IMAGE", "NODE_IMAGE", "BASE_IMAGE"}, (
+        f"{path.parent.name}/Dockerfile declares build arguments beyond the base images: "
+        f"{sorted(declared)}"
+    )

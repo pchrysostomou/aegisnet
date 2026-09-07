@@ -41,20 +41,28 @@ USER aegisnet
 
 # ---------------------------------------------------------------- runtime
 FROM ${PY_IMAGE} AS runtime
-ARG GIT_SHA=unknown
 ENV PATH="/opt/venv/bin:${PATH}" \
     PYTHONPATH=/app/src \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    GIT_SHA=${GIT_SHA}
+    PYTHONUNBUFFERED=1
 
 # What a scan is looking at: the `images` job builds and scans `aegisnet-api:latest`, and these
 # say where it came from. Deliberately no `image.version` — the version already lives in three
 # files and a fourth copy with nothing keeping it in step goes stale unnoticed — and no
-# `image.revision`, which is a sharper story: it read `${GIT_SHA}`, and SonarCloud rated the
-# result a security finding on new code. Four bisection rounds located it here (E-96). The
-# label was a nicety; an analysis scope with a Dockerfile carved out of it is not, so the
-# label went. `GIT_SHA` still reaches the running container as an environment variable.
+# `image.revision`.
+#
+# That last one has now cost two findings, and the second says what the first only hinted at.
+# Chunk 32 removed `LABEL org.opencontainers.image.revision="${GIT_SHA}"` after four bisection
+# rounds (E-96), and read the lesson as being about the label. It was not: it was about baking a
+# **build argument** into the image. `ARG GIT_SHA` plus `ENV GIT_SHA=${GIT_SHA}` was left in
+# place and does exactly the same thing — a build-time value persisted into image metadata,
+# readable by anyone with the image through `docker history`, which is why analysers treat the
+# pattern as a vulnerability whatever the variable happens to hold. Ten bisection rounds located
+# it back in this file, and this time the whole shape is gone rather than one instance of it.
+#
+# `/api/v1/meta/version` still reports the revision: `GIT_SHA` reaches the container as a plain
+# runtime environment variable from Compose instead, which is also the better arrangement — the
+# image no longer claims to be one revision, so the same build can serve any of them.
 LABEL org.opencontainers.image.title="aegisnet-api" \
       org.opencontainers.image.source="https://github.com/pchrysostomou/aegisnet" \
       org.opencontainers.image.licenses="MIT"

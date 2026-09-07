@@ -163,3 +163,24 @@ def test_every_build_argument_is_declared_before_it_is_used(path: Path) -> None:
         f"{path.parent.name}/Dockerfile declares build arguments beyond the base images: "
         f"{sorted(declared)}"
     )
+
+
+@pytest.mark.parametrize("path", DOCKERFILES, ids=lambda p: p.parent.name)
+def test_no_dependency_is_installed_from_source(path: Path) -> None:
+    """Installing a source distribution runs its build backend — arbitrary Python, at image-build
+    time, with the network and the build context in reach. `--frozen` pins *what* is installed
+    and does nothing about *what runs while installing it*; `--no-build` is the half that closes
+    it, and `--ignore-scripts` is the same idea for npm lifecycle scripts.
+
+    Asserted rather than commented because it is invisible when it is right and silent when it is
+    wrong: a dependency that starts shipping sdist-only would quietly regain the ability to
+    execute code here, and nothing else in the suite would notice.
+
+    This is `docker:S8541` and `docker:S6505`, and they were the whole of the SonarCloud finding
+    that ten rounds of bisection spent an afternoon locating — see E-100.
+    """
+    for line in _instructions(path):
+        if "uv sync" in line or "uv pip install" in line:
+            assert "--no-build" in line, f"{path.parent.name}/Dockerfile: {line[:80]}"
+        if "pnpm install" in line or "npm install" in line or "npm ci" in line:
+            assert "--ignore-scripts" in line, f"{path.parent.name}/Dockerfile: {line[:80]}"

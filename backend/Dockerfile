@@ -15,6 +15,21 @@
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 ARG PY_IMAGE=python:3.12-slim-bookworm
 
+# `--no-build` on both `uv sync` calls below: without it, installing a source distribution runs
+# its build backend, which is arbitrary Python executing at image-build time with the network
+# and the build context in reach. It is the supply-chain hole that `--frozen` alone does not
+# close, and it is what SonarCloud's `docker:S8541` is about.
+#
+# Safe to require here, checked rather than assumed: of the 67 packages in `uv.lock`, the only
+# one with no wheel is `aegisnet` itself, and both calls already pass `--no-install-project`, so
+# the project is never built either. `uv pip install --dry-run --no-build` resolves the whole
+# set for `x86_64-manylinux_2_28` and `aarch64-manylinux_2_28` — the CI runner and an Apple
+# Silicon `docker compose build`. A dependency that later ships sdist-only will fail the build
+# loudly instead of running its setup script quietly, which is the trade.
+#
+# One honest limit: `--no-build` reuses wheels uv built earlier, so on a developer machine with
+# a warm `--mount=type=cache` the tripwire is best-effort. In CI the cache is cold and it is real.
+
 # ---------------------------------------------------------------- deps
 FROM ${UV_IMAGE} AS deps
 ENV UV_COMPILE_BYTECODE=1 \
@@ -23,7 +38,7 @@ ENV UV_COMPILE_BYTECODE=1 \
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-install-project
+    uv sync --frozen --no-dev --no-install-project --no-build
 
 # ---------------------------------------------------------------- dev
 FROM deps AS dev
@@ -42,7 +57,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project
+    uv sync --frozen --no-install-project --no-build
 COPY . .
 # Tests run as a non-root user too.
 RUN useradd --create-home --uid 10001 aegisnet && chown -R aegisnet:aegisnet /app /opt/venv

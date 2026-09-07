@@ -49,7 +49,10 @@ jobs:
           cache-dependency-glob: backend/uv.lock
 
       - name: Install the locked dependency set
-        run: uv sync --frozen
+        # `--no-build`: a source distribution's build backend is arbitrary code, and this
+        # job installs the whole dev set. uv still builds first-party packages by design,
+        # which is the project itself and is what this step is for.
+        run: uv sync --frozen --no-build
 
       - name: Ruff (lint)
         run: uv run ruff check --config pyproject.toml --output-format=github src tests ../tools ../infra/lab
@@ -100,7 +103,7 @@ jobs:
         run: corepack enable
 
       - name: Install the locked dependency set
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Typecheck
         run: pnpm typecheck
@@ -401,7 +404,7 @@ jobs:
 
       - name: Install the locked dependency set
         working-directory: frontend
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Install Chromium
         working-directory: frontend

@@ -18,7 +18,14 @@ WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 COPY package.json pnpm-lock.yaml ./
 # --frozen-lockfile fails the build if the lockfile and manifest disagree.
-RUN pnpm install --frozen-lockfile
+# `--ignore-scripts`: a package's postinstall is arbitrary code running at image-build time,
+# and `--frozen-lockfile` pins what is installed without saying anything about what runs
+# while installing it. The backend's `uv sync --no-build` closes the same hole on the other
+# side. Checked rather than assumed: `sharp` is the one dependency here with a meaningful
+# postinstall, it is transitive rather than declared, and nothing imports `next/image`, so
+# its native binaries are never reached. Install, `next build` and 163 vitest tests all pass
+# with the flag.
+RUN pnpm install --frozen-lockfile --ignore-scripts
 
 # ---------------------------------------------------------------- build
 FROM ${NODE_IMAGE} AS build

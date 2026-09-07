@@ -107,26 +107,37 @@ written and is superseded by the first item here.
   Two tests hold the pattern rather than the instance: no build argument may reach `ENV` or
   `LABEL` in either image, and neither image may declare one beyond the base images. The second
   failed the moment it was written, on the frontend's dead `ARG`.
-- **The SonarCloud finding is located but not identified, and that is where it stands.** Ten
-  bisection rounds through `sonar.exclusions` — the only property automatic analysis honours —
-  cleared `.github/**`, three frontend files, `backend/src/**`, `backend/tests/**`, `tools/**`,
-  `infra/**` and all of `frontend/src/**`. Round ten went green on `backend/Dockerfile`, so the
-  finding is in that file. What it is remains unknown, and three independent tools say the file
-  is clean: `sonarqube:community` (which does analyse it — the `iac` plugin is installed, and it
-  reports zero issues there), `trivy config`, and `hadolint`. So the rule is one SonarCloud has
-  and they do not.
+- **The SonarCloud finding, identified: `docker:S8541` on `backend/Dockerfile` lines 26 and 45.**
+  `uv sync` without `--no-build`. Installing a source distribution runs its build backend — that
+  is arbitrary Python executing at image-build time with the network and the build context in
+  reach — and `--frozen` pins *what* is installed while saying nothing about *what runs while
+  installing it*.
 
-  The trigger was a **comment**. `c38e94c` changed nothing in that file but a comment, and the
-  gate went from green to red, which means a pre-existing issue entered the new-code window
-  because the file was touched. The organisation's new-code period is `previous_version` and
-  `sonar.projectVersion` is set nowhere, which is worth someone's attention on its own.
+  Fixed on both lines, and the same hole closed everywhere else it exists: `--ignore-scripts` on
+  all four `pnpm install` calls, `--no-build` on `ci.yml`'s `uv sync`, and `uvx pip-audit` pinned
+  to 2.10.1 — the tool auditing the supply chain was itself an unpinned download, and Dependabot
+  cannot see it because it is a `run:` line rather than a `uses:`.
 
-  The scope is restored whole. Leaving `backend/Dockerfile` excluded would buy a green badge by
-  not looking — the trade ADR-037 refused for the container image scan — and it is not a better
-  trade here. **The gate stays red until the finding can be read**, which needs the *SonarCloud
-  project* made public (Project Settings → Visibility; a setting of its own, unrelated to this
-  repository's visibility), or a pull request, which SonarCloud decorates with the rule and line.
-- **The upload spool was not gitignored.**- **The upload spool was not gitignored.** `SPOOL_DIR` defaults to a relative `spool/`, so
+  Safe to require, checked rather than assumed: of the 67 packages in `uv.lock` only `aegisnet`
+  itself has no wheel, and both lines already pass `--no-install-project`;
+  `uv pip install --dry-run --no-build` resolves the whole set for `x86_64-manylinux_2_28` and
+  `aarch64-manylinux_2_28`; both images build; the dev stage runs 1348 passed / 102 skipped; and
+  the six-service stack reaches healthy. `--ignore-scripts` is safe because `sharp` is transitive
+  rather than declared and nothing imports `next/image`, so its native binaries are never reached.
+  One honest limit: `--no-build` reuses wheels uv built earlier, so with a warm
+  `--mount=type=cache` the tripwire is best-effort locally; in CI the cache is cold and it is real.
+
+  A test asserts the property rather than the lines: every `uv sync` carries `--no-build`, every
+  `pnpm install` carries `--ignore-scripts`. It failed the moment it was written, on
+  `frontend/Dockerfile`.
+
+  **Ten rounds of bisection were right, and this entry said otherwise twice.** Round ten isolated
+  this exact file; `ARG GIT_SHA` was then written up as the cause without checking it against the
+  commit where the gate passed. Then, once the project was made public, the API was queried
+  without `resolved=false` — which counts closed issues — giving **54** vulnerabilities where
+  there were **2**, and the conclusion that the bisection had been chasing a moving target. It had
+  not. Both corrections came from a verification pass rather than from noticing.
+- **The upload spool was not gitignored.**- **The upload spool was not gitignored.**- **The upload spool was not gitignored.** `SPOOL_DIR` defaults to a relative `spool/`, so
   running the API natively creates one inside the checkout holding whatever was uploaded, and
   nothing in `.gitignore` covered it — in a project whose first ground rule is no real telemetry
   in the tree. Ignored now, and `make verify-ignore` proves it rather than assuming it.

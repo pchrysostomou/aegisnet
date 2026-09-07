@@ -68,7 +68,20 @@ services:
     <<: *hardening
     # uid 999 in the image. Persistence is disabled below, so /data is never written.
     user: redis
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--save", "", "--appendonly", "no"]
+    # The password is expanded by a shell *inside* the container rather than by Compose into
+    # argv. Interpolating it here put the real secret on the service's command line, which is a
+    # strictly worse place than an environment variable: argv is readable from
+    # `/proc/<pid>/cmdline` by anything sharing the PID namespace, it is stored in the daemon's
+    # container config, and `docker inspect` prints it under `Cmd`. `redis-cli` warns about `-a`
+    # on a command line for the same reason.
+    #
+    # It does **not** stop `docker compose config` printing the password — that renders
+    # `environment:` too, so the value still appears there four times. Keeping secrets out of a
+    # rendered manifest is a different job, and this is not it. `exec` keeps redis as PID 1, so
+    # signals and shutdown are unchanged, and the value comes from the `environment:` entry
+    # below, which already carried it for the healthcheck.
+    command:
+      ["sh", "-c", 'exec redis-server --requirepass "$$REDIS_PASSWORD" --save "" --appendonly no']
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a $${REDIS_PASSWORD} ping | grep -q PONG"]
       interval: 5s

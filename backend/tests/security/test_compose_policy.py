@@ -96,10 +96,33 @@ def test_no_inline_secret_literals(path: Path) -> None:
                 assert INTERPOLATION.match(value), f"{path.name}:{name} command carries a literal"
 
 
-def test_redis_requires_a_password_from_the_environment() -> None:
-    command = _services(COMPOSE)["redis"]["command"]
-    assert "--requirepass" in command
-    assert command[command.index("--requirepass") + 1] == "${REDIS_PASSWORD}"
+def test_redis_requires_a_password_and_it_never_appears_in_the_command_line() -> None:
+    """Two properties, and the second is the one this test used to get wrong.
+
+    It asserted the *shape*: that `--requirepass` was followed by the literal
+    `${REDIS_PASSWORD}` in argv. That does prove the password is not hard-coded, but it also
+    pinned the arrangement that put the real secret on the service's command line, where
+    `/proc/<pid>/cmdline`, the daemon's stored container config and `docker inspect`'s `Cmd`
+    all expose it — `redis-cli` warns about `-a` on a command line for the same reason.
+
+    The password is expanded by a shell inside the container now, so what is asserted is the
+    property: redis demands a password, the password comes from the environment, and the
+    interpolated value is nowhere in argv.
+    """
+    redis = _services(COMPOSE)["redis"]
+    command = redis["command"]
+    joined = " ".join(command)
+
+    assert "--requirepass" in joined, "redis would accept unauthenticated clients"
+    assert "REDIS_PASSWORD" in redis["environment"], "the password reaches redis some other way"
+
+    # `${REDIS_PASSWORD}` is what Compose interpolates *before* the container starts, so its
+    # presence in the command means the real secret is in argv. `$$REDIS_PASSWORD` is what
+    # Compose leaves alone for the container's own shell to expand, which is the point.
+    assert "${REDIS_PASSWORD}" not in joined, "the real password is interpolated into argv"
+    assert "$$REDIS_PASSWORD" in joined or "$REDIS_PASSWORD" in joined, (
+        "the command does not read the password from the environment at all"
+    )
 
 
 def test_api_and_web_start_only_after_their_dependencies_are_healthy() -> None:

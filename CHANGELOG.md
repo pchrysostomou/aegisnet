@@ -46,6 +46,43 @@ written and is superseded by the first item here.
   because "does it scan?" deserves an answer before somebody files it.
 
 ### Fixed
+- **`make compose-test` had been broken for as long as the provenance tests existed.** It
+  reported 8 errors and 1 failure — `tests/unit/test_provenance.py` shells out to `git`, which is
+  the one thing in `src/` that starts a process, and the dev image had no `git` in it. Nothing
+  noticed because CI runs pytest directly rather than through that image, so a documented command
+  failed for everyone who used it and for nobody who checked. `git` is in the dev stage now, not
+  the runtime one — nothing the api or worker does needs it. `make compose-test` reports 1346
+  passed, 102 skipped: the same numbers as the local run, which is the point of having it.
+- **The Redis password was on the service's command line.** `--requirepass ${REDIS_PASSWORD}` had
+  Compose interpolate the real secret into argv, where `/proc/<pid>/cmdline`, the daemon's stored
+  container config and `docker inspect`'s `Cmd` all expose it; `redis-cli` warns about `-a` on a
+  command line for exactly this reason. A shell inside the container expands it now. Verified by
+  running it: `Config.Cmd` holds the literal `$REDIS_PASSWORD`, `/proc/1/cmdline` reads
+  `redis-server *:6379`, redis is still PID 1, an unauthenticated `ping` still answers `NOAUTH`,
+  and an authenticated one answers `PONG`.
+
+  Said plainly because it is easy to overclaim: this does **not** keep the password out of
+  `docker compose config`, which renders `environment:` too. It is a smaller fix than that.
+- **The test containers were handed every stack password.** `docker-compose.test.yml` mounts the
+  whole repository at `/repo`, and the repository contains the real `.env` — mode 600 on the
+  host, holding the superuser password, all three role passwords, the Redis password and the app
+  secret key. The manifest's own header argued it "contains no credential literal to leak", which
+  was true of the YAML and false of the container: anything the suite executes, including a
+  compromised transitive dev dependency, could read all of it, and rewrite any tracked file.
+
+  `/dev/null` is mounted over `/repo/.env` in all three test services, and the two that only read
+  (`tests-db`, `loadtests`) now mount the tree read-only; `tests` keeps write because
+  `make format` rewrites files. `env_file:` is unaffected — Compose reads that on the host.
+  Verified: inside the container `.env` is 0 bytes, on the host it is 2 632. An anonymous volume
+  was tried first and Docker refused it, because a volume is a directory and `.env` is a file.
+- **A security test that pinned the wrong half of its own property.**
+  `test_redis_requires_a_password_from_the_environment` asserted the *shape* — that
+  `--requirepass` was followed by the literal `${REDIS_PASSWORD}` in argv. That does prove the
+  password is not hard-coded, and it also pinned in place the arrangement that put the secret on
+  the command line. It asserts the property now: redis demands a password, the password comes
+  from the environment, and the interpolated value appears nowhere in argv. Reverting the
+  manifest makes it fail. The `THREAT_MODEL.md` §6 matrix caught the rename, for the second time
+  today, which is what it is for.
 - **A build argument baked into the image, removed — but it was not the SonarCloud finding, and
   the first version of this entry said it was.** `ARG GIT_SHA` plus `ENV GIT_SHA=${GIT_SHA}` in
   `backend/Dockerfile` persists a build-time value into image metadata, where `docker history`

@@ -49,6 +49,15 @@ services:
     volumes:
       # Read-write so `make format` can rewrite files; everything else only reads.
       - .:/repo
+      # `.env` holds every stack password, and the mount above would otherwise hand all of
+      # them to the test container — and to anything the suite executes, including a
+      # compromised transitive dev dependency. `/dev/null` shadows it: an anonymous volume
+      # is a *directory* and Docker refuses to mount one over a file, which is the error
+      # the first attempt produced. This
+      # file's header argues it "contains no credential literal to leak"; that was true of
+      # the YAML and false of the container, which is the more useful place to be right.
+      # `env_file:` is unaffected — Compose reads that on the host, before any container.
+      - /dev/null:/repo/.env:ro
     working_dir: /repo/backend
     command: ["pytest"]
 
@@ -102,7 +111,19 @@ services:
       REDIS_HOST: redis-unused
       REDIS_PORT: "6379"
     volumes:
-      - .:/repo
+      # Read-only: this suite reads the tree and writes only to /tmp, and `-p no:cacheprovider`
+      # above means pytest writes no cache either. `tests` needs write for `make format`; this
+      # does not, so it does not get it.
+      - .:/repo:ro
+      # `.env` holds every stack password, and the mount above would otherwise hand all of
+      # them to the test container — and to anything the suite executes, including a
+      # compromised transitive dev dependency. `/dev/null` shadows it: an anonymous volume
+      # is a *directory* and Docker refuses to mount one over a file, which is the error
+      # the first attempt produced. This
+      # file's header argues it "contains no credential literal to leak"; that was true of
+      # the YAML and false of the container, which is the more useful place to be right.
+      # `env_file:` is unaffected — Compose reads that on the host, before any container.
+      - /dev/null:/repo/.env:ro
     working_dir: /repo/backend
     depends_on:
       db-test: {condition: service_healthy}
@@ -138,7 +159,17 @@ services:
       # Optional: covers the two ingest limits, which the suite skips without it.
       AEGISNET_LOAD_INGEST_TOKEN: ${AEGISNET_LOAD_INGEST_TOKEN:-}
     volumes:
-      - .:/repo
+      # Read-only, for the same reason as `tests-db`.
+      - .:/repo:ro
+      # `.env` holds every stack password, and the mount above would otherwise hand all of
+      # them to the test container — and to anything the suite executes, including a
+      # compromised transitive dev dependency. `/dev/null` shadows it: an anonymous volume
+      # is a *directory* and Docker refuses to mount one over a file, which is the error
+      # the first attempt produced. This
+      # file's header argues it "contains no credential literal to leak"; that was true of
+      # the YAML and false of the container, which is the more useful place to be right.
+      # `env_file:` is unaffected — Compose reads that on the host, before any container.
+      - /dev/null:/repo/.env:ro
     working_dir: /repo/backend
     networks: [stack]
     command: ["pytest", "-m", "load"]

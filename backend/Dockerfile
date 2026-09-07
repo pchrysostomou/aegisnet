@@ -31,6 +31,15 @@ ENV PATH="/opt/venv/bin:${PATH}" \
     PYTHONPATH=/app/src \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
+# git, because `tests/unit/test_provenance.py` shells out to it: `corpus_commit` is the one
+# module in `src/` that starts a process, and its tests build real repositories in `tmp_path`.
+# Without it `make compose-test` reported 8 errors and 1 failure — a documented command that
+# had been broken for as long as those tests have existed, and that nothing noticed because CI
+# runs pytest directly rather than through this image. Not in the runtime stage: nothing the
+# api or worker does needs git, and the smaller that image stays the better.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project

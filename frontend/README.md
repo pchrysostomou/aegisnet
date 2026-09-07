@@ -61,11 +61,15 @@ pnpm typecheck        # tsc --noEmit
 pnpm lint             # eslint, including the dangerouslySetInnerHTML ban (T-1.3)
 pnpm test             # vitest
 pnpm build            # next build (standalone, for the container)
+pnpm e2e:install      # Chromium, once — nothing else installs it, and CI runs this step
 pnpm e2e              # Playwright against a running stack (see below)
 pnpm e2e:shots        # regenerate docs/screenshots/ from the committed scenario
 ```
 
-The browser suite needs `make up` and two accounts, and takes their credentials from the
+The browser suite needs a stack with cases in it — `make up && make migrate && make demo-scenario`,
+which is the chain the `e2e` CI job runs, because every spec opens a case by clicking an `AEG-`
+link and `make up` alone neither migrates nor loads anything. It also needs Chromium, once:
+`pnpm e2e:install`. Then two accounts, whose credentials it takes from the
 environment with no default — a misconfigured run should fail with a sentence, not silently
 test an anonymous session:
 

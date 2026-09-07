@@ -119,7 +119,7 @@ uv run ruff check src tests      # lint
 uv run ruff format --check src tests
 uv run mypy                      # typecheck (strict on domain/)
 uv run lint-imports              # domain purity and layering contracts
-SAMPLES_DIR=../samples uv run python -m aegisnet.cli datasets   # needs no database
+ENV=test SAMPLES_DIR=../samples uv run python -m aegisnet.cli datasets   # needs no database
 ENV=test uv run pytest           # the hermetic suite (database tests are skipped)
 ENV=test uv run pytest --cov=aegisnet --cov-report=term-missing
 uv run alembic heads             # the revision this build expects

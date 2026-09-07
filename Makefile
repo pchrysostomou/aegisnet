@@ -34,6 +34,11 @@ bootstrap-force: ## Regenerate .env, overwriting the existing file
 # These run natively via uv and need no containers, so they work before the stack builds.
 
 backend-install: ## Install the backend's locked dependency set
+	@# Deliberately without `--no-build`, which the image builds and CI do carry. This is the
+	@# *local* install, and a macOS x86_64 Python (Rosetta, platform tag macosx-10.9-x86_64) has
+	@# no wheel here: `uv.lock` ships argon2-cffi-bindings only as macosx_11_0_arm64, so
+	@# `--no-build` refuses outright. The flag is a supply-chain guard on what ships, and what
+	@# ships is built on Linux, where every one of the 67 packages has a manylinux wheel.
 	cd $(BACKEND) && $(UV) sync --frozen
 
 # ruff covers the backend, the generators in tools/ and the lab's preflight; lint-imports
@@ -408,7 +413,10 @@ retention: require-env ## Show what the retention policy would remove (APPLY=1 r
 
 export: require-env ## Write one case out as Markdown (REF=AEG-2026-0001, > case.md)
 	@# Deterministic: the same case produces the same bytes, so two exports can be diffed.
-	$(COMPOSE) run --rm --no-TTY api python -m aegisnet.cli export $(REF)
+	@# `@`-prefixed because three documents teach `make export REF=… > case.md`, and make echoes
+	@# an unprefixed recipe line to *stdout* — so the docker command landed as the first line of
+	@# the exported Markdown. `demo-script.md` even says "show the top of the file".
+	@$(COMPOSE) run --rm --no-TTY api python -m aegisnet.cli export $(REF)
 
 test-correlation: ## The correlation and incident suites: the grouping policy, the workflow, the API
 	cd $(BACKEND) && ENV=test $(UV) run pytest tests/unit/test_correlation_domain.py \

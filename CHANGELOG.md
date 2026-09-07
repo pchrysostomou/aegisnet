@@ -10,6 +10,25 @@ Work after the `v1.0.0` tag. It is here rather than under 1.0.0 because none of 
 tag — the entry below it says "there is no Dependabot configuration", which was true when it was
 written and is superseded by the first item here.
 
+### Added
+- `.github/dependabot.yml`. The project has claimed Dependabot since Milestone 1 and meant
+  *alerts*, which surface an advisory and never open a pull request that fixes it. Four
+  ecosystems, grouped weekly so one maintainer does not learn to ignore it. It also hands R-10
+  the digest updater that risk's reasoning said did not exist — the decision to keep tags stands
+  until somebody revisits it deliberately, but the argument for it has changed.
+- The two ingest rate limits, fired at once (`tests/load/`). `SECURITY.md` and the release
+  checklist both named this gap; the load suite is seven tests now. They skip without
+  `AEGISNET_LOAD_INGEST_TOKEN`, which the Makefile and the test manifest pass through.
+- `make lab-soak HOURS=24`. D-005 has never judged real traffic and no larger run can change
+  that: it abstains until an asset has 24 *sampled hours*, so the constraint is wall-clock, not
+  volume. This is the mechanism and says plainly that it is not the measurement.
+
+- `CODE_OF_CONDUCT.md`, and issue templates under `.github/ISSUE_TEMPLATE/` — including one for
+  *a claim in the documentation is wrong*, which is the defect class this project produces most
+  and the one an outside reader is best placed to spot. The config routes anything exploitable to
+  private vulnerability reporting instead of a public issue, and points at the scope boundary,
+  because "does it scan?" deserves an answer before somebody files it.
+
 ### Changed
 - **redis 6.4 → 8.1.0**, which exists only because the previous change removed the Dependabot
   ignore that had been suppressing it. That entry held back `redis>=7.0` because
@@ -37,27 +56,6 @@ written and is superseded by the first item here.
     it was rebased onto Next 16, which supplies the declaration. The failure was an artefact of
     the order the two majors arrived in, not of either upgrade.
 
-### Added
-- `.github/dependabot.yml`. The project has claimed Dependabot since Milestone 1 and meant
-  *alerts*, which surface an advisory and never open a pull request that fixes it. Four
-  ecosystems, grouped weekly so one maintainer does not learn to ignore it. It also hands R-10
-  the digest updater that risk's reasoning said did not exist — the decision to keep tags stands
-  until somebody revisits it deliberately, but the argument for it has changed.
-- The two ingest rate limits, fired at once (`tests/load/`). `SECURITY.md` and the release
-  checklist both named this gap; the load suite is seven tests now. They skip without
-  `AEGISNET_LOAD_INGEST_TOKEN`, which the Makefile and the test manifest pass through.
-- `make lab-soak HOURS=24`. D-005 has never judged real traffic and no larger run can change
-  that: it abstains until an asset has 24 *sampled hours*, so the constraint is wall-clock, not
-  volume. This is the mechanism and says plainly that it is not the measurement.
-
-### Added
-- `CODE_OF_CONDUCT.md`, and issue templates under `.github/ISSUE_TEMPLATE/` — including one for
-  *a claim in the documentation is wrong*, which is the defect class this project produces most
-  and the one an outside reader is best placed to spot. The config routes anything exploitable to
-  private vulnerability reporting instead of a public issue, and points at the scope boundary,
-  because "does it scan?" deserves an answer before somebody files it.
-
-### Changed
 - **dramatiq 1.18 → 2.2.1**, and the four things a click-merge would have got wrong. Dependabot
   opened this as a one-line constraint widening; it needed work rather than a click, which is the
   argument for reading these:
@@ -66,7 +64,7 @@ written and is superseded by the first item here.
     their own under `--strict`. They are gone. `RedisBroker.__init__` is still unannotated, so
     that one ignore stays and now says why it is the only survivor.
   - **dramatiq 2.x removed Prometheus entirely** — no middleware, no export, and
-    `prometheus-client` is out of the lockfile. Six places said the api, worker and scheduler
+    `prometheus-client` is out of the lockfile. Seven places said the api, worker and scheduler
     "write only dramatiq's Prometheus directory under /tmp", which was a `docker diff`
     measurement and is now a description of something that no longer happens:
     `docker-compose.yml` (three comments), `THREAT_MODEL.md`, `README.md`, `ADR-037` and a test
@@ -83,13 +81,50 @@ written and is superseded by the first item here.
     `ingest_batch_finished`, `post_ingest_sweep_queued`, `run_detectors_done` and
     `detection_sweep_done`, with the batch reaching `complete`.
 
+- The `org.opencontainers.image.revision` label is gone from both images. It read `${GIT_SHA}`
+  and SonarCloud rated the result a security finding on new code; four bisection rounds located
+  it, because a private project offers no way to read the finding itself. Removing the label was
+  chosen over leaving the Dockerfile excluded from analysis — a green badge bought by not
+  looking is the trade this project refused for the image scan in Chunk 30.
+- Dependabot ignores redis `>=7.0`: `dramatiq[redis]` caps it at `<7.0`, so the update it
+  proposed was unresolvable rather than merely unwelcome. Nothing applicable is suppressed.
+
 ### Fixed
+- **The close-out audit found three defects in work done hours earlier, and one of them had
+  weakened the redactor.** Moving the email TLD check out of the pattern into Python meant the
+  greedy domain run stopped only at the next `@`, so `finditer` yielded one run for
+  `a@b.1analyst@corp.example.com`, the Python check rejected it, and the scan resumed *past* the
+  real address instead of backtracking to the shorter split. A credential-shaped address preceded
+  by anything at-sign-ish went straight through the scanner that exists to stop it. The
+  `{1,64}` local-part bound was the whole linearity fix all along; `\.[A-Za-z]{2,}` is back in
+  the pattern — still linear at 2× per doubling, zero divergences over fourteen cases — and three
+  shadowed addresses are pinned by a test that fails when the Python version is restored.
+- **The ingest fail-closed test proved half of what it claimed.** `FakeRateLimiter` raises for
+  *every* limit name once `broken` is set, and `enforce_limit` for `ingest` runs before
+  `ingest_bytes` in both branches, so the second `fail_open=False` was never exercised while the
+  docstring said "both entrypoints are checked". Parameterised over the two names now, the way
+  `test_brief_limits.py` already did it; flipping either site fails exactly one case.
+- **`make export REF=… > case.md` wrote the docker command as the first line of the file.** Make
+  echoes an unprefixed recipe line to *stdout*, and three documents teach that redirect —
+  `docs/demo-script.md` even says "show the top of the file". Reproduced, then fixed with `@`.
+- `backend/README.md`'s `datasets` example died on placeholder secrets: it was the only line in
+  its block without `ENV=test`, and the error's own advice (`make bootstrap`) does not help
+  because `.env` already exists. The browser-suite instructions in `frontend/README.md` and
+  `README.md` omitted `pnpm e2e:install` — nothing else installs Chromium — and the
+  `make migrate && make demo-scenario` steps every spec depends on, since each opens a case by
+  clicking an `AEG-` link and `make up` neither migrates nor loads anything.
+- `.sonarcloud.properties` still carried forty-one lines saying the finding was unidentified and
+  the gate red, one commit after both stopped being true; a CHANGELOG line had been written three
+  times over; the `[Unreleased]` section had six change-type headings where Keep a Changelog has
+  three; and `make backend-install` was outside the "every `uv sync` carries `--no-build`" claim —
+  deliberately, because a macOS x86_64 Python has no wheel for `argon2-cffi-bindings` in this
+  lockfile, which the Makefile now says rather than leaving the claim too broad.
 - **`make compose-test` had been broken for as long as the provenance tests existed.** It
   reported 8 errors and 1 failure — `tests/unit/test_provenance.py` shells out to `git`, which is
   the one thing in `src/` that starts a process, and the dev image had no `git` in it. Nothing
   noticed because CI runs pytest directly rather than through that image, so a documented command
   failed for everyone who used it and for nobody who checked. `git` is in the dev stage now, not
-  the runtime one — nothing the api or worker does needs it. `make compose-test` reports 1346
+  the runtime one — nothing the api or worker does needs it. `make compose-test` reports 1349
   passed, 102 skipped: the same numbers as the local run, which is the point of having it.
 - **The Redis password was on the service's command line.** `--requirepass ${REDIS_PASSWORD}` had
   Compose interpolate the real secret into argv, where `/proc/<pid>/cmdline`, the daemon's stored
@@ -165,8 +200,11 @@ written and is superseded by the first item here.
   One honest limit: `--no-build` reuses wheels uv built earlier, so with a warm
   `--mount=type=cache` the tripwire is best-effort locally; in CI the cache is cold and it is real.
 
-  A test asserts the property rather than the lines: every `uv sync` carries `--no-build`, every
-  `pnpm install` carries `--ignore-scripts`. It failed the moment it was written, on
+  A test asserts the property rather than the lines: every `uv sync` **in either Dockerfile**
+  carries `--no-build`, and every `pnpm install` carries `--ignore-scripts`. `make backend-install`
+  deliberately does not — it is the local install, and a macOS x86_64 Python has no wheel for
+  `argon2-cffi-bindings` in this lockfile, so the flag would refuse outright. The guard belongs to
+  what ships, and what ships is built on Linux. It failed the moment it was written, on
   `frontend/Dockerfile`.
 
   **Ten rounds of bisection were right, and this entry said otherwise twice.** Round ten isolated
@@ -175,7 +213,7 @@ written and is superseded by the first item here.
   without `resolved=false` — which counts closed issues — giving **54** vulnerabilities where
   there were **2**, and the conclusion that the bisection had been chasing a moving target. It had
   not. Both corrections came from a verification pass rather than from noticing.
-- **The upload spool was not gitignored.**- **The upload spool was not gitignored.**- **The upload spool was not gitignored.** `SPOOL_DIR` defaults to a relative `spool/`, so
+- **The upload spool was not gitignored.** `SPOOL_DIR` defaults to a relative `spool/`, so
   running the API natively creates one inside the checkout holding whatever was uploaded, and
   nothing in `.gitignore` covered it — in a project whose first ground rule is no real telemetry
   in the tree. Ignored now, and `make verify-ignore` proves it rather than assuming it.
@@ -356,15 +394,6 @@ written and is superseded by the first item here.
   reached by a matrix row.
 - Seventy-six further stale claims across seventeen files, from the pre-tag audit's non-blocking
   findings; twenty-two more were refused as already overtaken or simply wrong.
-
-### Changed
-- The `org.opencontainers.image.revision` label is gone from both images. It read `${GIT_SHA}`
-  and SonarCloud rated the result a security finding on new code; four bisection rounds located
-  it, because a private project offers no way to read the finding itself. Removing the label was
-  chosen over leaving the Dockerfile excluded from analysis — a green badge bought by not
-  looking is the trade this project refused for the image scan in Chunk 30.
-- Dependabot ignores redis `>=7.0`: `dramatiq[redis]` caps it at `<7.0`, so the update it
-  proposed was unresolvable rather than merely unwelcome. Nothing applicable is suppressed.
 
 ## [1.0.0] — 2026-09-06
 

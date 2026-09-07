@@ -470,6 +470,19 @@ def test_the_email_rule_still_finds_an_address_and_still_refuses_a_near_miss() -
     for near_miss in ("user@host", "a@b.c", "a@b.c0m", "no at sign here", "@", "a@"):
         assert not any(f.pattern == "email" for f in scan(near_miss)), near_miss
 
+    # A real address *after* a near-miss. This is the case that was lost for one commit when the
+    # TLD check moved out of the pattern into Python: the greedy domain run stops only at the
+    # next `@`, so `finditer` yielded the single run `a@b.1analyst`, the Python check rejected
+    # it, and the scan resumed past the address instead of backtracking to the shorter split. A
+    # credential-shaped address preceded by anything at-sign-ish went straight through the
+    # scanner that exists to stop it.
+    for shadowed in (
+        "note a@b.1analyst@corp.example.com",
+        "a@b@c@ops@example.test",
+        "x@y.1 then real@corp.example.com",
+    ):
+        assert any(f.pattern == "email" for f in scan(shadowed)), shadowed
+
 
 def test_the_base64_rule_still_knows_a_blob_from_a_long_boring_string() -> None:
     """The variety check moved out of the regex; it must still do its job in both directions."""

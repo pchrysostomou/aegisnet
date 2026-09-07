@@ -36,6 +36,8 @@ Commands:
     eval-correlation               score correlation on the committed multi-stage scenario
     eval-detectors                 score the rules on the labelled cases and the benign corpus;
                                    run inside the git checkout, no paths accepted
+    export REF                     the case as deterministic Markdown, on stdout
+    retention [--apply]            what the policy would remove; --apply removes it
 
 Every result is one JSON object on stdout; exit status 0 on success, 1 on a failure the
 operator can act on (failed batch, registry or inventory error), 2 on usage errors.

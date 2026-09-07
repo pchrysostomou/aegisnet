@@ -222,36 +222,41 @@ def test_ingest_is_rate_limited_by_request_count(
     assert _post(client, service_headers, b"\n", mode="sync").status_code == 200
 
 
-def test_ingest_fails_closed_when_the_limiter_is_unreachable(
-    client: TestClient, wiring: FakeWiring, service_headers: dict[str, str]
+@pytest.mark.parametrize("failing", ["ingest", "ingest_bytes"])
+def test_each_ingest_limit_fails_closed_when_the_limiter_is_unreachable(
+    client: TestClient, wiring: FakeWiring, service_headers: dict[str, str], failing: str
 ) -> None:
     """A Redis outage must not turn metered ingest into unmetered ingest.
 
-    `THREAT_MODEL.md` T-2.6 has claimed since Chunk 6 that this file proves it. It did not:
+    `THREAT_MODEL.md` T-2.6 claimed this file proved it from Chunk 6 and it did not:
     `wiring.limiter.broken` appeared only in `test_auth_routes.py`, for login and for the
     fail-*open* read path, so both `fail_open=False` arguments in `api/v1/ingest.py` could have
-    been flipped to `True` with the whole suite still green. That is the one direction of this
-    setting that matters — reads fail open so an analyst is not locked out by a cache outage,
-    and ingest fails closed because an unmetered write path is how a lab becomes a disk-filling
-    exercise.
+    been flipped with the whole suite green.
 
-    Both entrypoints are checked, because they take the limiter separately: the synchronous
-    body and the spooled upload.
+    **One limit is broken at a time, and that is the whole point.** The first version of this
+    test set `wiring.limiter.broken`, which makes the fake raise for *every* name — and
+    `enforce_limit` for `ingest` runs first and raises before `ingest_bytes` is ever reached, in
+    both the sync and the spooled branch. It therefore proved only that the first limit fails
+    closed, while its own docstring claimed both were checked. Breaking one name at a time is
+    what `test_brief_limits.py` already does, for the same reason.
     """
-    wiring.limiter.broken = True
+    working = wiring.limiter.hit
 
-    refused = _post(client, service_headers, b"\n", mode="sync")
-    assert refused.status_code == 429, "a sync upload was accepted while the limiter was down"
+    async def hit(name: str, subject: str, **kwargs: object):
+        if name == failing:
+            from redis.exceptions import ConnectionError as RedisConnectionError
+
+            raise RedisConnectionError("redis is down")
+        return await working(name, subject, **kwargs)  # type: ignore[arg-type]
+
+    wiring.limiter.hit = hit  # type: ignore[method-assign]
+
+    # `ingest_bytes` is only reached on the spooled path, where a size is known.
+    refused = _post(client, service_headers, b"\n" * 20)
+    assert refused.status_code == 429, f"{failing} did not fail closed"
     assert refused.json()["error"]["code"] == "rate_limited"
     assert refused.json()["error"]["correlation_id"]
-
-    spooled = _post(client, service_headers, b"\n" * 20)
-    assert spooled.status_code == 429, "a spooled upload was accepted while the limiter was down"
-
     assert "ingest.batch_created" not in wiring.audit_actions(), "a refused upload created a batch"
-
-    wiring.limiter.broken = False
-    assert _post(client, service_headers, b"\n", mode="sync").status_code == 200
 
 
 def test_ingest_is_rate_limited_by_bytes_per_hour_and_discards_the_spool(

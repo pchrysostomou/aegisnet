@@ -20,28 +20,23 @@ from typing import Final
 # Each pattern is named, because "this field was dropped" is not a useful thing to record —
 # "this field was dropped because it looked like an AWS access key id" is.
 SECRET_PATTERNS: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
-    # The unbounded local part was the expensive half, and the bound is what fixes it. On text
-    # containing no at-sign at all, `[A-Za-z0-9._%+-]+` matches to the end from every start
-    # position and fails on `@` each time — quadratic, measured at 0.69 s on twenty thousand
-    # characters, and 1.67 s on `a@` followed by `a.` repeated. RFC 5321 caps a local part at 64
-    # octets, so the bound is the true shape of an address rather than a number picked to
-    # placate a profiler, and a mutation test confirms removing it brings the slowness back.
+    # The unbounded local part was the expensive half, and the bound is the whole fix. On text
+    # with no at-sign, `[A-Za-z0-9._%+-]+` matched to the end from every start position and
+    # failed on `@` each time — quadratic, 0.69 s on twenty thousand characters. RFC 5321 caps a
+    # local part at 64 octets, so the bound is the true shape of an address rather than a number
+    # picked to placate a profiler, and a mutation test brings the slowness back without it.
     #
-    # The domain is left unbounded on purpose: it sits at the end with nothing after it to
-    # backtrack into, and capping it at RFC 5321's 255 was measured to *lose* a detection — a
-    # 304-character domain with a real TLD stopped being seen. A scanner that exists to
-    # over-detect must not be narrowed to make a profile look better.
+    # The domain stays unbounded: capping it at RFC 5321's 255 was measured to *lose* a
+    # detection, a 304-character domain with a real TLD stopped being seen.
     #
-    # Deciding the TLD in Python rather than asking the pattern for `\.[A-Za-z]{2,}` is not
-    # itself a speed fix — with the local part bounded, that tail is linear, and the mutation
-    # test says so. It is here because it is one less backtracking construct over untrusted
-    # text, and because it is the same division of labour `base64_blob` below already uses:
-    # the pattern finds the run, Python decides what the run is.
-    #
-    # It matters here more than anywhere: `clean_free_text` scans *before* it truncates, on
-    # purpose, so that a secret sitting past the length cap is still found. The cap is
-    # therefore not a bound on what these patterns see.
-    ("email", re.compile(r"[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]+")),
+    # `\.[A-Za-z]{2,}` stays in the pattern, and the attempt to move it into Python is worth
+    # recording because it was wrong twice over. It was justified as "one less backtracking
+    # construct", which the mutation test contradicted — with the local part bounded, the tail is
+    # linear. And it silently **lost detections**: the greedy domain run stops only at the next
+    # `@`, so `finditer` yielded one run for `a@b.1analyst@corp.example.com`, the Python check
+    # rejected it, and the scan resumed past it instead of backtracking to the shorter split. A
+    # real address preceded by a near-miss went unseen. Two cases below pin that.
+    ("email", re.compile(r"[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")),
     ("aws_access_key_id", re.compile(r"\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA)[0-9A-Z]{12,}\b")),
     # `-{2,}` unbounded is quadratic on a run of dashes — a separator line in a log, or the
     # body of a PEM block itself. The engine takes every dash, fails on `BEGIN`, gives one
@@ -96,20 +91,7 @@ def _looks_encoded(run: str) -> bool:
     )
 
 
-_EMAIL_TLD: Final = re.compile(r"\.[A-Za-z]{2,}")
-
-
-def _looks_like_email(run: str) -> bool:
-    """``run`` is ``local@domain``; the domain has to carry a dot and two or more letters.
-
-    Exactly the same division of labour as ``_looks_encoded``: the pattern finds the run, this
-    decides what it is. Doing it here keeps the pattern linear.
-    """
-    _, _, domain = run.partition("@")
-    return _EMAIL_TLD.search(domain) is not None
-
-
-_DECIDED_IN_PYTHON: Final = {"base64_blob": _looks_encoded, "email": _looks_like_email}
+_DECIDED_IN_PYTHON: Final = {"base64_blob": _looks_encoded}
 
 
 def _matches(name: str, pattern: re.Pattern[str], value: str) -> bool:

@@ -11,6 +11,18 @@ tag — the entry below it says "there is no Dependabot configuration", which wa
 written and is superseded by the first item here.
 
 ### Changed
+- **redis 6.4 → 8.1.0**, which exists only because the previous change removed the Dependabot
+  ignore that had been suppressing it. That entry held back `redis>=7.0` because
+  `dramatiq[redis]` capped it at `<7.0`; dramatiq 2.x caps at `<9.0`, the ignore went, and
+  Dependabot proposed the update on its next run. The loop closed itself.
+
+  No code changed. Verified against a real Redis rather than the `fakeredis` the hermetic suite
+  uses, because a major client release is exactly where a fake and the real thing part company:
+  `ping`, the fixed-window rate limiter (allow, allow, **refuse** — the `INCRBY` semantics the
+  limit depends on), the access-token denylist in both directions, the daily brief budget, and
+  the dramatiq broker end to end — a queued `import-dataset` produced `import_dataset_done`,
+  `ingest_batch_finished`, `post_ingest_sweep_queued`, `run_detectors_done` and
+  `detection_sweep_done`, with the batch reaching `complete`.
 - Ten Dependabot pull requests, the first the new configuration produced. Merged: `next` 15.5.24
   to **16.3.4**, `typescript` 5.9.3 to **6.0.3**, `mypy` 1.20 to **2.3**, `redis` 5.3 to 6.4,
   `argon2-cffi` 23.1 to 25.1, `pytest-cov` 5 to 7, `@types/node` 22 to 26, `@types/react-dom`

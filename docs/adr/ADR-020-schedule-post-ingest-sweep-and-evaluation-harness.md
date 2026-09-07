@@ -26,7 +26,10 @@ to Redis only, mounts nothing, publishes nothing, and its healthcheck is process
 like the worker's. It only *sends*; the worker runs what it sends. If it is down, nothing
 periodic happens and nothing else is affected.
 
-Two periodic actors live in `workers/schedule.py`, both on the `detection` queue:
+Two periodic actors live in `workers/schedule.py`, both on the `detection` queue — *a third,
+`nightly_retention` at `0 RETENTION_HOUR * * *`, joined them in Chunk 25
+([ADR-033](ADR-033-deletion-is-a-different-principal.md)); this section describes the schedule
+as of Chunk 12*:
 
 | Actor | Cron (scheduler clock, UTC in the image) | What it does |
 |---|---|---|

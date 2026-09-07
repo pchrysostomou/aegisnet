@@ -38,6 +38,10 @@ service-account*.json
 *.cap
 eve.json
 eve*.json
+# `SPOOL_DIR` defaults to a relative `spool/`, so running the API natively creates one in the
+# checkout holding whatever was uploaded. Nothing else in this file covered it.
+spool/
+backend/spool/
 !samples/synthetic/**/*.json
 suricata/logs/
 zeek/logs/

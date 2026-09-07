@@ -38,6 +38,11 @@ updates:
 
   - package-ecosystem: docker
     directories:
+      # `/` is where the images R-10 is actually about live: `postgres:16-alpine` and
+      # `redis:7-alpine` are pinned in `docker-compose.yml`, not in a Dockerfile. Without it
+      # this ecosystem updated only the two base images this project builds *from*, while
+      # `SECURITY.md` and R-10 claimed an updater now existed for the two it pulls.
+      - /
       - /backend
       - /frontend
     schedule:

@@ -60,7 +60,10 @@ normaliser (domain code) need should live.
   stays hermetic; the migration environment is excluded from the hermetic coverage gate
   because that suite is where it runs.
 - Negative: `docs/repo-structure.md` is now out of date on the location of the Alembic
-  files; it is a planned layout and records this ADR as the deviation.
+  files; it is a planned layout and records this ADR as the deviation. *(Discharged in Chunk 33:
+  it was rewritten from a planned layout into a description of the tree, and now says where the
+  migrations actually are. It had stayed wrong for six milestones, with this line as the record
+  that somebody knew.)*
 - Negative: an existing `db_data` volume initialised before this chunk lacks the
   `CREATE ON DATABASE` grant, because init scripts run only on first initialisation.
   `make down` (which drops the volume) followed by `make up` re-initialises it.

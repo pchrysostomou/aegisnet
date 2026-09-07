@@ -1,6 +1,6 @@
 # AegisNet — Monorepo Structure
 
-Status: **the layout as it is at `v1.0.0`.** Last updated: 2026-09-06.
+Status: **the layout as it is at `v1.0.0`.** Last updated: 2026-09-07.
 
 This file used to describe a *planned* layout, written in the M0 planning package before any code
 existed, and it stayed that way through all six milestones while the tree moved underneath it. Two
@@ -20,6 +20,7 @@ aegisnet/
 │                                      matrix `tests/security/test_threat_coverage.py` parses
 ├── SECURITY.md                        credential model, RBAC matrix, audit actions, limits
 ├── CONTRIBUTING.md                    ground rules, the local checks, how an ADR is numbered
+├── CODE_OF_CONDUCT.md                 short, and about arguing with the work not the person
 ├── PLANNING.md                        the M0 planning index, kept for its reading order
 ├── CHANGELOG.md                       Keep a Changelog; `[Unreleased]` is work after the tag
 ├── LICENSE                            MIT
@@ -34,6 +35,8 @@ aegisnet/
 ├── .github/
 │   ├── dependabot.yml                 four ecosystems, grouped weekly, majors on their own
 │   ├── pull_request_template.md
+│   ├── ISSUE_TEMPLATE/                bug report, "a claim is wrong", and a config that routes
+│   │                                  anything exploitable to private reporting
 │   └── workflows/
 │       ├── ci.yml                     backend · frontend · manifests · migrations · stack · lab · e2e
 │       └── security.yml               gitleaks · pip-audit · pnpm audit · trivy (images)
@@ -139,6 +142,7 @@ aegisnet/
 │   ├── src/
 │   │   ├── middleware.ts              rotates an expired session before the render
 │   │   ├── app/                       login/ · incidents/ · incidents/[id]/ · assets/ · audit/
+│   │   │                              and api/health/ — the route Compose's healthcheck calls
 │   │   │                              and incidents/[id]/report.md/ (the export route handler)
 │   │   ├── components/                kebab-case, display only: safe-markdown · brief-panel ·
 │   │   │                              citation-list · badges · masthead · timestamp

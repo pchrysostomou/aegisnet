@@ -44,7 +44,7 @@ lint: ## Lint the backend, tools/ and infra/lab, and check the import contracts
 	cd $(BACKEND) && $(UV) run ruff check --config pyproject.toml src tests ../tools ../infra/lab
 	cd $(BACKEND) && $(UV) run lint-imports
 
-format: ## Reformat the backend and tools/ in place
+format: ## Reformat the backend, tools/ and infra/lab in place
 	cd $(BACKEND) && $(UV) run ruff format --config pyproject.toml src tests ../tools ../infra/lab
 
 format-check: ## Fail if the backend or tools/ is not formatted
@@ -69,6 +69,7 @@ check: verify-ignore lint format-check typecheck test ## Run every check that wo
 verify-ignore: ## Prove that secrets, captures, and local artefacts cannot be committed
 	@fail=0; \
 	for path in .env .env.local secret.pem capture.pcap capture.pcapng eve.json \
+	            spool/pending.ndjson backend/spool/pending.ndjson \
 	            infra/lab/out/eve.json infra/lab/out/suricata.log infra/lab/out/stats.log \
 	            app.log logs/suricata.log pgdata/base coverage.xml .coverage \
 	            node_modules/x .next/build backend/.pytest_cache/x samples/external/set.zip \
@@ -430,7 +431,7 @@ gen-fixtures: ## Regenerate backend/tests/fixtures/labelled from the case defini
 # docs/evaluation.md §8. A test pins that block, so run this after touching a rule. The
 # command takes no paths: it finds the checkout above its working directory.
 eval: ## Score the rules (T1/T2) and correlation on the scenario; refresh docs/evaluation.md §8
-	cd $(BACKEND) && uv run python -m aegisnet.cli eval-detectors
+	cd $(BACKEND) && $(UV) run python -m aegisnet.cli eval-detectors
 	cd $(BACKEND) && uv run python -m aegisnet.cli eval-correlation
 
 # Regenerates the committed synthetic corpus byte-for-byte (seeded). After changing the

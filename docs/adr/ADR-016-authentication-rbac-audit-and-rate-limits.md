@@ -86,4 +86,5 @@ unavailable.
   `PasswordHasher` and the login path performs a dummy verification for unknown accounts
   so timing does not reveal existence.
 - Deferred to Milestone 6: ~~exponential backoff~~ (delivered in Chunk 29, ADR-036), password reset, MFA, session management
-  over HTTP, trusting proxy headers behind TLS termination, read-only root filesystems.
+  over HTTP, trusting proxy headers behind TLS termination, ~~read-only root filesystems~~
+(delivered in Chunk 30, ADR-037).

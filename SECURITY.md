@@ -178,7 +178,10 @@ budget at once, and a refused ingest checked for anything left behind in the spo
 suite is seven tests rather than five. **They have not been run for a release**: `make load-test`
 needs a stack somebody owns and spends fifteen-minute login budgets, so
 `docs/RELEASE_CHECKLIST.md` leaves that box deliberately unticked and `docs/evaluation.md` §10
-still records only the four limits measured in Chunk 26. Written and not yet measured is a
+still records what Chunk 26 measured: three counted buckets — reads, the default bucket and
+login — across six properties. (§10's own opening says "four counted limits", counting the two
+login limits apart; the three here counts buckets. Same measurements, two ways of counting, and
+neither was wrong until they sat in one paragraph.) Written and not yet measured is a
 weaker claim than measured, and it is the true one. The three brief limits are not in
 that suite at all: their window is
 a day, so firing a budget at once would leave the deployment unable to ask for a brief until
@@ -258,8 +261,9 @@ and §9 records what the first run found.
 - Image **digest** pinning. Kept as minor tags deliberately, because at the time nothing here
   bumped a digest and pinning without an updater stops security patches arriving; the image
   scan is the compensating control and `THREAT_MODEL.md` R-10 records what it does not cover.
-  `.github/dependabot.yml` has since become that updater, so the decision now rests on inertia
-  rather than on that argument — revisiting it is [#14](https://github.com/pchrysostomou/aegisnet/issues/14).
+  `.github/dependabot.yml` has since become that updater — for the datastore images too, once
+  its `docker` ecosystem was given `/` and not only the two Dockerfile directories — so the
+  decision now rests on inertia rather than on that argument — revisiting it is [#14](https://github.com/pchrysostomou/aegisnet/issues/14).
   Read-only container filesystems are **no longer** on this list either — every service has
   one since Chunk 30 (T-5.1).
 - Any outbound integration: no Perplexity call has ever been made.

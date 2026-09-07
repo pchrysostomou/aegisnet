@@ -102,6 +102,9 @@ closed is the part that is worth having later, and a single `closed` throws it a
 - Negative: an hour and a day are judgement calls with no measurement behind them yet.
   `docs/evaluation.md` §8's correlation metrics — grouping precision and recall, fragmentation,
   contamination — are still empty, and they are the thing that would turn these numbers from
-  reasonable into justified.
+  reasonable into justified. *(Discharged in Chunk 17,
+  [ADR-025](ADR-025-the-scenario-is-data-and-correlation-is-scored-pairwise.md): §8 carries those
+  four numbers now, scored against a ground truth declared per scenario rather than derived from
+  the thing being scored.)*
 - Deferred to the next chunk: the HTTP API, the audit entries for every transition, the RBAC
   matrix for incident routes, and the timeline entries a human action produces.

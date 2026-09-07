@@ -46,6 +46,16 @@ written and is superseded by the first item here.
   because "does it scan?" deserves an answer before somebody files it.
 
 ### Fixed
+- **The upload spool was not gitignored.** `SPOOL_DIR` defaults to a relative `spool/`, so
+  running the API natively creates one inside the checkout holding whatever was uploaded, and
+  nothing in `.gitignore` covered it — in a project whose first ground rule is no real telemetry
+  in the tree. Ignored now, and `make verify-ignore` proves it rather than assuming it.
+- **Dependabot's `docker` ecosystem did not cover the images R-10 is about.** It listed
+  `/backend` and `/frontend`, which are the two Dockerfiles — but `postgres:16-alpine` and
+  `redis:7-alpine` are pinned in `docker-compose.yml` at the root. So the updater that
+  `SECURITY.md`, `README.md` and R-10 had all just started citing as the reason the argument for
+  tags had changed did not, in fact, watch the two images the argument is about. `/` is in the
+  list now.
 - **A case could grow without limit.** `Proposal.joins` enforces `MAX_INCIDENT_SPAN` when alerts
   are grouped within one run — its docstring says "with the whole case still inside" it — but
   extending a case already in the database went through `CorrelationService._continues`, which

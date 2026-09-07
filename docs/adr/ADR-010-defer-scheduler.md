@@ -39,4 +39,5 @@ arrive in Milestone 2 alongside the first genuinely periodic workload.
 - Negative: a reader may reasonably ask why a worker exists at all in Chunk 1. The answer is
   topology and image validation, and it is stated in the Compose comment, in the broker
   module docstring, and in `docs/STATUS.md`.
-- Negative: retention and pruning remain manual until Milestone 2.
+- Negative: retention and pruning remain manual until Milestone 2. *(Corrected: they arrived in
+  Milestone 6, Chunk 25 — [ADR-033](ADR-033-deletion-is-a-different-principal.md) — not M2.)*

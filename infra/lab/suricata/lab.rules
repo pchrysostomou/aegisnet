@@ -13,7 +13,8 @@
 # operator can see an `alert` record with a known cause next to the flow that caused it.
 alert http any any -> any any (msg:"AEGISNET-LAB benign marker header"; flow:established,to_server; http.header_names; content:"X-Aegisnet-Lab"; nocase; classtype:not-suspicious; sid:9100001; rev:1;)
 
-# The credential-failure shape D-002 reads: the lab target answers 401 to the generator's
+# The credential-failure shape D-002 reads: the lab target answers 401 to a request that omits the operator marker header — no credential
+# is sent and none exists; the generator's
 # deliberately wrong Basic credential, and this rule turns each one into an alert.
 alert http any any -> any any (msg:"AEGISNET-LAB authentication failure"; flow:established,to_client; http.stat_code; content:"401"; classtype:attempted-recon; sid:9100002; rev:1;)
 

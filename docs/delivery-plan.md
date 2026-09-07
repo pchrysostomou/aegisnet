@@ -39,7 +39,7 @@ driven, proven entirely by the committed deterministic synthetic corpus.
       commit, E-84, all ten checks green); latest E-95, the commit `v1.0.0` was tagged at.
 - [x] No secret appears anywhere in the repo (CI secret scan passes) — the `security` workflow's gitleaks job (E-38).
 
-**Commands.** `make bootstrap` (`.env.example` carries seven `__REPLACE_ME__` values, so copying it gives a stack that refuses to start) → `docker compose up --build -d` → `make migrate` → `make seed` →
+**Commands.** `make bootstrap` (`.env.example` carries six `__REPLACE_ME__` values, so copying it gives a stack that refuses to start) → `docker compose up --build -d` → `make migrate` → `make seed` →
 `make demo-ingest` → `make test` → `make lint typecheck`.
 
 ---

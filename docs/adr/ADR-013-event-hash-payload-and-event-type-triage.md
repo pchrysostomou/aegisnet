@@ -8,7 +8,7 @@
 
 ADR-005 fixes *that* ingest is idempotent through a `sha256` over "a canonical subset of
 EVE fields", ADR-001 fixes *that* events keep a validated JSONB payload next to promoted
-columns, and `docs/data-model.md` lists nine `event_type` labels plus `other`. None of
+columns, and `docs/data-model.md` lists eight `event_type` labels plus `other`. None of
 them says exactly which fields are hashed, what "remainder" means for the payload, or what
 happens to a Suricata record whose `event_type` is not in the list. Those choices decide
 whether re-ingest is idempotent across versions and whether drill-down can ever need a

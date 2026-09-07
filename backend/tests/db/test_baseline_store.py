@@ -22,7 +22,7 @@ from aegisnet.adapters.db.event_read_store import SqlEventReadStore
 from aegisnet.adapters.db.ingest_store import SqlIngestStore
 from aegisnet.adapters.db.session import make_session_factory
 from aegisnet.domain.assets import AssetSpec
-from aegisnet.domain.enums import BaselineMetric, IngestMethod, SourceType
+from aegisnet.domain.enums import AlertAssetRole, BaselineMetric, IngestMethod, SourceType
 from aegisnet.domain.ports import AlertFilter, BatchProvenance
 from aegisnet.services.asset_service import AssetService
 from aegisnet.services.baseline_service import BaselineService
@@ -187,4 +187,9 @@ async def test_the_job_and_the_sweep_run_end_to_end_on_postgres(sessions) -> Non
         and alert.evidence["baseline_samples"] == 168
     )
     detail = await detection.get_alert(alert.id)
-    assert [role for _, role in detail.assets] == [detail.assets[0][1]] and len(detail.events) >= 3
+    # Was `[role for _, role in detail.assets] == [detail.assets[0][1]]`, which compares a list
+    # built from the fixture against the fixture's own first element: it can only pass when there
+    # is exactly one asset, and says nothing about what the role *is*. Both halves are asserted
+    # separately now, against the value the store is supposed to have written.
+    assert [role for _, role in detail.assets] == [AlertAssetRole.source]
+    assert len(detail.events) >= 3

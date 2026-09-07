@@ -63,10 +63,14 @@ test("hostile note content renders as text and executes nothing", async ({ page 
   await expect(notes).toContainText("onerror=");
 });
 
-test("hostile log content in a case title and entity renders as text", async ({ page }) => {
+/* Renamed to what it checks. It was called "hostile log content in a case title and entity
+ * renders as text" and never opened a case, never read a title or an entity, and never asserted
+ * that anything rendered *as text* — it only checked that the queue had not executed something.
+ * That is a real property and worth keeping; it is simply a smaller one than the name claimed,
+ * and the note test above is where "renders as text" is actually proven. */
+test("the incident queue executes nothing, whatever the corpus contains", async ({ page }) => {
   await page.goto("/incidents");
   const body = page.locator("body");
-  // Whatever the corpus contains, none of it may have produced an executable element.
   await expect(body.locator("script[src*='evil']")).toHaveCount(0);
   expect(await page.evaluate(() => "__pwned" in window)).toBe(false);
 });

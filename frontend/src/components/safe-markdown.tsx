@@ -91,6 +91,7 @@ export function parseBlocks(source: string): Block[] {
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
   const blocks: Block[] = [];
   let fence: Block | null = null;
+  let afterBlank = false;
 
   for (const line of lines) {
     if (blocks.length >= MAX_BLOCKS) break;
@@ -109,8 +110,18 @@ export function parseBlocks(source: string): Block[] {
       continue;
     }
 
-    const last = blocks[blocks.length - 1];
-    if (/^[ \t]*$/.test(line)) continue;
+    /* A blank line ends whatever is open. Without this it only `continue`d, so the next line
+     * still saw the previous block as `last` and `first\n\nsecond` came out as one paragraph
+     * with a `<br/>` in it — two paragraphs an analyst typed, rendered as one. Lists are the
+     * exception markdown itself makes: a blank line between items is a loose list, still one
+     * list, which is why `open` is only cleared for the kinds where a break means a new block. */
+    if (/^[ \t]*$/.test(line)) {
+      afterBlank = true;
+      continue;
+    }
+    const previous = blocks[blocks.length - 1];
+    const last = afterBlank && previous?.kind !== "list" ? undefined : previous;
+    afterBlank = false;
 
     if (/^[ \t]*[-*][ \t]+/.test(line)) {
       const item = line.replace(/^[ \t]*[-*][ \t]+/, "");

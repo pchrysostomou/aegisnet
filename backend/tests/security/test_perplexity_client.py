@@ -16,6 +16,7 @@ from typing import Any
 
 import httpx
 import pytest
+from redis.exceptions import RedisError
 
 from aegisnet.adapters.perplexity import (
     SYSTEM_PROMPT,
@@ -211,6 +212,39 @@ async def test_the_daily_budget_is_a_hard_stop() -> None:
         await spender.brief(json.dumps({"case": 3}))
     assert refused.value.reason == "budget_exhausted"
     assert len(sent) == 2
+
+
+async def test_a_budget_that_cannot_be_counted_is_a_stored_failure_and_not_a_crash() -> None:
+    """The budget lives in Redis, and Redis can be down.
+
+    `brief()` promises in its own docstring to raise `BriefUnavailableError` "for every reason",
+    and `brief_service` catches exactly that to turn a failure into a *stored* brief with a
+    reason — the whole point of ADR-031, where a failure is a row rather than an error. A
+    `RedisError` from `take()` was the one path that escaped it, and would have surfaced as an
+    unhandled 500 with no record that anybody had asked.
+
+    Also asserted: nothing is sent. Counting the ask is what bounds the egress, so a budget that
+    cannot be counted must stop the request, not wave it through.
+    """
+
+    class UncountableBudget:
+        async def take(self) -> None:
+            raise RedisError("connection refused")
+
+        async def used(self) -> int:  # pragma: no cover - never reached
+            return 0
+
+    sent: list[httpx.Request] = []
+    unreachable = PerplexityClient(
+        settings(),
+        transport=transport_returning(ok(fixture("good")), record=sent),
+        sleep=_no_sleep,
+        budget=UncountableBudget(),  # type: ignore[arg-type]
+    )
+    with pytest.raises(BriefUnavailableError) as refused:
+        await unreachable.brief(json.dumps({"case": 1}))
+    assert refused.value.reason == "budget_unavailable"
+    assert sent == [], "the request went out without being counted"
 
 
 async def test_the_budget_resets_on_a_new_day_and_not_before() -> None:

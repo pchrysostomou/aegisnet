@@ -3,8 +3,12 @@
 Every non-health route declares exactly one permission through :func:`require`; the
 route-enumeration test fails the build if one does not. ``require`` audits denials as
 ``rbac.denied``. Rate limits are keyed by the principal's subject (or the client address
-before authentication) and fail *closed* for login and ingest, *open* for reads, so a
-Redis outage cannot open the write paths or close the whole read surface.
+before authentication). Four call sites fail *closed* — login, both ingest entrypoints and the
+two daily brief limits — and everything else fails *open*, so a Redis outage cannot open the
+paths an attacker would push on, and cannot close the read surface an analyst needs. Note what
+that leaves: an ordinary write such as a status change or a note is rate limited on the
+fail-open default, and during an outage is unmetered. That is the deliberate trade, not an
+oversight — it needs a session first, and `SECURITY.md` publishes the table.
 """
 
 from __future__ import annotations

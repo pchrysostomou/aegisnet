@@ -260,15 +260,29 @@ async def test_a_refused_ingest_leaves_nothing_spooled_behind(
     """A refusal that left its partial upload on disk would turn a rate limit into a way to fill
     the spool volume — the byte cap bounds one request, not a thousand refused ones.
 
-    Asserted through the batch list rather than the filesystem, which this suite cannot see: a
-    refused upload must not have opened a batch either.
+    The spool is a volume inside the stack that this suite cannot see, so the property is
+    asserted from outside: **exactly** the budget is accepted, and nothing past it. A refused
+    upload that had opened a batch would have to have been accepted first.
+
+    This previously checked `"batch_id" not in response.text` on each refusal, which cannot
+    fail: a 429 carries the error envelope, and `batch_id` is not a field of it. The docstring
+    said it went through the batch list; it never did, and the ingest service token holds
+    `ingest.write` only, so it could not have.
     """
     limit = load_settings.rate_limit_ingest_per_min
     responses = await asyncio.gather(
         *(_post(api, ingest_token, ONE_LINE) for _ in range(limit + 10))
     )
+    accepted = [r for r in responses if r.status_code in {200, 202}]
     refused = [r for r in responses if r.status_code == 429]
-    assert refused, "the budget was never exhausted"
 
-    for response in refused[:5]:
-        assert "batch_id" not in response.text, "a refused upload still opened a batch"
+    assert refused, "the budget was never exhausted"
+    # `==`, not `<=`: a limiter that refused the whole burst — a misconfiguration, or Redis
+    # unreachable — satisfies `<=` and would look like a pass.
+    assert len(accepted) == limit, f"{len(accepted)} accepted against a budget of {limit}"
+    assert len(accepted) + len(refused) == len(responses), "an answer was neither 2xx nor 429"
+
+    for response in refused:
+        envelope = response.json()["error"]
+        assert envelope["code"] == "rate_limited"
+        assert envelope["correlation_id"], "a refusal with no correlation id cannot be traced"

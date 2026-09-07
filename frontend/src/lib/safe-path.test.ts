@@ -43,8 +43,11 @@ describe("safeNext", () => {
     const raw = "/incidents/5a4419f6-af88-4b2b-bdab-672f20331af7";
     const result = safeNext(raw);
     expect(result).toBe(raw);
-    // Same characters, different object: nothing is passed through by reference.
-    expect(result).not.toBe(`${raw}`.padEnd(raw.length + 1));
+    // The line below used to claim "same characters, different object", which is not a thing a
+    // JavaScript string can be: `toBe` is `Object.is`, and two equal primitives are the same
+    // value. What is worth asserting is that a path is returned *whole* — a sanitiser that
+    // silently truncated would still satisfy the equality above for the empty string.
+    expect(result).toHaveLength(raw.length);
   });
 });
 

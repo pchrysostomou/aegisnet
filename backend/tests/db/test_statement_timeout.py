@@ -39,6 +39,15 @@ async def _show_timeout(engine: AsyncEngine) -> str:
         return str(result.scalar_one())
 
 
+def _milliseconds(shown: str) -> int:
+    """`SHOW statement_timeout` answers in whichever unit reads best — "5s", "500ms", "2min"."""
+    text = shown.strip()
+    for suffix, factor in (("min", 60_000), ("ms", 1), ("s", 1_000)):
+        if text.endswith(suffix):
+            return int(float(text.removesuffix(suffix)) * factor)
+    return int(text)
+
+
 async def test_the_request_path_carries_the_budget_it_was_configured_with(
     db_settings: Settings,
 ) -> None:
@@ -84,9 +93,15 @@ async def test_the_background_budget_is_looser_than_the_request_budget(
     api = create_api_engine(db_settings)
     job = create_job_engine(db_settings)
     try:
-        api_ms = int(str(await _show_timeout(api)).removesuffix("ms").removesuffix("s"))
-        assert await _show_timeout(api) != await _show_timeout(job)
-        assert api_ms > 0
+        api_ms = _milliseconds(str(await _show_timeout(api)))
+        job_ms = _milliseconds(str(await _show_timeout(job)))
+        # The name of this test is "looser", which is an *ordering*, and it was never asserted:
+        # `!=` and `> 0` hold just as well if the sweep budget is the tighter of the two, which
+        # is the arrangement that would break a sweep and leave requests untouched.
+        assert api_ms > 0 and job_ms > 0
+        assert job_ms > api_ms, (
+            f"the job budget ({job_ms}ms) is not looser than the API's ({api_ms}ms)"
+        )
     finally:
         await api.dispose()
         await job.dispose()

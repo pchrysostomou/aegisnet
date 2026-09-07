@@ -38,7 +38,43 @@ written and is superseded by the first item here.
   that: it abstains until an asset has 24 *sampled hours*, so the constraint is wall-clock, not
   volume. This is the mechanism and says plainly that it is not the measurement.
 
+### Added
+- `CODE_OF_CONDUCT.md`, and issue templates under `.github/ISSUE_TEMPLATE/` — including one for
+  *a claim in the documentation is wrong*, which is the defect class this project produces most
+  and the one an outside reader is best placed to spot. The config routes anything exploitable to
+  private vulnerability reporting instead of a public issue, and points at the scope boundary,
+  because "does it scan?" deserves an answer before somebody files it.
+
 ### Fixed
+- **A case could grow without limit.** `Proposal.joins` enforces `MAX_INCIDENT_SPAN` when alerts
+  are grouped within one run — its docstring says "with the whole case still inside" it — but
+  extending a case already in the database went through `CorrelationService._continues`, which
+  only ever compared the join gap. A host alerting steadily for days grew one case indefinitely:
+  a timeline whose beginning has nothing to do with its end, which is the thing the bound exists
+  to prevent. The first test written for this passed with the bound removed, because a single
+  alert a day later is refused by the *gap* long before the span matters; reaching that branch
+  needs a case that already spans the maximum, and the test builds one.
+- **A Redis outage during a brief was a 500 instead of a stored failure.** `client.brief()`
+  promises in its own docstring to raise `BriefUnavailableError` "for every reason", and
+  `brief_service` catches exactly that to write a brief row with a reason — ADR-031's rule that a
+  failure is a row rather than an error. `await self._budget.take()` reaches Redis and was the
+  one path that escaped it. It now refuses as `budget_unavailable`, and the test asserts nothing
+  was sent: counting the ask is what bounds the egress, so a budget that cannot be counted has to
+  stop the request rather than wave it through.
+- **A blank line did not end the block above it.** `first\n\nsecond` came out as one paragraph
+  with a `<br/>` — two paragraphs an analyst typed, rendered as one. A loose list stays one list,
+  which is what markdown says.
+- Four more tests that could not fail, on top of the two above: `test_migrations` was named "the
+  fifteen tables" while `ALL_TABLES` held twenty-one; `test_the_background_budget_is_looser_than_
+  the_request_budget` asserted `!=` and never the ordering its name claims; `test_help_documents_
+  every_command` named five of thirty subcommands, and seven undocumented ones had already
+  slipped past it; a database assertion compared a list built from the fixture against the
+  fixture's own first element. One Playwright test was renamed to what it checks rather than what
+  it claimed — and the `THREAT_MODEL.md` §6 matrix caught the rename, which is what it is for.
+- `api/deps.py` said a Redis outage "cannot open the write paths". Four call sites fail closed —
+  login, both ingest entrypoints and the two brief limits — and an ordinary write such as a note
+  or a status change is on the fail-open default. That is the deliberate trade; the docstring now
+  says so rather than implying a stronger one.
 - **The evidence packet sent the model an empty list where D-003 had put a number, and said
   nothing was withheld.** `top_domain_names` — how many distinct names were seen under the
   suspected tunnelling domain — was classified in `ADDRESS_KEYS`, so `Pseudonymizer.tokens` was

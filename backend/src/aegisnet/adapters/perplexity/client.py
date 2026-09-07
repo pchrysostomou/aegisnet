@@ -32,6 +32,7 @@ from typing import Any, Final
 
 import httpx
 from pydantic import ValidationError
+from redis.exceptions import RedisError
 
 from aegisnet.adapters.perplexity.budget import BriefBudget, InMemoryDailyBudget
 from aegisnet.adapters.perplexity.errors import BriefUnavailableError
@@ -122,7 +123,18 @@ class PerplexityClient:
                 brief=cached, model=self._settings.perplexity_model, packet_hash=digest, cached=True
             )
 
-        await self._budget.take()
+        # `take()` reaches Redis, and Redis can be down. Every other failure in this method
+        # becomes a `BriefUnavailableError` — which is what the docstring above promises and
+        # what `brief_service` turns into a *stored* brief with a reason — but a `RedisError`
+        # escaping here would have been an unhandled 500 instead, losing the record of the ask.
+        # The budget is counted centrally precisely so three processes cannot hold three
+        # counters, and the cost of that is this dependency.
+        try:
+            await self._budget.take()
+        except RedisError as error:
+            raise BriefUnavailableError(
+                "budget_unavailable", "the daily budget could not be counted"
+            ) from error
         payload = self._request_body(packet_body)
         raw = await self._post(payload, key.get_secret_value(), digest)
         brief = self._admit(raw, digest)

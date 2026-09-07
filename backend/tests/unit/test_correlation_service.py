@@ -13,6 +13,7 @@ from uuid import uuid4
 
 import pytest
 
+from aegisnet.domain.correlation import MAX_INCIDENT_SPAN
 from aegisnet.domain.enums import (
     AlertStatus,
     EntityType,
@@ -159,6 +160,41 @@ async def test_a_later_alert_joins_the_open_case_rather_than_opening_another() -
     assert case.distinct_rule_count == 2
     assert case.severity == 4, "the case takes the worst of its members"
     assert case.window_end == late.last_seen
+
+
+async def test_an_open_case_stops_growing_at_the_maximum_span() -> None:
+    """The bound `Proposal.joins` enforces within one run, enforced when *extending* too.
+
+    `joins` says in its own docstring "with the whole case still inside `MAX_INCIDENT_SPAN`",
+    and that held for alerts grouped in a single correlate call. Extending a case already in the
+    database went through `_continues`, which only compared the join gap — so a host alerting
+    steadily for days grew one case without limit, which is what the bound exists to prevent: a
+    timeline whose beginning has nothing to do with its end.
+
+    Reaching that branch takes some setting up, and the setting up is the point. A single alert
+    a day later is refused by the *gap* long before the span matters, which is why the first
+    version of this test passed with the bound removed. The case has to already span the maximum
+    — built here by a chain of alerts each well inside the gap — before an alert that is close
+    enough to join but too far to fit can exist at all.
+    """
+    step = timedelta(minutes=30)
+    chain = [stored_alert("D-001", at=T0 + step * index) for index in range(1, 49)]
+    correlation, incidents, alert_store = service(chain)
+    await correlation.correlate(T0, T0 + MAX_INCIDENT_SPAN + timedelta(hours=1))
+
+    [grown] = list(incidents.rows.values())
+    assert grown.window_end - grown.window_start <= MAX_INCIDENT_SPAN
+    opened_so_far = len(incidents.rows)
+
+    # Inside the join gap of what is already there, and past the span once added.
+    beyond = stored_alert("D-004", at=grown.window_end + timedelta(minutes=30))
+    alert_store.rows[beyond.id] = beyond
+    outcome = await correlation.correlate(T0, beyond.last_seen + timedelta(minutes=1))
+
+    assert beyond.last_seen - grown.window_start > MAX_INCIDENT_SPAN, "the probe does not reach"
+    assert outcome.cases_extended == 0, "the case grew past MAX_INCIDENT_SPAN"
+    assert outcome.cases_opened == 1
+    assert len(incidents.rows) == opened_so_far + 1
 
 
 async def test_a_closed_case_is_never_extended_and_the_new_one_names_it() -> None:

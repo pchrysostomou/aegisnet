@@ -64,9 +64,23 @@ def test_usage_errors_exit_with_status_two(argv: list[str]) -> None:
 
 
 def test_help_documents_every_command() -> None:
-    text = build_parser().format_help()
-    for command in ("datasets", "import-dataset", "batch", "brief", "export"):
-        assert command in text
+    """Every one, taken from the parser rather than from a list somebody keeps up to date.
+
+    It used to name five of the thirty, so a subcommand could ship undocumented — and seven had:
+    `correlate`, `incidents`, `incident`, `brief`, `export`, `retention` and `eval-correlation`
+    were absent from `backend/README.md`'s enumeration while this test stayed green.
+    """
+    parser = build_parser()
+    text = parser.format_help()
+    commands = sorted(
+        name
+        # argparse exposes no public API for enumerating subcommands.
+        for action in parser._subparsers._group_actions
+        for name in action.choices
+    )
+    assert len(commands) == 30, f"the parser declares {len(commands)} subcommands"
+    missing = [command for command in commands if command not in text]
+    assert not missing, f"undocumented in --help: {missing}"
 
 
 # ---------------------------------------------------------------- the report export

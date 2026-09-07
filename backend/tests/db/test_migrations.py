@@ -70,10 +70,15 @@ async def _enum_labels(engine: AsyncEngine) -> dict[str, tuple[str, ...]]:
     return {name: tuple(values) for name, values in labels.items()}
 
 
-async def test_the_revisions_create_exactly_the_fifteen_tables(
+async def test_the_revisions_create_exactly_the_tables_the_models_declare(
     migrator_engine: AsyncEngine,
 ) -> None:
+    """Named for the property rather than for a count. It said "the fifteen tables" while
+    `ALL_TABLES` held twenty-one — the assertion was always right, because it compares against
+    the constant, but the name stopped being true at revision 0004 and nobody noticed for two
+    milestones. A number in a test name is a claim that goes stale on its own."""
     assert await _tables(migrator_engine) == set(ALL_TABLES) | {"alembic_version"}
+    assert len(ALL_TABLES) == 21, "the count moved; the migrations and the models still agree"
 
 
 async def test_alembic_version_matches_the_packaged_head(migrator_engine: AsyncEngine) -> None:

@@ -19,8 +19,9 @@ afterEach(() => {
   delete process.env.AEGISNET_API_URL;
 });
 
-/* The `http://` literals below are the assertions, not a configuration choice, so the five
- * `NOSONAR`s are the honest form of "reviewed, and it stays". `S5332` ("use https instead")
+/* The `http://` literals below are the assertions, not a configuration choice, so the
+ * `NOSONAR`s — six of them, not five as the commit that added them said — are the honest
+ * form of "reviewed, and it stays". `S5332` ("use https instead")
  * is right about product code and wrong here: the stack binds loopback with nothing
  * terminating TLS in front of it, so `http://localhost:8000` is what `apiBaseUrl()` must
  * return, and `http://user:pass@api:8000` is a string this function must *refuse*. Rewriting

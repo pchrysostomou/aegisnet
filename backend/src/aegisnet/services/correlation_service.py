@@ -27,6 +27,7 @@ from typing import Final
 
 from aegisnet.domain.correlation import (
     DEFAULT_JOIN_GAP,
+    MAX_INCIDENT_SPAN,
     AlertFacts,
     CorrelationError,
     Proposal,
@@ -235,11 +236,23 @@ class CorrelationService:
         )
 
     def _continues(self, existing: IncidentRecord, proposal: Proposal) -> bool:
-        """Is this proposal the same story as the open case? Same entity, and starting no
-        later than the join gap after the case's last activity."""
+        """Is this proposal the same story as the open case? Same entity, starting no later than
+        the join gap after the case's last activity, and the whole case still inside
+        ``MAX_INCIDENT_SPAN``.
+
+        That last clause was missing. `Proposal.joins` enforces the span when alerts are grouped
+        *within* one run — its docstring says "with the whole case still inside
+        MAX_INCIDENT_SPAN" — but extending a case already in the database went through here,
+        which only ever looked at the gap. A host alerting every few minutes for two days would
+        grow one case indefinitely, which is the failure the bound exists to prevent: a case
+        nobody can read, and a timeline whose beginning has nothing to do with its end.
+        """
         if existing.correlation_key != proposal.key:  # pragma: no cover - the query filters
             return False
-        return proposal.window_start - existing.window_end <= self._join_gap
+        if proposal.window_start - existing.window_end > self._join_gap:
+            return False
+        span = max(existing.window_end, proposal.window_end) - existing.window_start
+        return span <= MAX_INCIDENT_SPAN
 
     async def _closed_predecessor(self, proposal: Proposal) -> IncidentRecord | None:
         """The closed case this story would have continued into, if there is one.

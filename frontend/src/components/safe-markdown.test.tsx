@@ -175,3 +175,35 @@ describe("invisible characters are written out wherever text is rendered (T-4.4)
     expect(parseBlocks("\t- item")[0]?.kind).toBe("list");
   });
 });
+
+describe("a blank line ends the block above it", () => {
+  it("makes two paragraphs, not one with a line break", () => {
+    const html = render("first\n\nsecond");
+    expect(html).toContain("<p>");
+    expect(html.match(/<p>/g)).toHaveLength(2);
+    expect(html).not.toContain("<br/>");
+  });
+
+  it("still joins lines that are only separated by a newline", () => {
+    const html = render("first\nsecond");
+    expect(html.match(/<p>/g)).toHaveLength(1);
+    expect(html).toContain("<br/>");
+  });
+
+  it("leaves a loose list as one list, which is what markdown says", () => {
+    const html = render("- a\n\n- b");
+    expect(html.match(/<ul>/g)).toHaveLength(1);
+    expect(html.match(/<li>/g)).toHaveLength(2);
+  });
+
+  it("separates two quotes", () => {
+    const html = render("> a\n\n> b");
+    expect(html.match(/<blockquote>/g)).toHaveLength(2);
+  });
+
+  it("keeps blank lines inside a fence, where they are content", () => {
+    const html = render("```\na\n\nb\n```");
+    expect(html.match(/<pre>/g)).toHaveLength(1);
+    expect(html).toContain("a\n\nb");
+  });
+});

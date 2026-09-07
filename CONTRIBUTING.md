@@ -41,7 +41,13 @@ requests are welcome; the rules below keep the repository honest about what work
   Protocols in `domain/ports.py`.
 - Every operator task is a `make` target added by the commit that makes it work.
 - No secret-shaped string literals anywhere, tests included; derive test keys from
-  expressions. The `security` workflow's gitleaks step rejects them.
+  expressions. The `security` workflow's gitleaks step rejects them — the commits of your push,
+  and the whole history on the weekly run, so a literal you push and rewrite next commit is
+  cleared from the first scan and never from the second.
+- `.gitleaks.toml` allows exactly four strings, all of them fakes already in the history, all by
+  anchored value. **It is not where you put a new one.** Build the value from expressions
+  instead; `tests/security/test_secret_scan_config.py` fails if an allowed value comes back into
+  the tree as a literal, and it will fail on your commit rather than on somebody's Monday.
 
 ## Reporting a vulnerability
 

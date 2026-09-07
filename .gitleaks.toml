@@ -1,0 +1,53 @@
+# gitleaks configuration.
+#
+# Why this file exists. The secret scan runs in two places with two different scopes, and for
+# a long time only the narrow one was ever seen. `gitleaks-action` scans the commits of a
+# *push*; on a `schedule` or a manual dispatch it scans the **entire history** instead. Every
+# push was therefore green while the weekly run was red, because seven secret-shaped strings
+# were committed as literals, noticed, and rewritten to be built at runtime in a follow-up
+# commit — which clears the push scan and does nothing at all for the history scan. The
+# literals are still in the objects those commits left behind, and no amount of further
+# commits will remove them.
+#
+# The four values below are the whole of it. Each is a deliberate fake: three are canaries
+# belonging to tests that exist to prove secret-shaped input is refused or redacted, and one
+# is the signing key every test settings object is built with. None has ever been valid
+# anywhere. Rewriting history to erase four fake strings would break every commit hash in a
+# published repository — a much larger act than the thing it fixes.
+#
+# What this file deliberately does NOT do: allowlist a path. `paths = ['^backend/tests/']`
+# would clear the same seven findings in one line and would also mean that a real credential
+# pasted into a test file is never reported again — and `backend/tests/security/` is precisely
+# where somebody debugging a redaction failure would paste one. The allowlist is therefore
+# four exact strings, anchored. Anything else, in any file, still fails the scan.
+#
+# One source of truth: the pre-commit hook and the CI job both read this file, so a value
+# allowed here is allowed in both and a value missing here fails in both.
+
+title = "AegisNet"
+
+[extend]
+# Every default rule stays on. This file only subtracts four specific strings from them.
+useDefault = true
+
+[allowlist]
+description = "Fake credentials committed as literals before Chunk 6 and Chunk 21 moved them to runtime construction. Matched against the secret itself and anchored, so a near-miss is still a finding."
+regexTarget = "secret"
+regexes = [
+  # backend/tests/conftest.py and three integration tests: the HS256 signing key every test
+  # Settings is built with. Now `TEST_SECRET_KEY`, imported from one place.
+  '''^test-signing-key-0123456789-abcdefghijklmnop$''',
+
+  # backend/tests/security/test_redaction.py: the JWT canary. Payload decodes to
+  # {"sub":"canary"}; the signature is keyboard noise and verifies against nothing.
+  # Now assembled with ".".join(...).
+  '''^eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiJjYW5hcnkifQ\.s5Zc9Xk2Qb7dR1tYwPlKmN0oJhGfEdCbAa$''',
+
+  # backend/tests/security/test_redaction.py: the GitHub PAT canary. The word "canary" sits
+  # inside the token body. Now assembled as "ghp" + "_" + ....
+  '''^ghp_canary0123456789abcdefghijklmnopqrst$''',
+
+  # backend/tests/unit/test_sanitize_eve.py: the query-string value in the URL fixture that
+  # proves `api_key=` is stripped from a logged URL. Now `NOT_A_SECRET`.
+  '''^sk-live-9f3ac1$''',
+]

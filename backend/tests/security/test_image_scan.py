@@ -87,52 +87,86 @@ def test_a_finding_in_an_image_this_project_builds_fails_the_job() -> None:
     """
     ours = [s for s in _scan_steps() if str(s["with"]["image-ref"]).startswith(BUILT_HERE)]
     assert ours, "nothing this project builds is scanned"
+
+    # Each built image is scanned twice: once as a `table` that gates, once as `sarif` that
+    # reports. The property is that every built image has a gating pass — not that every pass
+    # gates, which would make the second scan fail the job a second time on one finding and
+    # skip the upload. The reporting pass is held to the same severity, so it cannot become a
+    # quieter scan wearing the gate's name.
     for step in ours:
-        assert str(step["with"].get("exit-code")) == "1", f"{step.get('name')} does not gate"
         assert step["with"].get("severity") == "HIGH,CRITICAL"
+    for ref in {str(s["with"]["image-ref"]) for s in ours}:
+        passes = [s for s in ours if str(s["with"]["image-ref"]) == ref]
+        gates = [s for s in passes if str(s["with"].get("exit-code")) == "1"]
+        assert len(gates) == 1, f"{ref} has {len(gates)} gating scans; it needs exactly one"
+        assert str(gates[0]["with"].get("format")) == "table", f"{ref} gates on the report pass"
 
 
 def _upload_steps() -> list[dict[str, Any]]:
     return [step for step in _job()["steps"] if "upload-sarif" in str(step.get("uses", ""))]
 
 
-def test_the_report_only_scans_publish_where_a_finding_can_be_read() -> None:
-    """The half of the decision that changed, and the reason it is a test rather than a comment.
+def test_the_images_this_project_builds_publish_where_a_finding_can_be_read() -> None:
+    """Which findings become alerts, and the two times this assertion has been reversed.
 
-    This assertion used to be its inverse — `"sarif" not in` the workflow at all — on the
-    reasoning that code scanning was unavailable because the repository was private and a report
-    nobody can open is not a control. **The repository was never private.** It has carried a
-    `PublicEvent` at its `created_at` second since 2026-08-28; the belief came from an
-    instruction that was recorded and never checked against the API, and it propagated into
-    `THREAT_MODEL.md`, `ADR-037` and this file. The code-scanning API answers `no analysis
-    found`, not `403`.
+    It began as its own inverse — `"sarif" not in` the workflow at all — because code scanning
+    was believed unavailable on a private repository. The repository was never private, so that
+    premise went and Chunk 33 published SARIF for the two images the stack *pulls*: the
+    report-only half of the job, given somewhere durable to land.
 
-    So the premise is gone and the conclusion goes with it: the two scans that only *print* now
-    publish, because a finding in the Security tab outlives a log line. The gate above is
-    unchanged — this is the weaker half of the job getting somewhere durable to land, not the
-    stronger half being relaxed into a report.
+    That was the wrong half. It put **74 permanently open HIGH and CRITICAL alerts** on a public
+    repository, all of them Go standard-library CVEs in the `gosu` binary inside
+    `postgres:16-alpine` — fixed upstream in Go 1.24.13 and shipped by nobody here, so
+    `ignore-unfixed` never touched them. Nothing in this repository could close one. They
+    returned on every push. And a reader of the Security tab saw 74 vulnerabilities filed
+    against AegisNet, which is not what they were.
+
+    So the reports follow the gate instead of complementing it: an image this project builds
+    both fails the job *and* files an alert, and an image it only pulls does neither. The pulled
+    images are still scanned and still printed in full — see the test below. What was given up
+    is a durable record of somebody else's CVEs; what was bought is a Security tab whose
+    contents are all things this repository can act on, which is the only kind that gets read.
     """
     uploads = _upload_steps()
-    assert uploads, "the report-only scans publish nowhere again"
+    assert uploads, "nothing is published; the Security tab shows this project no findings"
 
     sarif_scans = [s for s in _scan_steps() if s["with"].get("format") == "sarif"]
     assert sarif_scans, "nothing is written in SARIF for those uploads to publish"
 
-    # A gate is stronger than a report. If an image this project builds ever produced SARIF
-    # instead of failing the job, that would be the gate quietly becoming a notification.
+    # The reversal itself. An alert against this project must be a finding in an image this
+    # project builds, because that is the only kind anybody here can close.
     for step in sarif_scans:
-        assert not str(step["with"]["image-ref"]).startswith(BUILT_HERE), (
-            f"{step.get('name')} reports on an image whose findings should fail the job"
+        assert str(step["with"]["image-ref"]).startswith(BUILT_HERE), (
+            f"{step.get('name')} files alerts about an image nobody here can fix"
         )
 
+    # A report must never arrive *instead of* the gate. Every image written to SARIF is also
+    # scanned by a step that fails the job, so publishing is strictly additional.
+    gated = {
+        str(s["with"]["image-ref"]) for s in _scan_steps() if str(s["with"].get("exit-code")) == "1"
+    }
+    for step in sarif_scans:
+        ref = str(step["with"]["image-ref"])
+        assert ref in gated, f"{ref} reports but no step gates on it"
+
     # Distinct categories, or the second upload replaces the first and the Security tab shows
-    # one datastore instead of two — a silent halving of the coverage this job claims.
+    # one image instead of two — a silent halving of the coverage this job claims.
     categories = [str(step["with"]["category"]) for step in uploads]
     assert len(categories) == len(set(categories)), f"uploads share a category: {categories}"
 
     written = {str(step["with"]["output"]) for step in sarif_scans}
     published = {str(step["with"]["sarif_file"]) for step in uploads}
     assert written == published, f"written {sorted(written)} but published {sorted(published)}"
+
+
+def test_publishing_survives_the_failure_it_is_describing() -> None:
+    """The gate runs first and the report is written second, so without `if: always()` the run
+    that most needs a report is the one run that does not produce one."""
+    scans = _scan_steps()
+    # All but the first scan: that one is the gate everything after it is conditional upon, and
+    # it carries no `if` by design.
+    for step in scans[1:] + _upload_steps():
+        assert step.get("if") == "always()", f"{step.get('name')} is skipped by an earlier failure"
 
 
 def test_the_job_may_publish_and_the_lockfile_audits_may_not() -> None:
@@ -192,11 +226,18 @@ def test_unfixed_findings_do_not_turn_every_push_red() -> None:
         assert step["with"].get("ignore-unfixed") is True, step.get("name")
 
 
-def test_the_scan_runs_on_every_push_and_again_on_a_schedule() -> None:
+def test_the_scan_runs_on_every_push_on_a_schedule_and_on_demand() -> None:
     """The weekly run matters more here than for the lockfile audits: the base images follow a
-    moving tag (F-5, R-10), so what ships can change without a commit."""
+    moving tag (F-5, R-10), so what ships can change without a commit.
+
+    `workflow_dispatch` is load-bearing for a different job in this same workflow. gitleaks
+    scans the push's own commits on a push and the entire history on every other event, so
+    without a manual trigger the wide scan ran weekly and nowhere else: a history finding could
+    not be re-checked until the next Monday. It went unnoticed for exactly that reason.
+    """
     triggers = _workflow()[True] if True in _workflow() else _workflow()["on"]
     assert "push" in triggers and "schedule" in triggers
+    assert "workflow_dispatch" in triggers, "the history scan can only be run by waiting a week"
 
 
 EXACT_RELEASE = re.compile(r"^v?\d+\.\d+\.\d+$")

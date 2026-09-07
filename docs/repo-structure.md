@@ -30,6 +30,7 @@ aegisnet/
 ├── docker-compose.override.yml.example
 ├── .env.example                       every setting, no real values
 ├── .pre-commit-config.yaml            ruff, ruff-format, secret scan, PII canary scan
+├── .gitleaks.toml                      the secret scan's four allowed fakes, by value not by path
 ├── .hadolint.yaml  .sonarcloud.properties  .gitattributes  .gitignore  .dockerignore
 │
 ├── .github/

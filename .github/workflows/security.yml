@@ -18,6 +18,12 @@ on:
   pull_request:
   schedule:
     - cron: "17 6 * * 1"
+  # `workflow_dispatch` is not a convenience here, it is the only way to run the *wide* secret
+  # scan on demand. `gitleaks-action` scans the commits of a push and the whole history on
+  # every other event, so before this trigger existed the history scan ran once a week and
+  # nowhere else — a fix for a history finding could not be verified until the following
+  # Monday, and a regression could hide for six days.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -29,10 +35,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          # The whole history, because the scan's scope depends on the event: the push's own
+          # commits on a push, and every commit in the repository on a schedule or a dispatch.
+          # A shallow clone would make the wide scan silently narrow.
           fetch-depth: 0
       - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # Explicit, not left to auto-detection of a root `.gitleaks.toml`. A config that is
+          # silently not loaded looks exactly like a config that is: the four allowed test
+          # fakes come back as findings and the job goes red with no clue why.
+          GITLEAKS_CONFIG: ${{ github.workspace }}/.gitleaks.toml
 
   python-deps:
     name: pip-audit · backend lockfile
@@ -162,57 +175,71 @@ jobs:
           exit-code: "0"
           format: table
 
-      # The two scans above print and do not gate. That used to be where it ended, on the
-      # reasoning that a SARIF report nobody can open is not a control — code scanning was
-      # unavailable because the repository was believed to be private. It never was: the
-      # repository has been public since it was created, the API answers `no analysis found`
-      # rather than `403`, and a report *can* be read. So the report-only scans now land
-      # somewhere durable instead of scrolling past in a log.
+      # What lands in the Security tab, and why it is the opposite of what it was.
       #
-      # Only the pulled images go to SARIF, and that is the point of the split: a finding in
-      # an image this project *builds* is actionable now, so it fails the job above and
-      # nobody has to go looking. A finding in `postgres:16-alpine` is somebody else's
-      # release schedule (R-10) — worth recording, never worth blocking a push on.
+      # These reports cover the images this project *builds*, and only those. That is the same
+      # line the gate above draws, drawn for the same reason: a finding in `aegisnet-api` is
+      # this repository's to fix, so it belongs somewhere that outlives a log's retention.
       #
-      # Trivy is run a second time rather than once with two outputs because the action takes
-      # a single `format`. The vulnerability database is already in the job's cache by now,
-      # so the second pass costs seconds.
-      - name: Re-scan the pulled images into SARIF
+      # It used to be the other way round — SARIF for the two pulled images, nothing for the
+      # built ones — and that was wrong. It put **74 permanently open HIGH and CRITICAL alerts
+      # on a public repository**, every one of them a Go standard-library CVE in the `gosu`
+      # binary inside `postgres:16-alpine` (stdlib v1.24.6; fixed in Go 1.24.13, which nobody
+      # here ships). They could not be closed, they came back on every push, and to a reader of
+      # the Security tab they read as 74 vulnerabilities in AegisNet. That is the alert-shaped
+      # version of the gate nobody can pass, and it fails the same way: the tab stops being
+      # read. `ignore-unfixed: true` does not help — upstream Go *has* the fix; the image has
+      # not been rebuilt with it.
+      #
+      # The pulled images did not stop being scanned. They are scanned in the two steps above,
+      # printed in full, and re-run weekly, which is what R-10 promises and all it ever
+      # promised. What changed is that a finding nobody here can act on no longer files a
+      # ticket against this project.
+      #
+      # Trivy runs a second time per image rather than once with two outputs because the action
+      # takes a single `format`. The vulnerability database is in the job's cache by now, so the
+      # second pass costs seconds.
+      #
+      # `if: always()` throughout: when the gate above fails, its report is the thing you most
+      # want, so it must not be skipped by the failure it describes.
+      - name: Re-scan the API image into SARIF
         if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
-          image-ref: postgres:16-alpine
+          image-ref: aegisnet-api:latest
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+          # `0`, because the step above already gated on this exact scan. Failing twice on one
+          # finding would skip the upload and lose the report.
           exit-code: "0"
           format: sarif
-          output: trivy-postgres.sarif
+          output: trivy-api.sarif
 
-      - name: Re-scan redis into SARIF
+      - name: Re-scan the dashboard image into SARIF
         if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
-          image-ref: redis:7-alpine
+          image-ref: aegisnet-web:latest
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "0"
           format: sarif
-          output: trivy-redis.sarif
+          output: trivy-web.sarif
 
       # A distinct `category` per image, or the second upload replaces the first and the
-      # Security tab shows one datastore instead of two.
-      - name: Publish the postgres report
+      # Security tab shows one image instead of two.
+      - name: Publish the API report
         if: always()
         uses: github/codeql-action/upload-sarif@v4
         with:
-          sarif_file: trivy-postgres.sarif
-          category: trivy-postgres
+          sarif_file: trivy-api.sarif
+          category: trivy-api
 
-      - name: Publish the redis report
+      - name: Publish the dashboard report
         if: always()
         uses: github/codeql-action/upload-sarif@v4
         with:
-          sarif_file: trivy-redis.sarif
-          category: trivy-redis
+          sarif_file: trivy-web.sarif
+          category: trivy-web

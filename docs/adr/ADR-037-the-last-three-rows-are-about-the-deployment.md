@@ -107,6 +107,15 @@ Three choices, each with a reason:
   > A fact about the deployment is exactly the kind of claim this project checks everywhere
   > else, and it went unchecked for thirty-two chunks because it arrived as an instruction
   > rather than as a measurement.
+  >
+  > **Superseded 2026-09-07 by [ADR-038](ADR-038-the-security-tab-said-two-things-and-both-were-wrong.md),
+  > which keeps the reasoning and swaps the target.** Publishing the *pulled* images put 74
+  > permanently open HIGH and CRITICAL alerts on a public repository — Go standard-library CVEs
+  > in the `gosu` binary inside `postgres:16-alpine`, fixed in Go 1.24.13 and shipped by nobody
+  > here — none of which anything in this repository could close. "A report belongs somewhere
+  > durable" was right; the half chosen was the half where a durable record helps nobody. SARIF
+  > now covers `aegisnet-api` and `aegisnet-web`, which both gate *and* report; the pulled images
+  > are scanned, printed in full and not turned into alerts. The gate still has not moved.
 - **It ignores unfixed findings.** A base image carrying a CVE with no upstream fix would otherwise
   turn every push red until somebody invented a fix that does not exist. A gate nobody can pass is
   a gate people learn to switch off. This is a deliberate weakening and it is written down so that

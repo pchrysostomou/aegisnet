@@ -11,6 +11,19 @@ tag — the entry below it says "there is no Dependabot configuration", which wa
 written and is superseded by the first item here.
 
 ### Added
+- `.gitleaks.toml`, and `workflow_dispatch` on the `security` workflow. The secret scan runs at
+  two scopes — a push's own commits, and the **entire history** on the weekly run — and only the
+  narrow one was ever watched. Seven secret-shaped literals were committed on 2026-09-05,
+  noticed, and rewritten as runtime expressions, which clears the push scan and cannot clear the
+  history scan; every push was green and every Monday was red. The config allows the four
+  distinct strings **by anchored value, never by path**: `paths = ['^backend/tests/']` would
+  clear the same seven findings and also stop reporting a real credential pasted into the
+  directory where credentials are handled. Probed rather than assumed — one character changed, a
+  longer superstring and an unrelated PAT are all still findings. `workflow_dispatch` is what
+  makes the wide scan runnable at all without waiting a week.
+  `tests/security/test_secret_scan_config.py` holds the allowlist to its narrowness, and its
+  tree walk caught an allowed value being re-quoted immediately, in the docstring of the test
+  that says never to quote them.
 - `.github/dependabot.yml`. The project has claimed Dependabot since Milestone 1 and meant
   *alerts*, which surface an advisory and never open a pull request that fixes it. Four
   ecosystems, grouped weekly so one maintainer does not learn to ignore it. It also hands R-10
@@ -30,6 +43,15 @@ written and is superseded by the first item here.
   because "does it scan?" deserves an answer before somebody files it.
 
 ### Changed
+- **The image scan publishes SARIF for the images this project builds, not the ones it pulls.**
+  Chunk 33 had it the other way round, and the result was **74 permanently open HIGH and CRITICAL
+  code-scanning alerts on a public repository** — Go standard-library CVEs in the `gosu` binary
+  inside `postgres:16-alpine` (`stdlib v1.24.6`, fixed in Go 1.24.13, shipped by nobody here, and
+  therefore untouched by `ignore-unfixed`). Nothing in this repository could close one, they came
+  back on every push, and to a visitor they read as 74 vulnerabilities in AegisNet. `aegisnet-api`
+  and `aegisnet-web` now both gate *and* report; the pulled images are still scanned, still
+  printed in full and still weekly, and file nothing (R-10). The stale analyses were deleted, so
+  the tab reads 0. ADR-038 keeps ADR-037's reasoning and moves its target.
 - **redis 6.4 → 8.1.0**, which exists only because the previous change removed the Dependabot
   ignore that had been suppressing it. That entry held back `redis>=7.0` because
   `dramatiq[redis]` capped it at `<7.0`; dramatiq 2.x caps at `<9.0`, the ignore went, and

@@ -58,11 +58,20 @@ and a `SECURITY.md` "not there yet" list naming two things that had shipped.
 
 ## 4. Supply chain
 
-- [x] `gitleaks` clean on history and diff.
+- [x] `gitleaks` clean on history and diff. **Read this one carefully: it was ticked while it was
+      false.** A push scan covers the push's commits and nothing else, so "green on the last push"
+      is not evidence about history. Run the wide scan — `gh workflow run security.yml`, or
+      `gitleaks git -v` in a full clone — and read the count. It was 7 on 2026-09-05 and nobody saw
+      it for two days (E-104).
 - [x] `pip-audit --strict` and `pnpm audit --prod` clean.
 - [x] The image scan gates on the images this project builds and reports on the two it pulls
       (R-10). It found a CRITICAL in npm's bundled `tar` on its first working run — a package no
       lockfile audit can see, because it is not in any lockfile here.
+- [x] **The Security tab is read, not inferred from the workflow list.** `gh api
+      repos/<owner>/<repo>/code-scanning/alerts` and the Dependabot and secret-scanning equivalents.
+      A green check beside the last push says nothing about alerts, and nothing about the scheduled
+      runs either — check `gh run list --workflow security.yml` for the last *scheduled* one. Both
+      were skipped at the 2026-09-07 close-out; both were red (E-104).
 - [x] **No action pinned to a deprecated runtime.** `grep -hoE "uses: [^ ]+" .github/workflows/*.yml
       | sort -u` and check each. This has bitten twice: Node 20 removal caught
       `actions/upload-artifact@v4` ten days before it would have broken, and only because an

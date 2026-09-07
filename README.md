@@ -90,7 +90,7 @@ aspirational:
 | Authentication and authorisation: Argon2id users with lockout, 15-minute HS256 access tokens, rotating refresh cookies with reuse detection, hashed service tokens for sensors, deny-by-default permission on every route | ✅ [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md), [`SECURITY.md`](SECURITY.md) |
 | Audit trail (append-only, bounded detail, admin read API) covering logins, denials, refused uploads and rejected import ids, and Redis rate limits that fail closed for login and ingest | ✅ [ADR-016](docs/adr/ADR-016-authentication-rbac-audit-and-rate-limits.md) |
 | Operator CLI (`python -m aegisnet.cli`) for datasets, batches, assets, events, users and service tokens; `make` targets for every operator task | ✅ |
-| Tests: 1 349 hermetic tests (unit, integration, security, detectors) at 94 % coverage, 95 database tests against a real PostgreSQL, seven opt-in load tests against a running stack, twenty-one Playwright tests against a running stack, and a CI stack job that logs in, ingests over HTTP, watches the post-ingest sweep and reads the alerts | ✅ [`docs/STATUS.md`](docs/STATUS.md) |
+| Tests: 1 355 hermetic tests (unit, integration, security, detectors) at 94 % coverage, 95 database tests against a real PostgreSQL, seven opt-in load tests against a running stack, twenty-one Playwright tests against a running stack, and a CI stack job that logs in, ingests over HTTP, watches the post-ingest sweep and reads the alerts | ✅ [`docs/STATUS.md`](docs/STATUS.md) |
 | All five detection rules as pure, versioned functions over bounded windows with derived, bounded evidence and a recorded severity formula: D-001 port scan, D-002 auth-failure burst, D-003 DNS anomaly / tunnelling, D-004 periodic beaconing, D-005 outbound volume anomaly against per-asset baselines; 34 labelled positive and hard-negative cases pinned to their generator (`make test-detectors`) | ✅ Milestone 2, Chunks 8, 10 and 11 ([ADR-017](docs/adr/ADR-017-detector-interface-and-labelled-fixtures.md), [ADR-019](docs/adr/ADR-019-baselines-precomputed-and-address-keyed.md), [`docs/detection-rules.md`](docs/detection-rules.md)) |
 | The baseline job: each asset's hourly outbound history summarised into `asset_baselines` (mean, stddev, p95, sampled hours) by `make recompute-baselines`, the `recompute_baselines` actor or an admin's `POST /detections/baselines/recompute`; D-005 abstains without a baseline | ✅ Milestone 2, Chunk 11 ([ADR-019](docs/adr/ADR-019-baselines-precomputed-and-address-keyed.md)) |
 | The sweep: six detection tables, the registry synced from code, one load per interval sliced on each rule's grid, severity from the asset's criticality with a stored rationale, dedup by a UNIQUE key, per-rule failure isolation in `detector_runs`, the `run_detectors` actor, `make run-detectors`, and the read API for alerts, rules and runs plus the admin sweep trigger | ✅ Milestone 2, Chunk 9 ([ADR-018](docs/adr/ADR-018-detection-sweep-alert-storage-and-failure-isolation.md), [`docs/api-milestone-2.md`](docs/api-milestone-2.md)) |
@@ -268,6 +268,13 @@ it. §6 is **thirty-six `test` rows and no `partial`**: the eight gaps the matri
 - Nothing under `src/` starts a process except the one adapter that asks git which commit a
   published evaluation number was measured at, and a test holds that exception to that one
   module.
+- The `security` workflow scans at two scopes and it is worth knowing which is which. **gitleaks**
+  reads the commits of a push, and the **entire history** on the weekly run or a manual dispatch;
+  the four fake credentials that history still contains are allowed by name in
+  [`.gitleaks.toml`](.gitleaks.toml), never by path, so a real secret in a test file is still a
+  finding. **Trivy** scans all four images and **files alerts only for the two this project
+  builds**, because those are the findings anybody here can close — what `postgres:16-alpine`
+  carries is printed in full in the job log and belongs to whoever publishes that image (R-10).
 
 ---
 
@@ -472,7 +479,10 @@ re-examined it and kept it: at the time nothing here bumped a digest, so pinning
 updater would freeze the images and stop security patches arriving. `.github/dependabot.yml`
 has since supplied that updater, so the argument has changed and the decision has not — [#14](https://github.com/pchrysostomou/aegisnet/issues/14). The `images` job scans what is actually
 inside every image instead — see residual risk **R-10** in
-[`THREAT_MODEL.md`](THREAT_MODEL.md), which also says what that does not cover.
+[`THREAT_MODEL.md`](THREAT_MODEL.md), which also says what that does not cover. R-10 is also why
+the pulled images report to a log and not to the Security tab: they once filed 74 open alerts
+against this project for Go standard-library CVEs inside `postgres:16-alpine`'s `gosu` binary,
+none of which anything in this repository could close ([ADR-038](docs/adr/ADR-038-the-security-tab-said-two-things-and-both-were-wrong.md)).
 
 A seventh container exists but is not part of this stack: the lab's sensor
 ([ADR-021](docs/adr/ADR-021-isolated-suricata-lab.md)) lives in
@@ -544,6 +554,7 @@ reporting, as described in [`SECURITY.md`](SECURITY.md).
 ├── docs/                    STATUS, PRD, data model, API contract, delivery plan, ADRs
 ├── docker-compose.yml       the six-service stack
 ├── docker-compose.test.yml  hermetic test runner and the ephemeral test database
+├── .gitleaks.toml           the secret scan's four allowed test fakes, allowed by value not by path
 └── Makefile                 every operator and developer task
 ```
 

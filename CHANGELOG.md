@@ -45,6 +45,32 @@ written and is superseded by the first item here.
   private vulnerability reporting instead of a public issue, and points at the scope boundary,
   because "does it scan?" deserves an answer before somebody files it.
 
+### Changed
+- **dramatiq 1.18 → 2.2.1**, and the four things a click-merge would have got wrong. Dependabot
+  opened this as a one-line constraint widening; it needed work rather than a click, which is the
+  argument for reading these:
+  - **The upgrade broke `mypy`, not at runtime.** dramatiq 2.x ships annotations, so three
+    `# type: ignore[no-untyped-call]` comments on `enqueue` and `add_middleware` became errors of
+    their own under `--strict`. They are gone. `RedisBroker.__init__` is still unannotated, so
+    that one ignore stays and now says why it is the only survivor.
+  - **dramatiq 2.x removed Prometheus entirely** — no middleware, no export, and
+    `prometheus-client` is out of the lockfile. Six places said the api, worker and scheduler
+    "write only dramatiq's Prometheus directory under /tmp", which was a `docker diff`
+    measurement and is now a description of something that no longer happens:
+    `docker-compose.yml` (three comments), `THREAT_MODEL.md`, `README.md`, `ADR-037` and a test
+    docstring. All corrected. The `/tmp` mounts stay — the root filesystem is read-only and
+    Python will want one — but the api's multipart rollover is the whole of the reason now, and
+    the manifest says so instead of implying the old one.
+  - **The Dependabot `redis` ignore is obsolete and removed.** It suppressed `redis>=7.0` because
+    `dramatiq[redis]` capped it at `<7.0`; 2.x caps at `<9.0`. That entry's own comment said
+    "delete this when dramatiq widens its cap", so it did what it promised.
+  - **Verified by running it, not by the suite passing.** The stack was rebuilt (the first
+    attempt reported every container healthy while still running 1.18 from a stale image — the
+    logs said so and `--build` fixed it), and on 2.2.1: all seven actors register, zero
+    Prometheus mentions, and a queued `import-dataset` produced `import_dataset_done`,
+    `ingest_batch_finished`, `post_ingest_sweep_queued`, `run_detectors_done` and
+    `detection_sweep_done`, with the batch reaching `complete`.
+
 ### Fixed
 - **`make compose-test` had been broken for as long as the provenance tests existed.** It
   reported 8 errors and 1 failure — `tests/unit/test_provenance.py` shells out to `git`, which is

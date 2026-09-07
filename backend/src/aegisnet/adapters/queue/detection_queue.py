@@ -28,7 +28,7 @@ class RedisDetectionQueue:
             kwargs={},
             options={},
         )
-        stored = self._broker.enqueue(message)  # type: ignore[no-untyped-call]
+        stored = self._broker.enqueue(message)
         return str(stored.message_id)
 
     def enqueue_baselines(self, window_days: int) -> str:
@@ -40,5 +40,5 @@ class RedisDetectionQueue:
             kwargs={},
             options={},
         )
-        stored = self._broker.enqueue(message)  # type: ignore[no-untyped-call]
+        stored = self._broker.enqueue(message)
         return str(stored.message_id)

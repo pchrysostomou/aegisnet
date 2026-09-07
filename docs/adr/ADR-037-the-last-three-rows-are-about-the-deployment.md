@@ -25,7 +25,7 @@ with sized `tmpfs` mounts for exactly what each one writes.
 
 **The writable paths were measured.** `docker diff` against a stack that had been up for seven
 hours said: `db` writes its socket and lock file and nothing else; `api`, `worker` and `scheduler`
-write only dramatiq's Prometheus directory under `/tmp`; and `redis` and `web` write **nothing at
+write only under `/tmp` — dramatiq's Prometheus counters at the time of this measurement, though 2.x has since removed Prometheus altogether; and `redis` and `web` write **nothing at
 all**. Guessing would have produced a longer list and a false sense of having thought about it.
 
 That measurement immediately paid for itself. `/app/samples` **does not exist in the api image** —

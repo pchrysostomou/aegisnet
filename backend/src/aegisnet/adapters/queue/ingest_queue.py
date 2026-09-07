@@ -19,8 +19,8 @@ class RedisIngestQueue:
         message: Any = dramatiq.Message(
             queue_name=INGEST_QUEUE, actor_name=actor_name, args=args, kwargs={}, options={}
         )
-        # Dramatiq ships no annotations; the enqueue returns the message it stored.
-        stored = self._broker.enqueue(message)  # type: ignore[no-untyped-call]
+        # dramatiq 2.x ships annotations; the enqueue returns the message it stored.
+        stored = self._broker.enqueue(message)
         return str(stored.message_id)
 
     def enqueue_import(self, batch_id: UUID, dataset_id: str, source_label: str) -> str:

@@ -462,7 +462,7 @@ ever attempted.
 Every container also runs on a **read-only root filesystem**, with exactly the writable paths it
 needs as sized `tmpfs` mounts — and those were measured rather than guessed: `docker diff` against
 a stack that had been up seven hours says `db` writes only its socket directory, `api`, `worker`
-and `scheduler` write only dramatiq's Prometheus directory under `/tmp`, and `redis` and `web`
+and `scheduler` write only under `/tmp` — dramatiq kept Prometheus counters there until 2.x removed Prometheus, so what remains is the api's multipart rollover — and `redis` and `web`
 write nothing at all. A policy test pins that list, so widening it is a decision somebody makes
 rather than a line somebody adds.
 

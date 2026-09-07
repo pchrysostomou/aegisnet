@@ -280,7 +280,7 @@ rewritten: a count of unfinished rows in one of them is true **as at that chunk*
 - Chunk 30 closed the last three, and they were the three about how the deployment is built.
   **T-5.1**: every service now runs on a read-only root filesystem. The writable paths were not
   guessed — `docker diff` against a stack that had been up seven hours said db writes only its
-  socket directory, api, worker and scheduler write only dramatiq's Prometheus directory, and
+  socket directory, api, worker and scheduler write only under `/tmp` (that measurement was taken when dramatiq kept Prometheus counters there; 2.x removed Prometheus entirely, so the api's multipart rollover is what remains), and
   redis and web write nothing at all. That measurement also caught a defect a manifest-only change
   would have shipped: `/app/samples` did not exist in the api image, so Docker was creating it at
   container start, which is a write to the container layer and exactly what `read_only` forbids.

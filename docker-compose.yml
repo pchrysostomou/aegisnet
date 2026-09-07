@@ -11,8 +11,11 @@
 #     via `user:` so no privilege switch is ever attempted.
 #   * Every service runs on a `read_only` root filesystem (THREAT_MODEL T-5.1). The writable paths
 #     below are not guesses: `docker diff` on a stack that had been up seven hours says db writes
-#     only its socket directory, api/worker/scheduler write only dramatiq's Prometheus directory
-#     under /tmp, and redis and web write nothing at all.
+#     only its socket directory, api/worker/scheduler write only under /tmp, and redis and web
+#     write nothing at all. That measurement was taken when dramatiq wrote a Prometheus counter
+#     directory there at import; **dramatiq 2.x removed Prometheus entirely** — no middleware, no
+#     `prometheus-client` in the lockfile — so /tmp is now for Starlette's multipart rollover on
+#     the api, and a floor under whatever Python itself needs on a read-only root everywhere else.
 #   * Image tags are pinned by minor version, and stay that way: Chunk 30 re-examined decision
 #     F-5 and kept it, because at the time nothing in this repository bumped a digest, so
 #     pinning without an updater would freeze the images and stop security patches arriving.
@@ -86,9 +89,10 @@ services:
         GIT_SHA: ${GIT_SHA:-unknown}
     <<: *hardening
     tmpfs:
-      # dramatiq creates its Prometheus directory at import, and Starlette rolls a
-      # multipart part over 1 MiB to disk here. Sized above INGEST_MAX_BODY_BYTES so a
-      # legitimate upload cannot be refused by the tmpfs rather than by the cap.
+      # Starlette rolls a multipart part over 1 MiB to disk here. Sized above
+      # INGEST_MAX_BODY_BYTES so a legitimate upload cannot be refused by the tmpfs rather than
+      # by the cap. (It also used to hold dramatiq's Prometheus directory; dramatiq 2.x dropped
+      # Prometheus, so that half of the reason is gone and the upload is the whole of it.)
       - /tmp:size=128m,mode=1777
     command:
       ["uvicorn", "aegisnet.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-server-header"]
@@ -132,7 +136,10 @@ services:
         GIT_SHA: ${GIT_SHA:-unknown}
     <<: *hardening
     tmpfs:
-      # Same import, plus one counter file per process under dramatiq-prometheus.
+      # Kept, with a smaller claim than it used to make: this held dramatiq's per-process
+      # Prometheus counter files, and dramatiq 2.x has no Prometheus at all. A writable /tmp
+      # stays because the root filesystem is read-only and Python will use one — removing it on
+      # the strength of one `docker diff` would be trading a measurement for an assumption.
       - /tmp:size=128m,mode=1777
     command: ["dramatiq", "aegisnet.workers.main", "--processes", "1", "--threads", "2"]
     env_file: [.env]

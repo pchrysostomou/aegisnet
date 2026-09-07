@@ -40,14 +40,14 @@ def build_redis_client(settings: Settings) -> redis.Redis:
 
 
 def build_broker(settings: Settings) -> RedisBroker:
-    # Dramatiq ships no annotations for RedisBroker.__init__, so the call is untyped.
-    # The ignore is narrow and deliberate rather than a project-wide mypy relaxation.
+    # dramatiq 2.x annotates most of its surface but not `RedisBroker.__init__`, so this one
+    # call is still untyped. The ignore is narrow and deliberate rather than a project-wide
+    # mypy relaxation — and it is now the only one left here: the three on `enqueue` and
+    # `add_middleware` became errors of their own once 2.x typed them.
     broker = RedisBroker(client=build_redis_client(settings))  # type: ignore[no-untyped-call]
     # Declares the ``periodic`` actor option and drops scheduled ticks that waited longer
     # than the skip delay (ADR-020). Harmless on the API side, which never sends them.
-    broker.add_middleware(  # type: ignore[no-untyped-call]
-        PeriodiqMiddleware(skip_delay=settings.schedule_skip_delay_seconds)
-    )
+    broker.add_middleware(PeriodiqMiddleware(skip_delay=settings.schedule_skip_delay_seconds))
     return broker
 
 

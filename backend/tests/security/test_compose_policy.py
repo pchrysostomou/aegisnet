@@ -248,7 +248,8 @@ suite rather than the stack.
 
 These are measured rather than assumed: `docker diff` against a stack that had been up for
 seven hours reported db writing only its socket directory, api/worker/scheduler writing only
-dramatiq's Prometheus directory under /tmp, and redis and web writing nothing at all. The web
+under /tmp — dramatiq's Prometheus counters when this was measured, and dramatiq 2.x has since
+    removed Prometheus — and redis and web writing nothing at all. The web
 entry is insurance and the manifest says so.
 """
 

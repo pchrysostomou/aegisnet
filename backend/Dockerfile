@@ -92,10 +92,40 @@ LABEL org.opencontainers.image.title="aegisnet-api" \
       org.opencontainers.image.licenses="MIT"
 
 # procps supplies pgrep for the worker liveness healthcheck; curl is not installed on purpose.
+#
+# `apt-get upgrade` is here because the base image is pinned by minor tag and never rebuilt on
+# our schedule (F-5, R-10), so without it this image ships whatever Debian had patched *at the
+# time the base was published* and no later. That is not hypothetical: the Trivy SARIF report
+# found `libpcre2-8-0` at `10.42-1` with five advisories all fixed in `10.42-1+deb12u1` — a
+# patch sitting in the suite this build already reads from, one `upgrade` away, shipping in
+# every container for as long as nobody ran it. hadolint's DL3005 objects to this and its
+# reasoning is about build reproducibility, which is a property this project has explicitly
+# not bought (the base is a tag, not a digest); the waiver is written down in `.hadolint.yaml`.
+# The trade is that a rebuild can pick up a broken Debian package — which the suite, the
+# `stack` job and the scan would all see.
 RUN apt-get update \
+ && apt-get upgrade -y \
  && apt-get install -y --no-install-recommends procps \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --create-home --uid 10001 --shell /usr/sbin/nologin aegisnet
+
+# No package manager in the runtime image. The application runs from `/opt/venv`, which `deps`
+# built with uv and copied in whole; nothing here installs anything at run time, so `pip` is
+# 100% attack surface and 0% function — six advisories' worth of it on the day this was
+# written, all against a tool the container never calls.
+#
+# The dashboard image has deleted npm, npx and corepack since Chunk 30 for exactly this reason
+# and `test_the_dashboard_runtime_ships_no_package_manager` has held it there. The same argument
+# always applied to this image and nobody made it, because the gate never fired: pip's
+# advisories are MEDIUM and LOW, and the gate is HIGH,CRITICAL. It took the report, not the
+# gate, to find them — which is the case for keeping the report wider than the gate.
+#
+# `ensurepip`'s bundled wheel goes too, or `python -m ensurepip` reinstalls in one command what
+# the line above deleted, and the scanner reads the bundled wheel as an installed package.
+RUN rm -rf /usr/local/lib/python3.12/site-packages/pip \
+           /usr/local/lib/python3.12/site-packages/pip-*.dist-info \
+           /usr/local/lib/python3.12/ensurepip \
+           /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.12
 
 COPY --from=deps /opt/venv /opt/venv
 WORKDIR /app

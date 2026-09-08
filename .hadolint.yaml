@@ -1,6 +1,6 @@
 # hadolint configuration.
 #
-# Only two rules are waived, both with reasons rather than for convenience.
+# Only three rules are waived, each with a reason rather than for convenience.
 ignored:
   # DL3006 "always tag the version of an image explicitly".
   # False positive here: both Dockerfiles use `FROM ${IMAGE}` where IMAGE is an ARG whose
@@ -16,5 +16,17 @@ ignored:
   # breakage. Base-image reproducibility is handled at the right layer instead: by digest
   # pinning the base image (F-5, `make pin-digests`), which fixes the apt snapshot too.
   - DL3008
+  # DL3005 "do not use apt-get upgrade or dist-upgrade".
+  # The rule protects build reproducibility: an upgrade makes the image depend on what Debian
+  # published today rather than on what the base tag froze. This project has deliberately not
+  # bought that property — the base is pinned by minor tag and not by digest (F-5, R-10) — so
+  # the rule is defending something that was already traded away, and the cost of obeying it is
+  # concrete. `libpcre2-8-0` shipped at `10.42-1` in every `aegisnet-api` container with five
+  # advisories fixed in `10.42-1+deb12u1`, a patch already present in the suite the build reads
+  # from. Without `upgrade`, that ships until somebody notices; with it, the next build fixes it
+  # and the next scan closes the alert. If digest pinning ever lands (issue #14) this waiver
+  # should be reconsidered in the same change, because then the rule would be defending
+  # something real.
+  - DL3005
 
 failure-threshold: warning

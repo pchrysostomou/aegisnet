@@ -103,6 +103,53 @@ the docstring of the test asserting the values are never quoted.
 **Rewriting history was considered and rejected.** Four fake strings do not justify changing every
 commit hash in a published repository that other clones and every issue cross-reference point at.
 
+### The report stays wider than the gate, and the first run proved why
+
+Aiming SARIF at the built images produced **11 open alerts immediately**, and the honest first
+reaction was that something was misconfigured: the gate had just passed on the same image in the
+same job. It had. The job log explains it — `Building SARIF report with all severities`. The
+trivy action applies `severity:` to the exit code and **not** to the SARIF file unless
+`limit-severities-for-sarif: true` is set.
+
+The obvious fix is to set it. That would have been the wrong fix, and the 11 findings are the
+argument:
+
+| package | count | trivy severity | fix available |
+|---|---|---|---|
+| `pip` 25.0.1 | 6 | MEDIUM, LOW | yes — 25.3, 26.0, 26.1, 26.1.2, 26.2.0 |
+| `libpcre2-8-0` 10.42-1 | 5 | UNKNOWN | yes — `10.42-1+deb12u1` |
+
+All eleven are in `aegisnet-api`, an image this project builds. All eleven have a fix. **Not one
+would ever have failed the gate**, because none is HIGH or CRITICAL. Trimming the report to match
+the gate would have hidden all of them behind a comfortable zero.
+
+So `limit-severities-for-sarif` stays unset, and the two findings were fixed rather than filtered:
+
+- **pip is deleted from the runtime image**, with `ensurepip` alongside it. The application runs
+  from `/opt/venv`, built by uv in the `deps` stage and copied in whole; nothing in this container
+  installs anything at run time, so pip was 100% attack surface and 0% function. The dashboard
+  image has deleted npm, npx and corepack since Chunk 30 on exactly this reasoning and a test has
+  held it there — the same argument always applied here and nobody made it, because the gate never
+  fired. Verified by running the image: `import pip` and `import ensurepip` both raise, no `pip*`
+  survives in `/usr/local/bin`, and uvicorn, alembic, pgrep and `python -m aegisnet.cli --help`
+  all still work.
+- **The runtime stage takes Debian's security patches** (`apt-get upgrade`). A base pinned by
+  minor tag ships what Debian had patched when that base was published and nothing later, however
+  long it sits. `libpcre2-8-0` was five advisories behind a package already present in the suite
+  the build reads from. hadolint's DL3005 forbids this; the waiver is written into
+  `.hadolint.yaml` with the reason, which is that the rule defends build reproducibility and F-5
+  traded that away when it pinned a tag instead of a digest. If digest pinning lands (#14), the
+  waiver should be reconsidered in the same change.
+
+Rebuilt and rescanned at every severity with `--ignore-unfixed`: **0 findings** in both images,
+on `arm64` locally and then on `amd64` in CI, which matters because the two architectures have
+produced different finding sets before.
+
+The contract, stated once: **the gate blocks on what is urgent, the report shows everything
+fixable, and both are limited to images this project builds.** A finding below the gate does not
+stop a push; it files an alert, and a rebuild closes it once the fix reaches the distribution.
+That is a treadmill only for somebody who never rebuilds.
+
 ### `workflow_dispatch`
 
 Added to `security.yml`, and not for convenience. It is the only way to run the wide scan on demand:
@@ -111,6 +158,14 @@ this went unnoticed for two days and why the fix could not have been verified be
 
 ## Consequences
 
+- The Security tab will not stay at zero by itself, and it is not meant to. It now reports every
+  *fixable* finding in the two images this project builds, most of which will never fail the gate.
+  The intended lifecycle is: an advisory lands, the alert appears, the next build picks up the
+  distribution's patch, and the next analysis closes the alert. What must not happen is somebody
+  reading a non-zero tab as noise and reaching for `limit-severities-for-sarif` — the eleven
+  findings that motivated all of this were all below the gate, and
+  `test_the_report_is_deliberately_wider_than_the_gate` is there to make that a decision rather
+  than an edit.
 - A finding in `postgres:16-alpine` no longer produces an alert. It is in the job log and in the
   weekly run, and if the Security tab is the only place somebody looks, they will not see it. That
   is the cost, it is deliberate, and R-10 is where it is written down.

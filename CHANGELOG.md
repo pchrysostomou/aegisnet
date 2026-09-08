@@ -52,6 +52,17 @@ written and is superseded by the first item here.
   and `aegisnet-web` now both gate *and* report; the pulled images are still scanned, still
   printed in full and still weekly, and file nothing (R-10). The stale analyses were deleted, so
   the tab reads 0. ADR-038 keeps ADR-037's reasoning and moves its target.
+
+  Aiming the report at the built images then found **11 more, all in `aegisnet-api`, all with a
+  fix available, and none severe enough to have ever failed the gate** — the trivy action writes
+  SARIF at every severity while `severity:` governs only the exit code. They were fixed, not
+  filtered: **`pip` and `ensurepip` are deleted from the runtime image** (the application runs
+  from `/opt/venv` and installs nothing at run time, so pip was six advisories of pure attack
+  surface — the dashboard image has deleted npm on this reasoning since Chunk 30 and nobody ever
+  made the same argument here, because the gate never fired), and **the runtime stage now takes
+  Debian's security patches**, which brings `libpcre2-8-0` from `10.42-1` to `10.42-1+deb12u1`
+  and closes five more. Rebuilt and rescanned at every severity: 0 findings in both images.
+  hadolint's DL3005 is waived in `.hadolint.yaml` with its reason.
 - **redis 6.4 → 8.1.0**, which exists only because the previous change removed the Dependabot
   ignore that had been suppressing it. That entry held back `redis>=7.0` because
   `dramatiq[redis]` capped it at `<7.0`; dramatiq 2.x caps at `<9.0`, the ignore went, and

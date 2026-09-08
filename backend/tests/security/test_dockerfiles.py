@@ -108,6 +108,52 @@ def test_the_dashboard_runtime_ships_no_package_manager() -> None:
     assert "rm -rf" in removed
 
 
+def test_the_api_runtime_ships_no_package_manager() -> None:
+    """The same argument as the dashboard, which nobody made for this image for three chunks.
+
+    `python:3.12-slim-bookworm` ships pip. The application runs from `/opt/venv`, which the
+    `deps` stage builds with uv and copies in whole, so nothing in this container installs
+    anything at run time: pip is entirely attack surface and, on the day this was written, six
+    advisories' worth of it — CVE-2025-8869, CVE-2026-1703, CVE-2026-3219, CVE-2026-6357,
+    CVE-2026-8643 and CVE-2026-13346, every one with a fixed version available.
+
+    **The gate never fired on any of them**, because they are MEDIUM and LOW and the gate is
+    HIGH,CRITICAL. They were found by the SARIF report, which the trivy action writes at every
+    severity — and that is the argument for keeping the report wider than the gate rather than
+    trimming it to match.
+
+    `ensurepip` goes with it. Leaving it means `python -m ensurepip` restores in one command
+    what this deleted, and the scanner reads its bundled wheel as an installed package anyway.
+    Verified by running the image, not by reading this line: `import pip` and `import ensurepip`
+    both raise ModuleNotFoundError, no `pip*` remains in `/usr/local/bin`, and uvicorn, alembic,
+    pgrep and `python -m aegisnet.cli --help` all still work.
+    """
+    runtime = _stages(BACKEND_DOCKERFILE)["runtime"]
+    removed = " ".join(line for line in runtime if line.upper().startswith("RUN "))
+    for tool in ("site-packages/pip", "ensurepip", "/usr/local/bin/pip"):
+        assert tool in removed, f"the runtime stage no longer removes {tool}"
+    assert "rm -rf" in removed
+
+
+def test_the_api_runtime_takes_the_distribution_security_patches() -> None:
+    """A tag-pinned base ships what Debian had patched when the base was published, and nothing
+    later, for as long as nobody rebuilds it upstream.
+
+    That is not a hypothetical either: `libpcre2-8-0` sat at `10.42-1` in every `aegisnet-api`
+    container with five advisories against it, all fixed in `10.42-1+deb12u1` — a package
+    already in the suite this build reads from, one `apt-get upgrade` away. The scan is what
+    said so, and it said so only once the report covered severities the gate does not.
+
+    hadolint's DL3005 forbids this and is waived in `.hadolint.yaml` with the reason: the rule
+    defends build reproducibility, which F-5 already traded away by pinning a tag rather than a
+    digest. If digest pinning ever lands (#14) the waiver should be reconsidered in the same
+    change.
+    """
+    runtime = " ".join(_stages(BACKEND_DOCKERFILE)["runtime"])
+    assert "apt-get upgrade" in runtime, "the runtime image no longer takes Debian's patches"
+    assert "rm -rf /var/lib/apt/lists/*" in runtime, "the package lists are left in the image"
+
+
 # ---------------------------------------------------------------- build arguments
 
 

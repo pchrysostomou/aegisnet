@@ -169,6 +169,36 @@ def test_publishing_survives_the_failure_it_is_describing() -> None:
         assert step.get("if") == "always()", f"{step.get('name')} is skipped by an earlier failure"
 
 
+def test_the_report_is_deliberately_wider_than_the_gate() -> None:
+    """`limit-severities-for-sarif` stays unset, and that is a decision with evidence behind it.
+
+    The trivy action writes SARIF at **every** severity unless that input is true — the job log
+    says `Building SARIF report with all severities` — while `severity: HIGH,CRITICAL` still
+    governs the exit code. So the gate and the report do not agree, and the first instinct on
+    seeing that was to make them agree by trimming the report.
+
+    That instinct was wrong, and the eleven alerts the first run produced are why. Every one was
+    in `aegisnet-api`, an image this project builds; every one had a fixed version available;
+    and **not one of them would have failed the gate** — six pip advisories rated MEDIUM and LOW,
+    five `libpcre2-8-0` advisories rated UNKNOWN. Trimming the report to match the gate would
+    have hidden eleven real, fixable findings and left the tab reading a comfortable zero. They
+    were fixed instead: pip is gone from the image and the runtime takes Debian's patches.
+
+    The contract is therefore: **the gate blocks on what is urgent, the report shows everything
+    fixable, and both are limited to images this project builds.** A finding below the gate does
+    not stop a push; it files an alert that a rebuild closes on its own once the fix lands
+    upstream, which is a treadmill only if nobody ever rebuilds.
+    """
+    sarif_scans = [s for s in _scan_steps() if s["with"].get("format") == "sarif"]
+    assert sarif_scans, "nothing is written in SARIF"
+    for step in sarif_scans:
+        limited = str(step["with"].get("limit-severities-for-sarif", "")).lower()
+        assert limited != "true", (
+            f"{step.get('name')} trims the report to the gate's severities; the eleven findings "
+            "that motivated this test were all below the gate"
+        )
+
+
 def test_the_job_may_publish_and_the_lockfile_audits_may_not() -> None:
     """`security-events: write` is the one token in this workflow that can write anything.
 

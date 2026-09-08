@@ -66,8 +66,15 @@ def _key(line: str) -> str:
     return line.split("=", 1)[0].strip()
 
 
-def _add_missing(example: Path, out: Path) -> int:
-    """Append only what is absent. Existing values are never read, rewritten or reordered."""
+def _add_missing(example: Path, out: Path) -> None:
+    """Append only what is absent. Existing values are never read, rewritten or reordered.
+
+    Returns nothing on purpose. This was `-> int` returning a literal `0` down both paths, which
+    is SonarCloud's `python:S3516` and the project's only BLOCKER: a caller reading the signature
+    is told an outcome is being reported, checks it, and is checking a constant. There is no
+    failure to report — appending nothing because nothing was missing is a success — so the type
+    now says that, and `main` supplies the exit code it owns.
+    """
     existing = {
         _key(line) for line in out.read_text(encoding="utf-8").splitlines() if _is_assignment(line)
     }
@@ -78,13 +85,12 @@ def _add_missing(example: Path, out: Path) -> int:
 
     if not added:
         print(f"{out.name} already has every key in the template")
-        return 0
+        return
 
     with out.open("a", encoding="utf-8") as handle:
         handle.write("\n# --- appended by bootstrap_env.py --add-missing ---\n")
         handle.writelines(line if line.endswith("\n") else line + "\n" for line in added)
     print(f"added {len(added)} missing key(s) to {out.name}: " + ", ".join(_key(a) for a in added))
-    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -107,7 +113,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if out.exists() and args.add_missing:
-        return _add_missing(example, out)
+        _add_missing(example, out)
+        return 0
 
     if out.exists() and not args.force:
         print(

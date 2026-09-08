@@ -42,6 +42,19 @@ written and is superseded by the first item here.
   private vulnerability reporting instead of a public issue, and points at the scope boundary,
   because "does it scan?" deserves an answer before somebody files it.
 
+### Fixed
+- **The project's only SonarCloud BLOCKER** (`python:S3516`). `_add_missing` in
+  `infra/scripts/bootstrap_env.py` was declared `-> int` and returned a literal `0` down both of
+  its paths, so a caller reading the signature was told an outcome was being reported and was in
+  fact checking a constant. There is no failure to report — appending nothing because nothing was
+  missing is a success — so the signature says that now and `main` supplies the exit code it owns.
+  Behaviour is unchanged and both paths were exercised. Read at the same time and deliberately not
+  changed: `python:S5655` on `incident_store.py:278` is a false positive (`NewTimelineEntry` is a
+  frozen dataclass, so `dataclasses.replace` returns the type `_append_one` expects, and mypy
+  agrees over all 120 files), and the 77 issues Sonar labels with a *security* impact are all
+  `python:S1313` hardcoded IPs — RFC1918 addresses in lab fixtures, and the RFC1918 constants the
+  private-address classifier is built from.
+
 ### Changed
 - **The image scan publishes SARIF for the images this project builds, not the ones it pulls.**
   Chunk 33 had it the other way round, and the result was **74 permanently open HIGH and CRITICAL

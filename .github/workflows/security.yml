@@ -55,7 +55,7 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.0.1
+      - uses: astral-sh/setup-uv@v10.1.0
         with:
           # No cache here. This job only exports the lockfile and runs pip-audit through
           # uvx. Sharing the ci backend job's cache key meant this faster job saved a cache

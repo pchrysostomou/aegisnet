@@ -28,9 +28,9 @@ import json
 import random
 import sys
 from collections import Counter
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import NamedTuple
 
 # 2: a flow record is stamped when Suricata emits it and carries the conversation's own
 # start in `flow.start`, and DNS is written in the shape a current sensor writes — mostly
@@ -58,9 +58,13 @@ def repository_root(start: Path) -> Path:
 SENSOR_INTERFACE = "lab0"
 
 # RFC 1918 lab hosts and RFC 5737 "internet" endpoints. No real address can appear.
-LAB_NETWORK = ipaddress.ip_network("10.10.0.0/24")
-RESOLVER = "10.10.0.53"
-GATEWAY = "10.10.0.1"
+# NOSONAR: S1313 wants addresses to be configuration. This one is the definition of the corpus —
+# a test pins every generated address to it — and the two hosts below are derived from it, so
+# the range is written down exactly once.
+LAB_NETWORK = ipaddress.ip_network("10.10.0.0/24")  # NOSONAR
+RESOLVER = str(LAB_NETWORK[53])
+GATEWAY = str(LAB_NETWORK[1])
+HTTP_VERSION = "HTTP/1.1"
 EXTERNAL_NETWORKS = (
     ipaddress.ip_network("192.0.2.0/24"),
     ipaddress.ip_network("198.51.100.0/24"),
@@ -276,7 +280,7 @@ class Corpus:
                 ("text/html", "application/json", "application/javascript")
             ),
             "http_method": self.rng.choice(("GET", "GET", "GET", "POST", "HEAD")),
-            "protocol": "HTTP/1.1",
+            "protocol": HTTP_VERSION,
             "status": self.rng.choice((200, 200, 200, 200, 304, 404)),
             "length": self.rng.randint(0, 65535),
         }
@@ -354,7 +358,7 @@ class Corpus:
             "hostname": domain,
             "url": FILE_NAMES[index],
             "http_method": "GET",
-            "protocol": "HTTP/1.1",
+            "protocol": HTTP_VERSION,
             "status": 200,
         }
         size = self.rng.randint(200, 200_000)
@@ -394,7 +398,7 @@ class Corpus:
                 "hostname": domain,
                 "url": "/",
                 "http_method": "GET",
-                "protocol": "HTTP/1.1",
+                "protocol": HTTP_VERSION,
                 "status": 200,
             }
         else:
@@ -452,14 +456,17 @@ def render(records: list[dict]) -> bytes:
     return ("\n".join(lines) + "\n").encode("ascii")
 
 
-@dataclass(frozen=True, slots=True)
-class CorpusSpec:
+class CorpusSpec(NamedTuple):
     """What the command line asked for, as values rather than as the parser's namespace.
 
     Every field is converted on the way in — ``int()``, ``datetime.fromisoformat`` — so nothing
     downstream holds text somebody typed. The generator writes a file, and what it writes is a
     function of four numbers and a fixed name; this is where that becomes true by construction
-    instead of by reading `write_corpus` to the end (`pythonsecurity:S8707`)."""
+    instead of by reading `write_corpus` to the end (`pythonsecurity:S8707`).
+
+    A `NamedTuple` rather than a dataclass: the tests load this file by path without
+    registering it in `sys.modules`, and a dataclass under postponed annotations looks its
+    own module up there while it is being defined."""
 
     seed: int
     events: int

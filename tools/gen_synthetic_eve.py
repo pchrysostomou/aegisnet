@@ -58,7 +58,7 @@ def repository_root(start: Path) -> Path:
 SENSOR_INTERFACE = "lab0"
 
 # RFC 1918 lab hosts and RFC 5737 "internet" endpoints. No real address can appear.
-# NOSONAR: S1313 wants addresses to be configuration. This one is the definition of the corpus —
+# Sonar's S1313 wants addresses to be configuration. This one is the definition of the corpus —
 # a test pins every generated address to it — and the two hosts below are derived from it, so
 # the range is written down exactly once.
 LAB_NETWORK = ipaddress.ip_network("10.10.0.0/24")  # NOSONAR

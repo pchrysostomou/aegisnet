@@ -32,6 +32,13 @@ down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
+# Names for the values this revision repeats. They are local to the file on purpose — a
+# revision stays frozen, so it does not import them from the models it once matched.
+_USERS_ID = "users.id"
+_SET_NULL = "SET NULL"
+_OCCURRED_AT_DESC = "occurred_at DESC"
+_EVENT_TIME_DESC = "event_time DESC"
+
 # Enum labels, duplicated here on purpose: a revision must stay frozen even when the
 # Python enums in aegisnet.domain.enums grow later.
 ENUMS: dict[str, tuple[str, ...]] = {
@@ -152,9 +159,9 @@ def upgrade() -> None:
         sa.UniqueConstraint("token_hash", name="uq_service_tokens_token_hash"),
         sa.ForeignKeyConstraint(
             ["created_by"],
-            ["users.id"],
+            [_USERS_ID],
             name="fk_service_tokens_created_by_users",
-            ondelete="SET NULL",
+            ondelete=_SET_NULL,
         ),
         _hash_check("service_tokens", "token_hash"),
     )
@@ -173,13 +180,13 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name="pk_refresh_tokens"),
         sa.UniqueConstraint("token_hash", name="uq_refresh_tokens_token_hash"),
         sa.ForeignKeyConstraint(
-            ["user_id"], ["users.id"], name="fk_refresh_tokens_user_id_users", ondelete="CASCADE"
+            ["user_id"], [_USERS_ID], name="fk_refresh_tokens_user_id_users", ondelete="CASCADE"
         ),
         sa.ForeignKeyConstraint(
             ["rotated_to"],
             ["refresh_tokens.id"],
             name="fk_refresh_tokens_rotated_to_refresh_tokens",
-            ondelete="SET NULL",
+            ondelete=_SET_NULL,
         ),
         _hash_check("refresh_tokens", "token_hash"),
     )
@@ -205,14 +212,14 @@ def upgrade() -> None:
         sa.Column("correlation_id", UUID, nullable=True),
         sa.PrimaryKeyConstraint("id", name="pk_audit_log"),
     )
-    op.create_index("ix_audit_log_occurred_at", "audit_log", [sa.text("occurred_at DESC")])
+    op.create_index("ix_audit_log_occurred_at", "audit_log", [sa.text(_OCCURRED_AT_DESC)])
     op.create_index(
         "ix_audit_log_actor_user_id_occurred_at",
         "audit_log",
-        ["actor_user_id", sa.text("occurred_at DESC")],
+        ["actor_user_id", sa.text(_OCCURRED_AT_DESC)],
     )
     op.create_index(
-        "ix_audit_log_action_occurred_at", "audit_log", ["action", sa.text("occurred_at DESC")]
+        "ix_audit_log_action_occurred_at", "audit_log", ["action", sa.text(_OCCURRED_AT_DESC)]
     )
 
     # ------------------------------------------------------------ ingest
@@ -243,15 +250,15 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name="pk_ingest_batches"),
         sa.ForeignKeyConstraint(
             ["actor_user_id"],
-            ["users.id"],
+            [_USERS_ID],
             name="fk_ingest_batches_actor_user_id_users",
-            ondelete="SET NULL",
+            ondelete=_SET_NULL,
         ),
         sa.ForeignKeyConstraint(
             ["actor_token_id"],
             ["service_tokens.id"],
             name="fk_ingest_batches_actor_token_id_service_tokens",
-            ondelete="SET NULL",
+            ondelete=_SET_NULL,
         ),
         sa.CheckConstraint(
             "char_length(source_label) BETWEEN 1 AND 64",
@@ -311,13 +318,13 @@ def upgrade() -> None:
             "dest_port IS NULL OR dest_port BETWEEN 0 AND 65535", name="ck_events_dest_port_range"
         ),
     )
-    op.create_index("ix_events_event_time", "events", [sa.text("event_time DESC")])
-    op.create_index("ix_events_src_ip_event_time", "events", ["src_ip", sa.text("event_time DESC")])
+    op.create_index("ix_events_event_time", "events", [sa.text(_EVENT_TIME_DESC)])
+    op.create_index("ix_events_src_ip_event_time", "events", ["src_ip", sa.text(_EVENT_TIME_DESC)])
     op.create_index(
-        "ix_events_dest_ip_event_time", "events", ["dest_ip", sa.text("event_time DESC")]
+        "ix_events_dest_ip_event_time", "events", ["dest_ip", sa.text(_EVENT_TIME_DESC)]
     )
     op.create_index(
-        "ix_events_event_type_event_time", "events", ["event_type", sa.text("event_time DESC")]
+        "ix_events_event_type_event_time", "events", ["event_type", sa.text(_EVENT_TIME_DESC)]
     )
     op.create_index(
         "ix_events_flow_id", "events", ["flow_id"], postgresql_where=sa.text("flow_id IS NOT NULL")
@@ -325,7 +332,7 @@ def upgrade() -> None:
     op.create_index(
         "ix_events_dest_port_event_time",
         "events",
-        ["dest_port", sa.text("event_time DESC")],
+        ["dest_port", sa.text(_EVENT_TIME_DESC)],
         postgresql_where=sa.text("dest_port IS NOT NULL"),
     )
     op.create_index(

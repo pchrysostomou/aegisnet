@@ -34,6 +34,9 @@ def utc_now() -> datetime:
     return datetime.now(tz=UTC)
 
 
+_UNKNOWN_ASSET = "unknown asset"
+
+
 @dataclass(frozen=True, slots=True)
 class SeedResult:
     created: int
@@ -49,7 +52,7 @@ class AssetService:
     async def get(self, asset_id: UUID) -> AssetRecord:
         record = await self._store.get(asset_id)
         if record is None:
-            raise AssetNotFoundError("unknown asset")
+            raise AssetNotFoundError(_UNKNOWN_ASSET)
         return record
 
     async def list(self, query: AssetFilter) -> Page[AssetRecord]:
@@ -120,7 +123,7 @@ class AssetService:
             await self._check_overlaps([n.cidr for n in patch.networks], exclude_asset_id=asset_id)
         updated = await self._store.update(asset_id, patch, self._clock())
         if updated is None:  # pragma: no cover - the row existed a moment ago
-            raise AssetNotFoundError("unknown asset")
+            raise AssetNotFoundError(_UNKNOWN_ASSET)
         return updated
 
     async def deactivate(self, asset_id: UUID) -> AssetRecord:
@@ -128,7 +131,7 @@ class AssetService:
         await self.get(asset_id)
         record = await self._store.deactivate(asset_id, self._clock())
         if record is None:  # pragma: no cover - the row existed a moment ago
-            raise AssetNotFoundError("unknown asset")
+            raise AssetNotFoundError(_UNKNOWN_ASSET)
         return record
 
     # ---------------------------------------------------------------- checks

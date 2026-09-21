@@ -156,6 +156,8 @@ EXIT_USAGE = 2
 
 ASSETS_DIR = "assets"
 
+_CASE_REFERENCE_HELP = "AEG-2026-0001 or a uuid"
+
 
 class _NoDenylist:
     """The CLI never verifies or revokes access tokens, so it holds no denylist."""
@@ -419,17 +421,17 @@ def build_parser() -> argparse.ArgumentParser:
     incidents.add_argument("--cursor", default=None)
 
     incident = commands.add_parser("incident", help="show one incident by case number or id")
-    incident.add_argument("reference", help="AEG-2026-0001 or a uuid")
+    incident.add_argument("reference", help=_CASE_REFERENCE_HELP)
 
     brief = commands.add_parser(
         "brief", help="ask for an investigation brief on one case (off unless BRIEF_ENABLED)"
     )
-    brief.add_argument("reference", help="AEG-2026-0001 or a uuid")
+    brief.add_argument("reference", help=_CASE_REFERENCE_HELP)
 
     export = commands.add_parser(
         "export", help="write one case out as Markdown, the same bytes every time"
     )
-    export.add_argument("reference", help="AEG-2026-0001 or a uuid")
+    export.add_argument("reference", help=_CASE_REFERENCE_HELP)
 
     retention = commands.add_parser(
         "retention", help="what the retention policy would remove; --apply removes it"

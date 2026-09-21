@@ -98,6 +98,11 @@ def repository_root(start: Path) -> Path:
     )
 
 
+def zulu(moment: datetime) -> str:
+    """An ISO-8601 instant with the ``Z`` suffix the manifests use, rather than ``+00:00``."""
+    return moment.isoformat().replace("+00:00", "Z")
+
+
 def suricata_timestamp(moment: datetime) -> str:
     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f") + "+0000"
 
@@ -341,8 +346,8 @@ def build() -> tuple[list[dict], dict]:
 
     def span(start: datetime, hours: int = 1) -> dict[str, str]:
         return {
-            "from": start.isoformat().replace("+00:00", "Z"),
-            "to": (start + timedelta(hours=hours)).isoformat().replace("+00:00", "Z"),
+            "from": zulu(start),
+            "to": zulu(start + timedelta(hours=hours)),
         }
 
     # Ground truth is declared here, in terms of *when* and *what*, and never derived from the
@@ -407,14 +412,14 @@ def manifest_for(records: list[dict], truth: dict, digest: str) -> dict:
         "event_types": dict(sorted(counts.items())),
         "sha256": digest,
         "history": {
-            "from": HISTORY_START.isoformat().replace("+00:00", "Z"),
+            "from": zulu(HISTORY_START),
             "hours": HISTORY_HOURS,
             "asset": SUSPECT,
         },
-        "baseline_until": ATTACK_HOUR.isoformat().replace("+00:00", "Z"),
+        "baseline_until": zulu(ATTACK_HOUR),
         "sweep_window": {
-            "from": ATTACK_HOUR.isoformat().replace("+00:00", "Z"),
-            "to": SWEEP_END.isoformat().replace("+00:00", "Z"),
+            "from": zulu(ATTACK_HOUR),
+            "to": zulu(SWEEP_END),
         },
         "ground_truth": truth,
         "safety": (

@@ -83,6 +83,18 @@ NAMING_CONVENTION = {
 HASH_BYTES = 32
 """Length of every stored sha256 digest (``event_hash``, ``token_hash``)."""
 
+# Foreign-key targets, referential actions and index orderings that recur below. Named once so
+# a rename is one edit and a typo is a NameError instead of a constraint against a table that
+# does not exist, found at migration time.
+_USERS_ID = "users.id"
+_ASSETS_ID = "assets.id"
+_ALERTS_ID = "alerts.id"
+_INCIDENTS_ID = "incidents.id"
+_SET_NULL = "SET NULL"
+_CASCADE = "CASCADE"
+_OCCURRED_AT_DESC = "occurred_at DESC"
+_EVENT_TIME_DESC = "event_time DESC"
+
 
 def _enum(enum_cls: type, name: str) -> Enum:
     """A PostgreSQL enum type owned by the migration, referenced here by name only."""
@@ -189,7 +201,7 @@ class ServiceToken(Base):
     role: Mapped[ServiceTokenRole] = mapped_column(SERVICE_TOKEN_ROLE, nullable=False)
     # Nullable: a token minted from the operator CLI before any user exists has no creator.
     created_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey(_USERS_ID, ondelete=_SET_NULL), nullable=True
     )
     expires_at: Mapped[datetime] = mapped_column(nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(nullable=True)
@@ -206,13 +218,13 @@ class RefreshToken(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        ForeignKey(_USERS_ID, ondelete=_CASCADE), nullable=False
     )
     token_hash: Mapped[bytes] = _hash_column(unique=True)
     issued_at: Mapped[datetime] = _now()
     expires_at: Mapped[datetime] = mapped_column(nullable=False)
     rotated_to: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("refresh_tokens.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("refresh_tokens.id", ondelete=_SET_NULL), nullable=True
     )
     revoked_at: Mapped[datetime | None] = mapped_column(nullable=True)
     user_agent_hash: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
@@ -244,9 +256,9 @@ class AuditLog(Base):
     correlation_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
 
     __table_args__ = (
-        Index("ix_audit_log_occurred_at", text("occurred_at DESC")),
-        Index("ix_audit_log_actor_user_id_occurred_at", "actor_user_id", text("occurred_at DESC")),
-        Index("ix_audit_log_action_occurred_at", "action", text("occurred_at DESC")),
+        Index("ix_audit_log_occurred_at", text(_OCCURRED_AT_DESC)),
+        Index("ix_audit_log_actor_user_id_occurred_at", "actor_user_id", text(_OCCURRED_AT_DESC)),
+        Index("ix_audit_log_action_occurred_at", "action", text(_OCCURRED_AT_DESC)),
     )
 
 
@@ -264,10 +276,10 @@ class IngestBatch(Base):
     dataset_citation: Mapped[str | None] = mapped_column(Text, nullable=True)
     ingest_method: Mapped[IngestMethod] = mapped_column(INGEST_METHOD, nullable=False)
     actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey(_USERS_ID, ondelete=_SET_NULL), nullable=True
     )
     actor_token_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("service_tokens.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("service_tokens.id", ondelete=_SET_NULL), nullable=True
     )
     events_received: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     events_stored: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
@@ -300,7 +312,7 @@ class Event(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     batch_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("ingest_batches.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("ingest_batches.id", ondelete=_CASCADE), nullable=False
     )
     event_hash: Mapped[bytes] = _hash_column(unique=True)
     event_time: Mapped[datetime] = mapped_column(nullable=False)
@@ -334,15 +346,15 @@ class Event(Base):
         CheckConstraint(
             "dest_port IS NULL OR dest_port BETWEEN 0 AND 65535", name="dest_port_range"
         ),
-        Index("ix_events_event_time", text("event_time DESC")),
-        Index("ix_events_src_ip_event_time", "src_ip", text("event_time DESC")),
-        Index("ix_events_dest_ip_event_time", "dest_ip", text("event_time DESC")),
-        Index("ix_events_event_type_event_time", "event_type", text("event_time DESC")),
+        Index("ix_events_event_time", text(_EVENT_TIME_DESC)),
+        Index("ix_events_src_ip_event_time", "src_ip", text(_EVENT_TIME_DESC)),
+        Index("ix_events_dest_ip_event_time", "dest_ip", text(_EVENT_TIME_DESC)),
+        Index("ix_events_event_type_event_time", "event_type", text(_EVENT_TIME_DESC)),
         Index("ix_events_flow_id", "flow_id", postgresql_where=text("flow_id IS NOT NULL")),
         Index(
             "ix_events_dest_port_event_time",
             "dest_port",
-            text("event_time DESC"),
+            text(_EVENT_TIME_DESC),
             postgresql_where=text("dest_port IS NOT NULL"),
         ),
         Index(
@@ -359,7 +371,7 @@ class IngestReject(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     batch_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("ingest_batches.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("ingest_batches.id", ondelete=_CASCADE), nullable=False
     )
     line_number: Mapped[int] = mapped_column(Integer, nullable=False)
     reason_code: Mapped[RejectReason] = mapped_column(REJECT_REASON, nullable=False)
@@ -407,7 +419,7 @@ class AssetNetwork(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     asset_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("assets.id", ondelete="CASCADE"), nullable=False
+        ForeignKey(_ASSETS_ID, ondelete=_CASCADE), nullable=False
     )
     cidr: Mapped[str] = mapped_column(pg.CIDR, nullable=False)
     is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
@@ -458,7 +470,7 @@ class DetectorRun(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     rule_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("detection_rules.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("detection_rules.id", ondelete=_CASCADE), nullable=False
     )
     window_start: Mapped[datetime] = mapped_column(nullable=False)
     window_end: Mapped[datetime] = mapped_column(nullable=False)
@@ -516,10 +528,10 @@ class AlertEvent(Base):
     __tablename__ = "alert_events"
 
     alert_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("alerts.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey(_ALERTS_ID, ondelete=_CASCADE), primary_key=True
     )
     event_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("events.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey("events.id", ondelete=_CASCADE), primary_key=True
     )
     role: Mapped[SampleRole] = mapped_column(SAMPLE_ROLE, nullable=False)
 
@@ -528,10 +540,10 @@ class AlertAsset(Base):
     __tablename__ = "alert_assets"
 
     alert_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("alerts.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey(_ALERTS_ID, ondelete=_CASCADE), primary_key=True
     )
     asset_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("assets.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey(_ASSETS_ID, ondelete=_CASCADE), primary_key=True
     )
     role: Mapped[AlertAssetRole] = mapped_column(ALERT_ASSET_ROLE, nullable=False)
 
@@ -544,7 +556,7 @@ class AssetBaseline(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     asset_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("assets.id", ondelete="CASCADE"), nullable=False
+        ForeignKey(_ASSETS_ID, ondelete=_CASCADE), nullable=False
     )
     metric: Mapped[BaselineMetric] = mapped_column(BASELINE_METRIC, nullable=False)
     window_days: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -588,14 +600,14 @@ class Incident(Base):
         INCIDENT_STATUS, nullable=False, server_default=IncidentStatus.new.value
     )
     primary_asset_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("assets.id", ondelete="SET NULL"), nullable=True
+        ForeignKey(_ASSETS_ID, ondelete=_SET_NULL), nullable=True
     )
     correlation_key: Mapped[str] = mapped_column(Text, nullable=False)
     window_start: Mapped[datetime] = mapped_column(nullable=False)
     window_end: Mapped[datetime] = mapped_column(nullable=False)
     distinct_rule_count: Mapped[int] = mapped_column(Integer, nullable=False)
     assigned_to: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey(_USERS_ID, ondelete=_SET_NULL), nullable=True
     )
     closed_at: Mapped[datetime | None] = mapped_column(nullable=True)
     closure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -635,10 +647,10 @@ class IncidentAlert(Base):
     __tablename__ = "incident_alerts"
 
     incident_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("incidents.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey(_INCIDENTS_ID, ondelete=_CASCADE), primary_key=True
     )
     alert_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("alerts.id", ondelete="CASCADE"), primary_key=True, unique=True
+        ForeignKey(_ALERTS_ID, ondelete=_CASCADE), primary_key=True, unique=True
     )
     added_at: Mapped[datetime] = _now()
     added_by: Mapped[IncidentAlertSource] = mapped_column(INCIDENT_ALERT_SOURCE, nullable=False)
@@ -651,7 +663,7 @@ class IncidentTimelineEntry(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     incident_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False
+        ForeignKey(_INCIDENTS_ID, ondelete=_CASCADE), nullable=False
     )
     occurred_at: Mapped[datetime] = mapped_column(nullable=False)
     entry_type: Mapped[TimelineEntryType] = mapped_column(TIMELINE_ENTRY_TYPE, nullable=False)
@@ -660,10 +672,10 @@ class IncidentTimelineEntry(Base):
         pg.JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
     actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey(_USERS_ID, ondelete=_SET_NULL), nullable=True
     )
     alert_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("alerts.id", ondelete="SET NULL"), nullable=True
+        ForeignKey(_ALERTS_ID, ondelete=_SET_NULL), nullable=True
     )
     created_at: Mapped[datetime] = _now()
 
@@ -683,10 +695,10 @@ class IncidentNote(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     incident_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False
+        ForeignKey(_INCIDENTS_ID, ondelete=_CASCADE), nullable=False
     )
     author_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey(_USERS_ID, ondelete=_SET_NULL), nullable=True
     )
     body: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = _now()
@@ -709,7 +721,7 @@ class InvestigationBriefRow(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     incident_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False
+        ForeignKey(_INCIDENTS_ID, ondelete=_CASCADE), nullable=False
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[BriefStatus] = mapped_column(BRIEF_STATUS, nullable=False)
@@ -734,7 +746,7 @@ class InvestigationBriefRow(Base):
     prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     requested_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        ForeignKey(_USERS_ID, ondelete=_SET_NULL), nullable=True
     )
     created_at: Mapped[datetime] = _now()
 
@@ -761,7 +773,7 @@ class BriefCitation(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     brief_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("investigation_briefs.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("investigation_briefs.id", ondelete=_CASCADE), nullable=False
     )
     citation_id: Mapped[int] = mapped_column(Integer, nullable=False)
     url: Mapped[str] = mapped_column(Text, nullable=False)

@@ -56,6 +56,24 @@ class _Tally:
     destinations: set[str] = field(default_factory=set)
 
 
+def _outbound_by_source(window: EventWindow) -> dict[str, _Tally]:
+    """Bytes each baselined source sent to addresses outside the network, from flow events."""
+    per_source: dict[str, _Tally] = {}
+    for event in window.events:
+        if event.event_type is not EventType.flow:
+            continue
+        if event.src_ip is None or event.dest_ip is None or not event.bytes_toserver:
+            continue
+        source = str(event.src_ip)
+        if source not in window.baselines or is_internal(str(event.dest_ip)):
+            continue
+        tally = per_source.setdefault(source, _Tally())
+        tally.events.append(event)
+        tally.bytes_out += event.bytes_toserver
+        tally.destinations.add(str(event.dest_ip))
+    return per_source
+
+
 def _samples(events: list[EventRow]) -> tuple[EventSample, ...]:
     ordered = sorted(events, key=lambda e: -(e.bytes_toserver or 0))
     peak = ordered[0]
@@ -118,19 +136,7 @@ class VolumeAnomalyDetector:
         if not window.baselines:
             return []
         params = self.params
-        per_source: dict[str, _Tally] = {}
-        for event in window.events:
-            if event.event_type is not EventType.flow:
-                continue
-            if event.src_ip is None or event.dest_ip is None or not event.bytes_toserver:
-                continue
-            source = str(event.src_ip)
-            if source not in window.baselines or is_internal(str(event.dest_ip)):
-                continue
-            tally = per_source.setdefault(source, _Tally())
-            tally.events.append(event)
-            tally.bytes_out += event.bytes_toserver
-            tally.destinations.add(str(event.dest_ip))
+        per_source = _outbound_by_source(window)
 
         bucket = window_bucket(window.start, self.window_seconds)
         results: list[DetectionResult] = []

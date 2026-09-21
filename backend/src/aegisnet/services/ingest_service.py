@@ -15,7 +15,7 @@ batch and is also the reference for the timestamp sanity window (T-1.7).
 from __future__ import annotations
 
 from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Final
@@ -74,6 +74,14 @@ class IngestLimits:
     window: TimestampWindow
 
 
+@dataclass(slots=True)
+class _Progress:
+    """How far one ingest has got. Mutable on purpose: see `IngestService._consume`."""
+
+    counts: BatchCounts = field(default_factory=BatchCounts)
+    limit_hit: bool = False
+
+
 class IngestService:
     def __init__(
         self,
@@ -128,65 +136,76 @@ class IngestService:
             batch_id = await self._store.open_batch(provenance, started_at)
         await self._store.mark_normalizing(batch_id)
 
-        counts = BatchCounts()
+        progress = _Progress()
         status = IngestStatus.complete
-        events: list[NormalizedEvent] = []
-        rejects: list[RejectedLine] = []
-        limit_hit = False
         try:
-            async for line_number, raw in _numbered(lines):
-                text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
-                if not text.strip():
-                    continue
-                if counts.received >= self._limits.max_lines:
-                    limit_hit = True
-                    break
-                counts = _bump(counts, received=1)
-                outcome = normalize_line(
-                    text,
-                    now=started_at,
-                    limits=self._limits.parse,
-                    window=self._limits.window,
-                )
-                if isinstance(outcome, Reject):
-                    rejects.append(RejectedLine(line_number, outcome))
-                else:
-                    events.append(outcome)
-                if len(events) >= self._chunk_size or len(rejects) >= self._chunk_size:
-                    counts = await self._flush(batch_id, events, rejects, counts)
-            counts = await self._flush(batch_id, events, rejects, counts)
+            await self._consume(batch_id, lines, started_at, progress)
         except Exception:
             status = IngestStatus.failed
             logger.error(
                 "ingest_batch_failed",
-                extra={"batch_id": str(batch_id), "received": counts.received},
+                extra={"batch_id": str(batch_id), "received": progress.counts.received},
                 exc_info=True,
             )
-            await self._store.finish_batch(batch_id, status, counts, self._clock())
+            await self._store.finish_batch(batch_id, status, progress.counts, self._clock())
             raise
-        if limit_hit:
+        if progress.limit_hit:
             status = IngestStatus.failed
-        await self._store.finish_batch(batch_id, status, counts, self._clock())
+        await self._store.finish_batch(batch_id, status, progress.counts, self._clock())
         logger.info(
             "ingest_batch_finished",
             extra={
                 "batch_id": str(batch_id),
                 "status": status.value,
-                "received": counts.received,
-                "stored": counts.stored,
-                "duplicate": counts.duplicate,
-                "rejected": counts.rejected,
+                "received": progress.counts.received,
+                "stored": progress.counts.stored,
+                "duplicate": progress.counts.duplicate,
+                "rejected": progress.counts.rejected,
             },
         )
-        if limit_hit:
+        if progress.limit_hit:
             raise IngestLimitExceededError(
                 f"batch exceeds the {self._limits.max_lines}-line limit; "
-                f"marked failed after {counts.received} lines"
+                f"marked failed after {progress.counts.received} lines"
             )
         summary = await self._store.get_batch(batch_id)
         if summary is None:  # pragma: no cover - the row was written moments ago
             raise RuntimeError("batch vanished during ingest")
         return summary
+
+    async def _consume(
+        self,
+        batch_id: UUID,
+        lines: Iterable[bytes | str] | AsyncIterable[bytes | str],
+        started_at: datetime,
+        progress: _Progress,
+    ) -> None:
+        """Normalise and store the lines in chunks. The counts live on ``progress`` rather than
+        in a return value because the caller needs them most when this raises: a batch that
+        failed half-way is recorded with what it had received by then."""
+        events: list[NormalizedEvent] = []
+        rejects: list[RejectedLine] = []
+        async for line_number, raw in _numbered(lines):
+            text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+            if not text.strip():
+                continue
+            if progress.counts.received >= self._limits.max_lines:
+                progress.limit_hit = True
+                break
+            progress.counts = _bump(progress.counts, received=1)
+            outcome = normalize_line(
+                text,
+                now=started_at,
+                limits=self._limits.parse,
+                window=self._limits.window,
+            )
+            if isinstance(outcome, Reject):
+                rejects.append(RejectedLine(line_number, outcome))
+            else:
+                events.append(outcome)
+            if len(events) >= self._chunk_size or len(rejects) >= self._chunk_size:
+                progress.counts = await self._flush(batch_id, events, rejects, progress.counts)
+        progress.counts = await self._flush(batch_id, events, rejects, progress.counts)
 
     async def _flush(
         self,

@@ -183,6 +183,29 @@ def _iso(moment: datetime | str) -> str:
     return moment if isinstance(moment, str) else moment.isoformat()
 
 
+def _classify(
+    key: str, value: object, names: Pseudonymizer, limits: PacketLimits
+) -> tuple[str | None, object]:
+    """Why a key is dropped — or ``None``, and the value that is sent in its place. ``None`` is
+    itself a value that can be sent (a time that was not one), hence the pair."""
+    if key in DROP_KEYS:
+        return "not sent by policy", None
+    if key in NUMERIC_KEYS:
+        numbers = _numeric(value, limits)
+        return ("not a number", None) if numbers is None else (None, numbers)
+    if key in ADDRESS_KEYS:
+        if isinstance(value, str):
+            return None, names.token(str(value))
+        return None, names.tokens(value)[: limits.max_list_items]
+    if key in TIME_KEYS:
+        return None, _iso(value) if isinstance(value, datetime | str) else None
+    if key in VOCABULARY_KEYS:
+        words = _vocabulary(value, key, limits)
+        return ("failed the free-text scan", None) if words is None else (None, words)
+    # The important branch: a key nobody has classified is a key nobody has reviewed.
+    return "not on the allow-list", None
+
+
 def _evidence(
     raw: dict[str, Any],
     names: Pseudonymizer,
@@ -195,32 +218,11 @@ def _evidence(
         if len(out) >= limits.max_evidence_keys:
             dropped.append(f"{where}.{key}: evidence key cap")
             continue
-        value = raw[key]
-        if key in DROP_KEYS:
-            dropped.append(f"{where}.{key}: not sent by policy")
-        elif key in NUMERIC_KEYS:
-            kept = _numeric(value, limits)
-            if kept is None:
-                dropped.append(f"{where}.{key}: not a number")
-            else:
-                out[key] = kept
-        elif key in ADDRESS_KEYS:
-            out[key] = (
-                names.token(str(value))
-                if isinstance(value, str)
-                else names.tokens(value)[: limits.max_list_items]
-            )
-        elif key in TIME_KEYS:
-            out[key] = _iso(value) if isinstance(value, datetime | str) else None
-        elif key in VOCABULARY_KEYS:
-            kept = _vocabulary(value, key, limits)
-            if kept is None:
-                dropped.append(f"{where}.{key}: failed the free-text scan")
-            else:
-                out[key] = kept
+        reason, value = _classify(key, raw[key], names, limits)
+        if reason is None:
+            out[key] = value
         else:
-            # The important branch: a key nobody has classified is a key nobody has reviewed.
-            dropped.append(f"{where}.{key}: not on the allow-list")
+            dropped.append(f"{where}.{key}: {reason}")
     return out
 
 

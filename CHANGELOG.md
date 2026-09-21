@@ -65,6 +65,27 @@ written and is superseded by the first item here.
   private-address classifier is built from.
 
 ### Changed
+- **Thirty-eight of SonarCloud's thirty-nine CRITICAL findings, none of which was a bug.** They
+  sit outside the quality gate and were left at the close-out as debt for whoever touched the
+  code next. Twenty-two were repeated literals (`python:S1192`): the foreign-key targets,
+  referential actions and index orderings in `models.py` are constants, the two migrations name
+  theirs locally because a revision stays frozen and does not import from the models it once
+  matched, and the three database URLs — which differed only in who connects — are one private
+  method. Two were shell `case` statements with no default (`shelldre:S131`). Fourteen were
+  functions over the cognitive-complexity limit (`S3776`), and those are the ones that could
+  have gone wrong, because they include the line parser's depth scan, the normaliser, the
+  evidence allow-list and the capture auditor. Each was split by extraction only, and the five
+  where a behavioural slip would matter were **run old against new before the old one was
+  deleted**: `bracket_depth` and `structure_violation` on 1.5 million generated inputs,
+  `normalize_line` on all 6 951 committed corpus lines plus 4 000 damaged variants at three
+  clocks, `_evidence` on 60 000 random dictionaries comparing the output, the drop log and the
+  key order, `audit` on 60 000 random trees in both key modes, the depth bound and the committed captures, and
+  the dashboard's `parseBlocks` on 50 000 generated documents. All identical. Those harnesses
+  compared against code that no longer exists, so they are not in the tree; what stays is the
+  suite, unchanged and passing. **The thirty-ninth is left open on purpose**: `python:S5655` on
+  `incident_store.py` is the false positive recorded under *Fixed* below, and changing correct
+  code to quiet a rule is the opposite of what this entry is for. The other six hundred open
+  smells are MAJOR and below and are untouched.
 - **The image scan publishes SARIF for the images this project builds, not the ones it pulls.**
   Chunk 33 had it the other way round, and the result was **74 permanently open HIGH and CRITICAL
   code-scanning alerts on a public repository** — Go standard-library CVEs in the `gosu` binary

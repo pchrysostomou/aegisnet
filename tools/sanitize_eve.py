@@ -434,6 +434,28 @@ def check_scalar(value: Any) -> list[str]:
     return [problem for problem in checks if problem]
 
 
+def _key_problem(key: object, here: str) -> str | None:
+    """Why a key may not be published, judged on its name alone."""
+    name = str(key)
+    if _is_content_key(name):
+        return f"{here}: key {key!r} can carry captured content"
+    if not _is_published_key(name):
+        return f"{here}: key {key!r} is not on the published-key list"
+    return None
+
+
+def _audit_mapping(node: dict[Any, Any], path: str, depth: int, strict_keys: bool) -> list[str]:
+    problems: list[str] = []
+    for key, value in node.items():
+        here = f"{path}.{key}" if path else str(key)
+        problem = _key_problem(key, here) if strict_keys else None
+        if problem is not None:
+            problems.append(problem)
+            continue
+        problems.extend(audit(value, path=here, depth=depth + 1, strict_keys=strict_keys))
+    return problems
+
+
 def audit(node: Any, *, path: str = "", depth: int = 0, strict_keys: bool = True) -> list[str]:
     """Every reason this record may not be published.
 
@@ -443,25 +465,17 @@ def audit(node: Any, *, path: str = "", depth: int = 0, strict_keys: bool = True
     """
     if depth > MAX_DEPTH:
         return [f"{path or '<record>'}: nested deeper than {MAX_DEPTH} levels"]
-    problems: list[str] = []
     if isinstance(node, dict):
-        for key, value in node.items():
-            here = f"{path}.{key}" if path else str(key)
-            if strict_keys and not _is_published_key(str(key)) and not _is_content_key(str(key)):
-                problems.append(f"{here}: key {key!r} is not on the published-key list")
-                continue
-            if strict_keys and _is_content_key(str(key)):
-                problems.append(f"{here}: key {key!r} can carry captured content")
-                continue
-            problems.extend(audit(value, path=here, depth=depth + 1, strict_keys=strict_keys))
-    elif isinstance(node, list):
-        for index, item in enumerate(node):
-            problems.extend(
-                audit(item, path=f"{path}[{index}]", depth=depth + 1, strict_keys=strict_keys)
+        return _audit_mapping(node, path, depth, strict_keys)
+    if isinstance(node, list):
+        return [
+            problem
+            for index, item in enumerate(node)
+            for problem in audit(
+                item, path=f"{path}[{index}]", depth=depth + 1, strict_keys=strict_keys
             )
-    else:
-        problems.extend(f"{path or '<value>'}: {problem}" for problem in check_scalar(node))
-    return problems
+        ]
+    return [f"{path or '<value>'}: {problem}" for problem in check_scalar(node)]
 
 
 # ---------------------------------------------------------------- stripping
@@ -555,19 +569,23 @@ def verify(lines: list[str]) -> int:
 # ---------------------------------------------------------------- output
 
 
+_UTC_OFFSET = "+00:00"
+"""What ``isoformat`` writes for UTC, and what ``fromisoformat`` wants in place of ``Z``."""
+
+
 def _hour_window(first: str, last: str) -> dict[str, str]:
     """The hour-aligned interval a detection sweep should cover for this capture, so the
     operator (and `make eval-lab`) never has to work it out from timestamps by hand."""
     try:
-        start = datetime.fromisoformat(first.replace("Z", "+00:00"))
-        end = datetime.fromisoformat(last.replace("Z", "+00:00"))
+        start = datetime.fromisoformat(first.replace("Z", _UTC_OFFSET))
+        end = datetime.fromisoformat(last.replace("Z", _UTC_OFFSET))
     except ValueError:
         return {}
     floor = start.replace(minute=0, second=0, microsecond=0)
     ceiling = end.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
     return {
-        "from": floor.isoformat().replace("+00:00", "Z"),
-        "to": ceiling.isoformat().replace("+00:00", "Z"),
+        "from": floor.isoformat().replace(_UTC_OFFSET, "Z"),
+        "to": ceiling.isoformat().replace(_UTC_OFFSET, "Z"),
     }
 
 

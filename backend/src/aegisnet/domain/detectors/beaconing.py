@@ -151,8 +151,8 @@ class BeaconingDetector:
             return True
         return any(event.dest_ip in network for network in self._allowed_networks)
 
-    def run(self, window: EventWindow) -> list[DetectionResult]:
-        params = self.params
+    def _connections_by_source(self, window: EventWindow) -> dict[str, dict[str, _Destination]]:
+        """Each source's flows, grouped by the ``address:port`` they went to."""
         per_source: dict[str, dict[str, _Destination]] = {}
         for event in window.events:
             if event.event_type is not EventType.flow:
@@ -165,40 +165,52 @@ class BeaconingDetector:
             slot = per_source.setdefault(str(event.src_ip), {}).setdefault(key, _Destination())
             slot.events.append(event)
             slot.bytes_out += event.bytes_toserver or 0
+        return per_source
+
+    def _beacons(
+        self, destinations: dict[str, _Destination]
+    ) -> list[tuple[_Beacon, list[EventRow]]]:
+        """One source's destinations that were contacted often, slowly and regularly enough,
+        steadiest first."""
+        params = self.params
+        beacons: list[tuple[_Beacon, list[EventRow]]] = []
+        for destination, slot in destinations.items():
+            if len(slot.events) < params.min_connections:
+                continue
+            times = [e.event_time for e in slot.events]
+            intervals = [(b - a).total_seconds() for a, b in pairwise(times)]
+            mean, stddev = interval_stats(intervals)
+            if mean < params.min_interval_seconds:
+                continue
+            jitter = stddev / mean
+            if jitter > params.max_jitter:
+                continue
+            beacons.append(
+                (
+                    _Beacon(
+                        destination=destination,
+                        connections=len(slot.events),
+                        mean_interval=round(mean, 2),
+                        jitter=round(jitter, 4),
+                        bytes_out=slot.bytes_out,
+                        app_proto=slot.events[0].app_proto,
+                    ),
+                    slot.events,
+                )
+            )
+        beacons.sort(key=lambda item: (item[0].jitter, -item[0].connections, item[0].destination))
+        return beacons
+
+    def run(self, window: EventWindow) -> list[DetectionResult]:
+        params = self.params
+        per_source = self._connections_by_source(window)
 
         bucket = window_bucket(window.start, self.window_seconds)
         results: list[DetectionResult] = []
         for source in sorted(per_source):
-            beacons: list[tuple[_Beacon, list[EventRow]]] = []
-            for destination, slot in per_source[source].items():
-                if len(slot.events) < params.min_connections:
-                    continue
-                times = [e.event_time for e in slot.events]
-                intervals = [(b - a).total_seconds() for a, b in pairwise(times)]
-                mean, stddev = interval_stats(intervals)
-                if mean < params.min_interval_seconds:
-                    continue
-                jitter = stddev / mean
-                if jitter > params.max_jitter:
-                    continue
-                beacons.append(
-                    (
-                        _Beacon(
-                            destination=destination,
-                            connections=len(slot.events),
-                            mean_interval=round(mean, 2),
-                            jitter=round(jitter, 4),
-                            bytes_out=slot.bytes_out,
-                            app_proto=slot.events[0].app_proto,
-                        ),
-                        slot.events,
-                    )
-                )
+            beacons = self._beacons(per_source[source])
             if not beacons:
                 continue
-            beacons.sort(
-                key=lambda item: (item[0].jitter, -item[0].connections, item[0].destination)
-            )
             best, events = beacons[0]
             all_events = sorted(
                 (e for _, evs in beacons for e in evs), key=lambda e: (e.event_time, e.id.int)

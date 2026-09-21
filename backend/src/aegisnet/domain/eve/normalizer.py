@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Final
+from typing import Any, Final
 
 from pydantic import ValidationError
 
@@ -159,17 +159,9 @@ def _validation_reject(error: ValidationError, raw: str) -> Reject:
     )
 
 
-def normalize_line(
-    line: str,
-    *,
-    now: datetime,
-    limits: ParseLimits = DEFAULT_LIMITS,
-    window: TimestampWindow = DEFAULT_WINDOW,
-) -> NormalizedEvent | Reject:
-    if now.tzinfo is None:
-        raise ValueError("now must be timezone-aware")
-    raw = line.rstrip("\r\n")
-
+def _parse(raw: str, limits: ParseLimits) -> dict[str, Any] | Reject:
+    """The line as a JSON object, or the first structural reason it cannot be one. Size and
+    nesting are checked on the text, before the parser is given anything to do."""
     if encoded_size(raw) > limits.max_line_bytes:
         return Reject(
             RejectReason.too_large, f"line exceeds {limits.max_line_bytes} bytes", excerpt(raw)
@@ -191,24 +183,22 @@ def normalize_line(
     violation = structure_violation(parsed, limits)
     if violation is not None:
         return Reject(violation, "record breaks the structural limits", excerpt(raw))
+    return parsed
 
-    sanitized = clean_record(parsed, max_chars=limits.max_string_chars)
-    try:
-        record = EveRecord.model_validate(sanitized)
-    except ValidationError as error:
-        return _validation_reject(error, raw)
 
-    if record.event_type in UNSUPPORTED_EVENT_TYPES:
-        return Reject(
-            RejectReason.unsupported_event_type,
-            f"event_type {record.event_type!r} describes the sensor, not the network",
-            excerpt(raw),
-        )
+def _outside_window(
+    record: EveRecord,
+    event_time: datetime,
+    time_field: str,
+    *,
+    now: datetime,
+    window: TimestampWindow,
+    raw: str,
+) -> Reject | None:
+    """Both instants are checked: the record's own claim, and the one the event is filed
+    under. A sensor whose flow start is outside the window is not one to trust silently."""
     lower = now - window.max_past
     upper = now + window.max_future
-    event_time, time_field = _event_time(record)
-    # Both instants are checked: the record's own claim, and the one the event is filed
-    # under. A sensor whose flow start is outside the window is not one to trust silently.
     for field, moment in (("timestamp", record.timestamp), (time_field, event_time)):
         if not lower <= moment <= upper:
             return Reject(
@@ -217,7 +207,11 @@ def normalize_line(
                 f"[{lower.astimezone(UTC).isoformat()}, {upper.astimezone(UTC).isoformat()}]",
                 excerpt(raw),
             )
+    return None
 
+
+def _promote(record: EveRecord, sanitized: dict[str, Any], event_time: datetime) -> NormalizedEvent:
+    """The validated record as the row that is stored: promoted columns plus the payload."""
     dns_query, dns_rrtype, dns_rcode = _dns_fields(record.dns)
     flow = record.flow
     http = record.http
@@ -248,6 +242,39 @@ def normalize_line(
         sig_severity=None if alert is None else alert.severity,
         payload=sanitized,
     )
+
+
+def normalize_line(
+    line: str,
+    *,
+    now: datetime,
+    limits: ParseLimits = DEFAULT_LIMITS,
+    window: TimestampWindow = DEFAULT_WINDOW,
+) -> NormalizedEvent | Reject:
+    if now.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    raw = line.rstrip("\r\n")
+
+    parsed = _parse(raw, limits)
+    if isinstance(parsed, Reject):
+        return parsed
+    sanitized = clean_record(parsed, max_chars=limits.max_string_chars)
+    try:
+        record = EveRecord.model_validate(sanitized)
+    except ValidationError as error:
+        return _validation_reject(error, raw)
+
+    if record.event_type in UNSUPPORTED_EVENT_TYPES:
+        return Reject(
+            RejectReason.unsupported_event_type,
+            f"event_type {record.event_type!r} describes the sensor, not the network",
+            excerpt(raw),
+        )
+    event_time, time_field = _event_time(record)
+    outside = _outside_window(record, event_time, time_field, now=now, window=window, raw=raw)
+    if outside is not None:
+        return outside
+    return _promote(record, sanitized, event_time)
 
 
 def normalize_lines(

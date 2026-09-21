@@ -262,42 +262,33 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.env is Environment.production
 
-    @property
-    def database_url(self) -> URL:
-        """Async SQLAlchemy URL. Built via ``URL.create`` so credentials are escaped correctly."""
+    def _url_for(self, username: str, password: SecretStr) -> URL:
+        """The three database roles differ only in who connects. Built via ``URL.create`` so
+        credentials are escaped correctly."""
         return URL.create(
             drivername="postgresql+asyncpg",
-            username=self.postgres_app_user,
-            password=self.postgres_app_password.get_secret_value(),
+            username=username,
+            password=password.get_secret_value(),
             host=self.postgres_host,
             port=self.postgres_port,
             database=self.postgres_db,
         )
 
     @property
+    def database_url(self) -> URL:
+        """Async SQLAlchemy URL for the runtime role."""
+        return self._url_for(self.postgres_app_user, self.postgres_app_password)
+
+    @property
     def migration_url(self) -> URL:
         """Async SQLAlchemy URL for the migrator role, used only by Alembic (T-5.3)."""
-        return URL.create(
-            drivername="postgresql+asyncpg",
-            username=self.postgres_migrator_user,
-            password=self.postgres_migrator_password.get_secret_value(),
-            host=self.postgres_host,
-            port=self.postgres_port,
-            database=self.postgres_db,
-        )
+        return self._url_for(self.postgres_migrator_user, self.postgres_migrator_password)
 
     @property
     def retention_url(self) -> URL:
         """Async SQLAlchemy URL for the retention role — the one principal that may DELETE, and
         only from the four tables with a period (ADR-033)."""
-        return URL.create(
-            drivername="postgresql+asyncpg",
-            username=self.postgres_retention_user,
-            password=self.postgres_retention_password.get_secret_value(),
-            host=self.postgres_host,
-            port=self.postgres_port,
-            database=self.postgres_db,
-        )
+        return self._url_for(self.postgres_retention_user, self.postgres_retention_password)
 
     @property
     def redis_url(self) -> str:

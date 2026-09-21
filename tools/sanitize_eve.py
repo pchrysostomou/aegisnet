@@ -555,19 +555,23 @@ def verify(lines: list[str]) -> int:
 # ---------------------------------------------------------------- output
 
 
+_UTC_OFFSET = "+00:00"
+"""What ``isoformat`` writes for UTC, and what ``fromisoformat`` wants in place of ``Z``."""
+
+
 def _hour_window(first: str, last: str) -> dict[str, str]:
     """The hour-aligned interval a detection sweep should cover for this capture, so the
     operator (and `make eval-lab`) never has to work it out from timestamps by hand."""
     try:
-        start = datetime.fromisoformat(first.replace("Z", "+00:00"))
-        end = datetime.fromisoformat(last.replace("Z", "+00:00"))
+        start = datetime.fromisoformat(first.replace("Z", _UTC_OFFSET))
+        end = datetime.fromisoformat(last.replace("Z", _UTC_OFFSET))
     except ValueError:
         return {}
     floor = start.replace(minute=0, second=0, microsecond=0)
     ceiling = end.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
     return {
-        "from": floor.isoformat().replace("+00:00", "Z"),
-        "to": ceiling.isoformat().replace("+00:00", "Z"),
+        "from": floor.isoformat().replace(_UTC_OFFSET, "Z"),
+        "to": ceiling.isoformat().replace(_UTC_OFFSET, "Z"),
     }
 
 

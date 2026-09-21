@@ -29,7 +29,10 @@ from aegisnet.domain.auth import InvalidCredentialsError, Permission, Principal,
 from aegisnet.domain.enums import AuditResult
 from aegisnet.services.auth_service import LoginOutcome, LoginRejectedError
 
-router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+AUTH_PREFIX = "/api/v1/auth"
+"""The router's prefix and the refresh cookie's ``Path``: it is sent here and nowhere else."""
+
+router = APIRouter(prefix=AUTH_PREFIX, tags=["auth"])
 
 LOGIN_WINDOW_SECONDS = 15 * 60
 
@@ -40,7 +43,7 @@ def _set_refresh_cookie(response: Response, outcome: LoginOutcome, svc: AppServi
         outcome.refresh_token,
         max_age=svc.settings.refresh_ttl_days * 24 * 3600,
         expires=outcome.refresh_expires_at,
-        path="/api/v1/auth",
+        path=AUTH_PREFIX,
         secure=svc.settings.cookie_secure,
         httponly=True,
         samesite="strict",
@@ -50,7 +53,7 @@ def _set_refresh_cookie(response: Response, outcome: LoginOutcome, svc: AppServi
 def _clear_refresh_cookie(response: Response, svc: AppServices) -> None:
     response.delete_cookie(
         REFRESH_COOKIE,
-        path="/api/v1/auth",
+        path=AUTH_PREFIX,
         secure=svc.settings.cookie_secure,
         httponly=True,
         samesite="strict",

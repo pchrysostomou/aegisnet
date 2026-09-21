@@ -29,6 +29,12 @@ down_revision: str | None = "0003_detection_tables"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
+# Names for the values this revision repeats. They are local to the file on purpose — a
+# revision stays frozen, so it does not import them from the models it once matched.
+_USERS_ID = "users.id"
+_INCIDENTS_ID = "incidents.id"
+_SET_NULL = "SET NULL"
+
 ENUMS: dict[str, tuple[str, ...]] = {
     "incident_status": (
         "new",
@@ -93,7 +99,7 @@ def upgrade() -> None:
             "primary_asset_id",
             UUID,
             sa.ForeignKey(
-                "assets.id", ondelete="SET NULL", name="fk_incidents_primary_asset_id_assets"
+                "assets.id", ondelete=_SET_NULL, name="fk_incidents_primary_asset_id_assets"
             ),
             nullable=True,
         ),
@@ -104,7 +110,7 @@ def upgrade() -> None:
         sa.Column(
             "assigned_to",
             UUID,
-            sa.ForeignKey("users.id", ondelete="SET NULL", name="fk_incidents_assigned_to_users"),
+            sa.ForeignKey(_USERS_ID, ondelete=_SET_NULL, name="fk_incidents_assigned_to_users"),
             nullable=True,
         ),
         sa.Column("closed_at", TZ, nullable=True),
@@ -143,7 +149,7 @@ def upgrade() -> None:
             "incident_id",
             UUID,
             sa.ForeignKey(
-                "incidents.id", ondelete="CASCADE", name="fk_incident_alerts_incident_id_incidents"
+                _INCIDENTS_ID, ondelete="CASCADE", name="fk_incident_alerts_incident_id_incidents"
             ),
             primary_key=True,
         ),
@@ -169,7 +175,7 @@ def upgrade() -> None:
             "incident_id",
             UUID,
             sa.ForeignKey(
-                "incidents.id",
+                _INCIDENTS_ID,
                 ondelete="CASCADE",
                 name="fk_incident_timeline_incident_id_incidents",
             ),
@@ -183,7 +189,7 @@ def upgrade() -> None:
             "actor_user_id",
             UUID,
             sa.ForeignKey(
-                "users.id", ondelete="SET NULL", name="fk_incident_timeline_actor_user_id_users"
+                _USERS_ID, ondelete=_SET_NULL, name="fk_incident_timeline_actor_user_id_users"
             ),
             nullable=True,
         ),
@@ -191,7 +197,7 @@ def upgrade() -> None:
             "alert_id",
             UUID,
             sa.ForeignKey(
-                "alerts.id", ondelete="SET NULL", name="fk_incident_timeline_alert_id_alerts"
+                "alerts.id", ondelete=_SET_NULL, name="fk_incident_timeline_alert_id_alerts"
             ),
             nullable=True,
         ),
@@ -212,16 +218,14 @@ def upgrade() -> None:
             "incident_id",
             UUID,
             sa.ForeignKey(
-                "incidents.id", ondelete="CASCADE", name="fk_incident_notes_incident_id_incidents"
+                _INCIDENTS_ID, ondelete="CASCADE", name="fk_incident_notes_incident_id_incidents"
             ),
             nullable=False,
         ),
         sa.Column(
             "author_id",
             UUID,
-            sa.ForeignKey(
-                "users.id", ondelete="SET NULL", name="fk_incident_notes_author_id_users"
-            ),
+            sa.ForeignKey(_USERS_ID, ondelete=_SET_NULL, name="fk_incident_notes_author_id_users"),
             nullable=True,
         ),
         sa.Column("body", sa.Text, nullable=False),

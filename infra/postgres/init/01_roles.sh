@@ -42,6 +42,7 @@ require_identifier() {
 	eval "value=\${$1}"
 	case $value in
 	*[!A-Za-z0-9_]* | "") die "$1 must match [A-Za-z0-9_]+ (got a disallowed character)" ;;
+	*) ;; # every character is in the allowed set: nothing to refuse
 	esac
 }
 
@@ -52,6 +53,7 @@ require_secret() {
 	eval "value=\${$1}"
 	case $value in
 	*[!A-Za-z0-9_=+/.-]*) die "$1 contains a character that is unsafe to interpolate into SQL" ;;
+	*) ;; # every character is in the allowed set: nothing to refuse
 	esac
 	[ "${#value}" -ge 16 ] || die "$1 is shorter than 16 characters"
 }

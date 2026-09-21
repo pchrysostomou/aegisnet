@@ -30,6 +30,10 @@ def check_limit(limit: int) -> int:
     return limit
 
 
+_MALFORMED = "cursor is malformed"
+"""One message for every way a cursor can be wrong: the answer never says which check failed."""
+
+
 def _encode(parts: list[str]) -> str:
     raw = json.dumps(parts, separators=(",", ":")).encode("ascii")
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
@@ -37,18 +41,18 @@ def _encode(parts: list[str]) -> str:
 
 def _decode(cursor: str, expected: int) -> list[str]:
     if not cursor or len(cursor) > MAX_CURSOR_CHARS:
-        raise InvalidCursorError("cursor is malformed")
+        raise InvalidCursorError(_MALFORMED)
     padded = cursor + "=" * (-len(cursor) % 4)
     try:
         parts = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")))
     except (binascii.Error, ValueError, UnicodeError) as error:
-        raise InvalidCursorError("cursor is malformed") from error
+        raise InvalidCursorError(_MALFORMED) from error
     if (
         not isinstance(parts, list)
         or len(parts) != expected
         or not all(isinstance(part, str) for part in parts)
     ):
-        raise InvalidCursorError("cursor is malformed")
+        raise InvalidCursorError(_MALFORMED)
     return parts
 
 
@@ -64,9 +68,9 @@ def decode_time_id(cursor: str) -> tuple[datetime, UUID]:
         moment = datetime.fromisoformat(stamp)
         identifier = UUID(row_id)
     except ValueError as error:
-        raise InvalidCursorError("cursor is malformed") from error
+        raise InvalidCursorError(_MALFORMED) from error
     if moment.tzinfo is None:
-        raise InvalidCursorError("cursor is malformed")
+        raise InvalidCursorError(_MALFORMED)
     return moment, identifier
 
 
@@ -77,5 +81,5 @@ def encode_int(value: int) -> str:
 def decode_int(cursor: str) -> int:
     (raw,) = _decode(cursor, 1)
     if not raw.isdigit():
-        raise InvalidCursorError("cursor is malformed")
+        raise InvalidCursorError(_MALFORMED)
     return int(raw)

@@ -67,6 +67,9 @@ MIN_SECRET_BYTES = 32
 CLOCK_SKEW_SECONDS: Final = 30
 """HS256 needs a key at least as long as its output; PyJWT refuses shorter ones."""
 
+_INVALID_ACCESS_MESSAGE = "invalid access token"
+"""One message for a bearer that is forged, malformed or no longer matches its user."""
+
 
 def utc_now() -> datetime:
     return datetime.now(tz=UTC)
@@ -329,14 +332,14 @@ class AuthService:
                 },
             )
         except jwt.PyJWTError as error:
-            raise NotAuthenticatedError("invalid access token") from error
+            raise NotAuthenticatedError(_INVALID_ACCESS_MESSAGE) from error
         try:
             user_id = uuid.UUID(str(claims["sub"]))
             role = UserRole(str(claims["role"]))
             issued = int(claims["iat"])
             expires = int(claims["exp"])
         except (TypeError, ValueError) as error:
-            raise NotAuthenticatedError("invalid access token") from error
+            raise NotAuthenticatedError(_INVALID_ACCESS_MESSAGE) from error
         moment = int(now.timestamp())
         if expires <= moment - CLOCK_SKEW_SECONDS:
             raise NotAuthenticatedError("access token expired")
@@ -349,7 +352,7 @@ class AuthService:
             raise NotAuthenticatedError("access token revoked")
         user = await self._users.get(user_id)
         if user is None or not user.is_active or user.role is not role:
-            raise NotAuthenticatedError("invalid access token")
+            raise NotAuthenticatedError(_INVALID_ACCESS_MESSAGE)
         return principal_for_user(user.id, user.role, user.email, token_id=jti)
 
     async def authenticate_service_token(self, token: str) -> Principal:
@@ -386,5 +389,5 @@ class AuthService:
     async def current_user(self, principal: Principal) -> UserRecord:
         user = await self._users.get(principal.id)
         if user is None or not user.is_active:
-            raise NotAuthenticatedError("invalid access token")
+            raise NotAuthenticatedError(_INVALID_ACCESS_MESSAGE)
         return user

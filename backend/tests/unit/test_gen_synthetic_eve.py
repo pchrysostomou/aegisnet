@@ -6,7 +6,7 @@ import importlib.util
 import ipaddress
 import json
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import ModuleType
 
@@ -53,8 +53,8 @@ def _run(tmp_path: Path, name: str, *args: str) -> tuple[bytes, dict[str, object
     is a parameter rather than something a caller can steer."""
     module = _load_generator()
     out = tmp_path / f"{name}.ndjson"
-    parsed = module.parse_args(["--events", "300", *args])
-    module.write_corpus(out, parsed)
+    spec = module.CorpusSpec.from_args(module.parse_args(["--events", "300", *args]))
+    module.write_corpus(out, spec)
     manifest = json.loads((tmp_path / f"{name}.manifest.json").read_text())
     return out.read_bytes(), manifest
 
@@ -68,6 +68,36 @@ def test_the_command_line_accepts_no_path_and_refuses_outside_a_checkout(
     assert module.main([]) == 1
     assert "not inside a repository checkout" in capsys.readouterr().err
     assert module.repository_root(REPO_ROOT / "backend") == REPO_ROOT
+
+
+@pytest.mark.parametrize(
+    ("argv", "complaint"),
+    [
+        (["--events", "0"], "--events must be positive"),
+        (["--duration-minutes", "0"], "--duration-minutes must be positive"),
+        (["--start", "not-a-date"], "Invalid isoformat string"),
+    ],
+)
+def test_a_value_that_cannot_be_used_is_refused_before_anything_is_written(
+    argv: list[str], complaint: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The namespace stops at `CorpusSpec.from_args`: past it there are four converted values
+    and no text anybody typed, so a bad one is a usage error rather than a traceback."""
+    module = _load_generator()
+    assert module.main(argv) == 2
+    assert complaint in capsys.readouterr().err
+
+
+def test_the_spec_holds_values_and_not_the_command_line(tmp_path: Path) -> None:
+    module = _load_generator()
+    spec = module.CorpusSpec.from_args(
+        module.parse_args(["--seed", "7", "--events", "5", "--start", "2026-09-01T00:00:00Z"])
+    )
+    assert (spec.seed, spec.events) == (7, 5)
+    assert spec.start == datetime(2026, 9, 1, tzinfo=UTC)
+    assert spec.duration == timedelta(minutes=120)
+    with pytest.raises(AttributeError):
+        spec.seed = 8  # frozen: what was validated is what is written
 
 
 def test_same_seed_is_byte_identical_and_a_different_seed_is_not(tmp_path: Path) -> None:

@@ -28,6 +28,7 @@ import json
 import random
 import sys
 from collections import Counter
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -451,13 +452,39 @@ def render(records: list[dict]) -> bytes:
     return ("\n".join(lines) + "\n").encode("ascii")
 
 
-def manifest_for(
-    args: argparse.Namespace, corpus: Corpus, payload: bytes, records: list[dict]
-) -> dict:
+@dataclass(frozen=True, slots=True)
+class CorpusSpec:
+    """What the command line asked for, as values rather than as the parser's namespace.
+
+    Every field is converted on the way in — ``int()``, ``datetime.fromisoformat`` — so nothing
+    downstream holds text somebody typed. The generator writes a file, and what it writes is a
+    function of four numbers and a fixed name; this is where that becomes true by construction
+    instead of by reading `write_corpus` to the end (`pythonsecurity:S8707`)."""
+
+    seed: int
+    events: int
+    start: datetime
+    duration: timedelta
+
+    @classmethod
+    def from_args(cls, args: argparse.Namespace) -> CorpusSpec:
+        events = int(args.events)
+        if events < 1:
+            raise ValueError("--events must be positive")
+        minutes = int(args.duration_minutes)
+        if minutes < 1:
+            raise ValueError("--duration-minutes must be positive")
+        start = datetime.fromisoformat(str(args.start).replace("Z", "+00:00")).astimezone(UTC)
+        return cls(
+            seed=int(args.seed), events=events, start=start, duration=timedelta(minutes=minutes)
+        )
+
+
+def manifest_for(spec: CorpusSpec, corpus: Corpus, payload: bytes, records: list[dict]) -> dict:
     return {
         "generator": "tools/gen_synthetic_eve.py",
         "generator_version": GENERATOR_VERSION,
-        "seed": args.seed,
+        "seed": spec.seed,
         "events": len(records),
         "counts_by_type": dict(sorted(corpus.counts.items())),
         "time_range": {"start": records[0]["timestamp"], "end": records[-1]["timestamp"]},
@@ -483,32 +510,32 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def write_corpus(out: Path, args: argparse.Namespace) -> tuple[int, int, Path]:
+def write_corpus(out: Path, spec: CorpusSpec) -> tuple[int, int, Path]:
     """Render the corpus and its manifest at ``out``; returns events, bytes and the manifest."""
-    start = datetime.fromisoformat(args.start.replace("Z", "+00:00")).astimezone(UTC)
-    corpus = Corpus(args.seed, start, timedelta(minutes=args.duration_minutes), args.events)
+    corpus = Corpus(spec.seed, spec.start, spec.duration, spec.events)
     records = corpus.generate()
     payload = render(records)
     manifest_path = out.with_name(f"{out.stem}.manifest.json")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(payload)
     manifest_path.write_text(
-        json.dumps(manifest_for(args, corpus, payload, records), indent=2) + "\n", encoding="utf-8"
+        json.dumps(manifest_for(spec, corpus, payload, records), indent=2) + "\n", encoding="utf-8"
     )
     return len(records), len(payload), manifest_path
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
-    if args.events < 1:
-        print("--events must be positive", file=sys.stderr)  # noqa: T201 - CLI
+    try:
+        spec = CorpusSpec.from_args(parse_args(argv))
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)  # noqa: T201 - CLI
         return 2
     try:
         out = repository_root(Path.cwd()) / CORPUS_FILE
     except FileNotFoundError as error:
         print(f"error: {error}", file=sys.stderr)  # noqa: T201 - CLI
         return 1
-    events, size, manifest_path = write_corpus(out, args)
+    events, size, manifest_path = write_corpus(out, spec)
     print(f"wrote {events} events to {CORPUS_FILE} ({size} bytes); manifest {manifest_path.name}")  # noqa: T201
     return 0
 

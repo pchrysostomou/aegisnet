@@ -81,6 +81,34 @@ class GroupingMetrics:
         return self.contaminated_incidents / self.incidents_produced
 
 
+def _assignments(proposals: Sequence[Proposal]) -> dict[UUID, int]:
+    """Which proposal each alert landed in. An alert in two proposals cannot be scored."""
+    predicted: dict[UUID, int] = {}
+    for index, proposal in enumerate(proposals):
+        for alert in proposal.alerts:
+            if alert.id in predicted:
+                raise CorrelationEvalError(f"alert {alert.id} appears in two proposals")
+            predicted[alert.id] = index
+    return predicted
+
+
+def _pair_counts(
+    everyone: Sequence[UUID], predicted: Mapping[UUID, int], truth: Mapping[UUID, str]
+) -> tuple[int, int, int]:
+    """Pairwise true positives, false positives and false negatives, in that order."""
+    tp = fp = fn = 0
+    for left, right in combinations(everyone, 2):
+        together = left in predicted and right in predicted and predicted[left] == predicted[right]
+        belongs = truth.get(left) is not None and truth.get(left) == truth.get(right)
+        if together and belongs:
+            tp += 1
+        elif together:
+            fp += 1
+        elif belongs:
+            fn += 1
+    return tp, fp, fn
+
+
 def score(
     proposals: Sequence[Proposal],
     truth: Mapping[UUID, str],
@@ -96,12 +124,7 @@ def score(
     if incidents_expected < 1:
         raise CorrelationEvalError("a scenario expects at least one incident")
 
-    predicted: dict[UUID, int] = {}
-    for index, proposal in enumerate(proposals):
-        for alert in proposal.alerts:
-            if alert.id in predicted:
-                raise CorrelationEvalError(f"alert {alert.id} appears in two proposals")
-            predicted[alert.id] = index
+    predicted = _assignments(proposals)
     missing = sorted(str(alert_id) for alert_id in predicted if alert_id not in truth)
     if missing:
         raise CorrelationEvalError(f"unlabelled alerts: {', '.join(missing)}")
@@ -110,16 +133,7 @@ def score(
     # recall: a pair that should have been grouped and was not is a miss whether the second
     # alert landed in the wrong case or was never raised.
     everyone = sorted(set(predicted) | set(truth), key=lambda value: value.int)
-    tp = fp = fn = 0
-    for left, right in combinations(everyone, 2):
-        together = left in predicted and right in predicted and predicted[left] == predicted[right]
-        belongs = truth.get(left) is not None and truth.get(left) == truth.get(right)
-        if together and belongs:
-            tp += 1
-        elif together:
-            fp += 1
-        elif belongs:
-            fn += 1
+    tp, fp, fn = _pair_counts(everyone, predicted, truth)
 
     contaminated = sum(
         1 for proposal in proposals if len({truth[alert.id] for alert in proposal.alerts}) > 1

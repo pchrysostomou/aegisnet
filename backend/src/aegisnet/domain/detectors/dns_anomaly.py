@@ -185,12 +185,11 @@ class DnsAnomalyDetector:
                 results.append(result)
         return results
 
-    def _evaluate(
-        self, client: str, tally: _Tally, window: EventWindow, bucket: object
-    ) -> DetectionResult | None:
+    def _busiest_domain(self, tally: _Tally) -> tuple[float, str, int, int]:
+        """The tunnelling signal (zero when no domain qualifies), then the domain outside the
+        allow-list with the most distinct names, how many, and how many of those look random."""
         params = self.params
-        signals: dict[str, float] = {}
-
+        tunnel = 0.0
         top_domain, top_names, top_suspicious = "", 0, 0
         for domain, names in tally.per_domain.items():
             if is_allowed(domain, params.allowed_suffixes):
@@ -199,9 +198,18 @@ class DnsAnomalyDetector:
             if len(names) > top_names:
                 top_domain, top_names, top_suspicious = domain, len(names), suspicious
             if len(names) >= params.unique_subdomains and suspicious * 2 >= len(names):
-                signals["tunnel"] = max(
-                    signals.get("tunnel", 0.0), len(names) / params.unique_subdomains
-                )
+                tunnel = max(tunnel, len(names) / params.unique_subdomains)
+        return tunnel, top_domain, top_names, top_suspicious
+
+    def _evaluate(
+        self, client: str, tally: _Tally, window: EventWindow, bucket: object
+    ) -> DetectionResult | None:
+        params = self.params
+        signals: dict[str, float] = {}
+
+        tunnel, top_domain, top_names, top_suspicious = self._busiest_domain(tally)
+        if tunnel > 0.0:
+            signals["tunnel"] = tunnel
 
         if tally.answers and tally.nxdomain >= params.nxdomain_failures:
             ratio = tally.nxdomain / tally.answers

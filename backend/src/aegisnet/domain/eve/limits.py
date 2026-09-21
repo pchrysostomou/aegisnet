@@ -14,6 +14,7 @@ The defaults match ``docs/api-milestone-1.md``; the ingest service makes them co
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Final
 
@@ -44,29 +45,29 @@ def bracket_depth(text: str, *, stop_above: int | None = None) -> int:
     depth is exceeded, which bounds the work on a hostile line to the first few bytes.
     Malformed text (unbalanced brackets) simply yields a depth; the JSON parser rejects it.
     """
+    # No ceiling is a ceiling nothing reaches, so the loop has one comparison rather than two.
+    ceiling = stop_above if stop_above is not None else len(text)
     depth = 0
     deepest = 0
     in_string = False
-    escaped = False
+    escaped = False  # only ever true inside a string: it is set there and cleared one char later
     for char in text:
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
+        if escaped:
+            escaped = False
+        elif in_string:
+            if char == "\\":
                 escaped = True
             elif char == '"':
                 in_string = False
-            continue
-        if char == '"':
+        elif char == '"':
             in_string = True
         elif char in "{[":
             depth += 1
-            if depth > deepest:
-                deepest = depth
-                if stop_above is not None and deepest > stop_above:
-                    return deepest
-        elif char in "}]" and depth > 0:
-            depth -= 1
+            deepest = max(deepest, depth)
+            if deepest > ceiling:
+                return deepest
+        elif char in "}]":
+            depth = max(0, depth - 1)
     return deepest
 
 
@@ -75,16 +76,16 @@ def structure_violation(value: object, limits: ParseLimits = DEFAULT_LIMITS) -> 
     stack: list[tuple[object, int]] = [(value, 1)]
     while stack:
         node, depth = stack.pop()
+        children: Iterable[object]
         if isinstance(node, dict):
-            if depth > limits.max_json_depth:
-                return RejectReason.too_deep
-            if len(node) > limits.max_keys_per_object:
-                return RejectReason.too_large
-            stack.extend((child, depth + 1) for child in node.values())
+            children, size, cap = node.values(), len(node), limits.max_keys_per_object
         elif isinstance(node, list):
-            if depth > limits.max_json_depth:
-                return RejectReason.too_deep
-            if len(node) > limits.max_items_per_array:
-                return RejectReason.too_large
-            stack.extend((child, depth + 1) for child in node)
+            children, size, cap = node, len(node), limits.max_items_per_array
+        else:
+            continue
+        if depth > limits.max_json_depth:
+            return RejectReason.too_deep
+        if size > cap:
+            return RejectReason.too_large
+        stack.extend((child, depth + 1) for child in children)
     return None

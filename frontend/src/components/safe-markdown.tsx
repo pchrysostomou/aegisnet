@@ -78,6 +78,40 @@ type Block =
   | { kind: "quote"; lines: string[] }
   | { kind: "code"; lines: string[] };
 
+type CodeBlock = Extract<Block, { kind: "code" }>;
+type TextLine = { kind: "list" | "quote" | "paragraph"; text: string };
+
+// No `g` flag on any of these, so a shared literal carries no `lastIndex` between calls.
+const FENCE = /^[ \t]*```/;
+const BLANK = /^[ \t]*$/;
+const LIST_MARKER = /^[ \t]*[-*][ \t]+/;
+const QUOTE_MARKER = /^[ \t]*>[ \t]?/;
+
+/** A fence line closes the open code block, or opens one. */
+function toggleFence(blocks: Block[], fence: CodeBlock | null): CodeBlock | null {
+  if (!fence) return { kind: "code", lines: [] };
+  blocks.push(fence);
+  return null;
+}
+
+/** What a line outside a fence is, with its marker taken off. */
+function classify(line: string): TextLine {
+  if (LIST_MARKER.test(line)) return { kind: "list", text: line.replace(LIST_MARKER, "") };
+  if (QUOTE_MARKER.test(line)) return { kind: "quote", text: line.replace(QUOTE_MARKER, "") };
+  return { kind: "paragraph", text: line };
+}
+
+/** Continue the open block when it is the same kind, and start a new one when it is not. */
+function append(blocks: Block[], last: Block | undefined, { kind, text }: TextLine): void {
+  if (kind === "list") {
+    if (last?.kind === "list") last.items.push(text);
+    else blocks.push({ kind, items: [text] });
+    return;
+  }
+  if (last?.kind === kind) last.lines.push(text);
+  else blocks.push({ kind, lines: [text] });
+}
+
 /** Line-oriented on purpose: a grammar small enough to read in one sitting is a grammar whose
  * failure modes can be reasoned about.
  *
@@ -90,19 +124,14 @@ type Block =
 export function parseBlocks(source: string): Block[] {
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
   const blocks: Block[] = [];
-  let fence: Block | null = null;
+  let fence: CodeBlock | null = null;
   let afterBlank = false;
 
   for (const line of lines) {
     if (blocks.length >= MAX_BLOCKS) break;
 
-    if (/^[ \t]*```/.test(line)) {
-      if (fence) {
-        blocks.push(fence);
-        fence = null;
-      } else {
-        fence = { kind: "code", lines: [] };
-      }
+    if (FENCE.test(line)) {
+      fence = toggleFence(blocks, fence);
       continue;
     }
     if (fence) {
@@ -115,28 +144,14 @@ export function parseBlocks(source: string): Block[] {
      * with a `<br/>` in it — two paragraphs an analyst typed, rendered as one. Lists are the
      * exception markdown itself makes: a blank line between items is a loose list, still one
      * list, which is why `open` is only cleared for the kinds where a break means a new block. */
-    if (/^[ \t]*$/.test(line)) {
+    if (BLANK.test(line)) {
       afterBlank = true;
       continue;
     }
     const previous = blocks[blocks.length - 1];
     const last = afterBlank && previous?.kind !== "list" ? undefined : previous;
     afterBlank = false;
-
-    if (/^[ \t]*[-*][ \t]+/.test(line)) {
-      const item = line.replace(/^[ \t]*[-*][ \t]+/, "");
-      if (last?.kind === "list") last.items.push(item);
-      else blocks.push({ kind: "list", items: [item] });
-      continue;
-    }
-    if (/^[ \t]*>[ \t]?/.test(line)) {
-      const quoted = line.replace(/^[ \t]*>[ \t]?/, "");
-      if (last?.kind === "quote") last.lines.push(quoted);
-      else blocks.push({ kind: "quote", lines: [quoted] });
-      continue;
-    }
-    if (last?.kind === "paragraph") last.lines.push(line);
-    else blocks.push({ kind: "paragraph", lines: [line] });
+    append(blocks, last, classify(line));
   }
   // An unterminated fence is still a code block: dropping it would hide what somebody wrote.
   if (fence) blocks.push(fence);

@@ -81,6 +81,25 @@ async def _audit_refusal(
     )
 
 
+async def _spool_body(
+    svc: AppServices, request: Request, name: str, declared: str
+) -> tuple[IngestMethod, int]:
+    """Write the body to the spool under ``name`` and say how it arrived and how large it was."""
+    cap_bytes = svc.settings.ingest_max_body_bytes
+    content_type = request.headers.get("content-type", "")
+    if not content_type.startswith("multipart/form-data"):
+        size = await svc.spool.write(name, request.stream(), max_bytes=cap_bytes)
+        return IngestMethod.api_ndjson, size
+    if not declared.isdigit():
+        raise ValidationFailedError("content-length", "required for multipart uploads")
+    form = await request.form(max_files=1, max_fields=4)
+    upload = form.get("file")
+    if not isinstance(upload, UploadFile):
+        raise ValidationFailedError("file", "a multipart part named 'file' is required")
+    size = await svc.spool.write(name, _file_chunks(upload), max_bytes=cap_bytes)
+    return IngestMethod.api_file, size
+
+
 @router.post(
     "/eve",
     summary="Ingest Suricata EVE NDJSON (body or multipart file)",
@@ -107,9 +126,7 @@ async def ingest_eve(
         await _audit_refusal(svc, principal, request, "body_too_large", declared=int(declared))
         raise PayloadTooLargeError(f"body exceeds {settings.ingest_max_body_bytes} bytes")
 
-    content_type = request.headers.get("content-type", "")
     name = svc.spool.new_name()  # minted before the body is read: never derived from it
-    cap_bytes = settings.ingest_max_body_bytes
     deadline = settings.ingest_upload_timeout_seconds
     try:
         # The caps above say how large a body may be; this says how long it may take to
@@ -117,18 +134,7 @@ async def ingest_eve(
         # (T-1.4). It covers the multipart parse as well, because that is where a multipart
         # body is actually read.
         async with asyncio.timeout(deadline):
-            if content_type.startswith("multipart/form-data"):
-                if not declared.isdigit():
-                    raise ValidationFailedError("content-length", "required for multipart uploads")
-                form = await request.form(max_files=1, max_fields=4)
-                upload = form.get("file")
-                if not isinstance(upload, UploadFile):
-                    raise ValidationFailedError("file", "a multipart part named 'file' is required")
-                method = IngestMethod.api_file
-                size = await svc.spool.write(name, _file_chunks(upload), max_bytes=cap_bytes)
-            else:
-                method = IngestMethod.api_ndjson
-                size = await svc.spool.write(name, request.stream(), max_bytes=cap_bytes)
+            method, size = await _spool_body(svc, request, name, declared)
     except SpoolTooLargeError:
         await _audit_refusal(svc, principal, request, "body_too_large")
         raise

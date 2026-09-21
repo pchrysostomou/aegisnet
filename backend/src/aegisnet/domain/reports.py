@@ -294,6 +294,56 @@ def _notes(notes: Sequence[NoteRecord], *, complete: bool) -> list[str]:
     return lines
 
 
+def _brief_claims(brief: BriefRecord) -> list[str]:
+    if not brief.claims:
+        return []
+    lines = ["#### Claims", ""]
+    for claim in brief.claims:
+        kind = str(claim.get("kind", "observed"))
+        refs = [int(ref) for ref in claim.get("citations", []) or []]
+        marker = "" if claim.get("verified", False) else f" {UNVERIFIED}"
+        cited = f" [{', '.join(str(ref) for ref in sorted(refs))}]" if refs else ""
+        lines.append(f"- _{cell(kind)}_ — {cell(str(claim.get('text', '')))}{cited}{marker}")
+    lines.append("")
+    return lines
+
+
+def _brief_recommendations(brief: BriefRecord) -> list[str]:
+    if not brief.recommendations:
+        return []
+    lines = ["#### What a person could do next", ""]
+    for advice in brief.recommendations:
+        action = code(str(advice.get("action", "")))
+        detail = cell(str(advice.get("detail", "")))
+        lines.append(f"- {action} — {detail}" if detail else f"- {action}")
+    lines += [
+        "",
+        "_These are things to look at, not things to do to a system. The vocabulary has no"
+        " word for blocking, scanning or taking anything down (ADR-030)._",
+        "",
+    ]
+    return lines
+
+
+def _brief_sources(brief: BriefRecord) -> list[str]:
+    if not brief.citations:
+        return []
+    lines = ["#### Sources", ""]
+    for citation in brief.citations:
+        lines.append(
+            # The brackets are escaped: a bare `[1]` is a link reference waiting for a
+            # `[1]: …` definition, and definitions are exactly what a hostile note would add.
+            f"- \\[{citation.citation_id}\\] {cell(citation.title)} — {code(citation.url)}"
+        )
+    lines += [
+        "",
+        "_Links are written out rather than linked, so reading this document cannot"
+        " navigate anywhere on its own._",
+        "",
+    ]
+    return lines
+
+
 def _brief(brief: BriefRecord) -> list[str]:
     origin = (
         "the offline sample committed to this repository, not a model"
@@ -331,43 +381,9 @@ def _brief(brief: BriefRecord) -> list[str]:
         "",
     ]
 
-    if brief.claims:
-        lines += ["#### Claims", ""]
-        for claim in brief.claims:
-            kind = str(claim.get("kind", "observed"))
-            refs = [int(ref) for ref in claim.get("citations", []) or []]
-            marker = "" if claim.get("verified", False) else f" {UNVERIFIED}"
-            cited = f" [{', '.join(str(ref) for ref in sorted(refs))}]" if refs else ""
-            lines.append(f"- _{cell(kind)}_ — {cell(str(claim.get('text', '')))}{cited}{marker}")
-        lines.append("")
-
-    if brief.recommendations:
-        lines += ["#### What a person could do next", ""]
-        for advice in brief.recommendations:
-            action = code(str(advice.get("action", "")))
-            detail = cell(str(advice.get("detail", "")))
-            lines.append(f"- {action} — {detail}" if detail else f"- {action}")
-        lines += [
-            "",
-            "_These are things to look at, not things to do to a system. The vocabulary has no"
-            " word for blocking, scanning or taking anything down (ADR-030)._",
-            "",
-        ]
-
-    if brief.citations:
-        lines += ["#### Sources", ""]
-        for citation in brief.citations:
-            lines.append(
-                # The brackets are escaped: a bare `[1]` is a link reference waiting for a
-                # `[1]: …` definition, and definitions are exactly what a hostile note would add.
-                f"- \\[{citation.citation_id}\\] {cell(citation.title)} — {code(citation.url)}"
-            )
-        lines += [
-            "",
-            "_Links are written out rather than linked, so reading this document cannot"
-            " navigate anywhere on its own._",
-            "",
-        ]
+    lines += _brief_claims(brief)
+    lines += _brief_recommendations(brief)
+    lines += _brief_sources(brief)
 
     if brief.limitations:
         lines += ["#### What the brief could not see", "", prose(brief.limitations), ""]
@@ -387,6 +403,21 @@ def _briefs(briefs: Sequence[BriefRecord]) -> list[str]:
         return lines
     for brief in briefs:
         lines += _brief(brief)
+    return lines
+
+
+def _asset_detail(asset: AssetRecord) -> list[str]:
+    """What the table has no column for. An active asset with no tags and no description has
+    nothing more to say, and gets no heading."""
+    if not asset.tags and not asset.description and asset.is_active:
+        return []
+    lines = [f"### {cell(asset.hostname or str(asset.id))}", ""]
+    if not asset.is_active:
+        lines += ["- **Deactivated** in the inventory.", ""]
+    if asset.tags:
+        lines += ["- Tags: " + ", ".join(code(tag) for tag in sorted(asset.tags)), ""]
+    if asset.description:
+        lines += [prose(asset.description), ""]
     return lines
 
 
@@ -420,16 +451,7 @@ def _assets(assets: Sequence[AssetRecord]) -> list[str]:
     lines.append("")
 
     for asset in assets:
-        if not asset.tags and not asset.description and asset.is_active:
-            continue
-        lines.append(f"### {cell(asset.hostname or str(asset.id))}")
-        lines.append("")
-        if not asset.is_active:
-            lines += ["- **Deactivated** in the inventory.", ""]
-        if asset.tags:
-            lines += ["- Tags: " + ", ".join(code(tag) for tag in sorted(asset.tags)), ""]
-        if asset.description:
-            lines += [prose(asset.description), ""]
+        lines += _asset_detail(asset)
     return lines
 
 

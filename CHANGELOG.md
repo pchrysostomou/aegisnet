@@ -36,6 +36,15 @@ written and is superseded by the first item here.
   that: it abstains until an asset has 24 *sampled hours*, so the constraint is wall-clock, not
   volume. This is the mechanism and says plainly that it is not the measurement.
 
+- `docs/overview.md`, and the dashboard at the top of the README. The README is a reference of
+  six hundred lines and opened with none of the three screenshots the browser suite generates;
+  a visitor saw a table before they saw the thing. The queue is now above the status block,
+  linked to the case view, and the overview is the two-minute version — what it is, what is
+  worth looking at, and the same two disclaimers the release makes. No new image: both are the
+  files `pnpm e2e:shots` writes, so the claim that they are generated rather than taken still
+  holds. The `v1.0.0` tag also has a GitHub Release now; it had been a tag with an empty
+  releases page since 2026-09-06.
+
 - `CODE_OF_CONDUCT.md`, and issue templates under `.github/ISSUE_TEMPLATE/` — including one for
   *a claim in the documentation is wrong*, which is the defect class this project produces most
   and the one an outside reader is best placed to spot. The config routes anything exploitable to

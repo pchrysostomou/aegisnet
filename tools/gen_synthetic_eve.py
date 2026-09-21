@@ -30,6 +30,7 @@ import sys
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import NamedTuple
 
 # 2: a flow record is stamped when Suricata emits it and carries the conversation's own
 # start in `flow.start`, and DNS is written in the shape a current sensor writes — mostly
@@ -57,9 +58,13 @@ def repository_root(start: Path) -> Path:
 SENSOR_INTERFACE = "lab0"
 
 # RFC 1918 lab hosts and RFC 5737 "internet" endpoints. No real address can appear.
-LAB_NETWORK = ipaddress.ip_network("10.10.0.0/24")
-RESOLVER = "10.10.0.53"
-GATEWAY = "10.10.0.1"
+# Sonar's S1313 wants addresses to be configuration. This one is the definition of the corpus —
+# a test pins every generated address to it — and the two hosts below are derived from it, so
+# the range is written down exactly once.
+LAB_NETWORK = ipaddress.ip_network("10.10.0.0/24")  # NOSONAR
+RESOLVER = str(LAB_NETWORK[53])
+GATEWAY = str(LAB_NETWORK[1])
+HTTP_VERSION = "HTTP/1.1"
 EXTERNAL_NETWORKS = (
     ipaddress.ip_network("192.0.2.0/24"),
     ipaddress.ip_network("198.51.100.0/24"),
@@ -275,7 +280,7 @@ class Corpus:
                 ("text/html", "application/json", "application/javascript")
             ),
             "http_method": self.rng.choice(("GET", "GET", "GET", "POST", "HEAD")),
-            "protocol": "HTTP/1.1",
+            "protocol": HTTP_VERSION,
             "status": self.rng.choice((200, 200, 200, 200, 304, 404)),
             "length": self.rng.randint(0, 65535),
         }
@@ -353,7 +358,7 @@ class Corpus:
             "hostname": domain,
             "url": FILE_NAMES[index],
             "http_method": "GET",
-            "protocol": "HTTP/1.1",
+            "protocol": HTTP_VERSION,
             "status": 200,
         }
         size = self.rng.randint(200, 200_000)
@@ -393,7 +398,7 @@ class Corpus:
                 "hostname": domain,
                 "url": "/",
                 "http_method": "GET",
-                "protocol": "HTTP/1.1",
+                "protocol": HTTP_VERSION,
                 "status": 200,
             }
         else:
@@ -451,13 +456,42 @@ def render(records: list[dict]) -> bytes:
     return ("\n".join(lines) + "\n").encode("ascii")
 
 
-def manifest_for(
-    args: argparse.Namespace, corpus: Corpus, payload: bytes, records: list[dict]
-) -> dict:
+class CorpusSpec(NamedTuple):
+    """What the command line asked for, as values rather than as the parser's namespace.
+
+    Every field is converted on the way in — ``int()``, ``datetime.fromisoformat`` — so nothing
+    downstream holds text somebody typed. The generator writes a file, and what it writes is a
+    function of four numbers and a fixed name; this is where that becomes true by construction
+    instead of by reading `write_corpus` to the end (`pythonsecurity:S8707`).
+
+    A `NamedTuple` rather than a dataclass: the tests load this file by path without
+    registering it in `sys.modules`, and a dataclass under postponed annotations looks its
+    own module up there while it is being defined."""
+
+    seed: int
+    events: int
+    start: datetime
+    duration: timedelta
+
+    @classmethod
+    def from_args(cls, args: argparse.Namespace) -> CorpusSpec:
+        events = int(args.events)
+        if events < 1:
+            raise ValueError("--events must be positive")
+        minutes = int(args.duration_minutes)
+        if minutes < 1:
+            raise ValueError("--duration-minutes must be positive")
+        start = datetime.fromisoformat(str(args.start).replace("Z", "+00:00")).astimezone(UTC)
+        return cls(
+            seed=int(args.seed), events=events, start=start, duration=timedelta(minutes=minutes)
+        )
+
+
+def manifest_for(spec: CorpusSpec, corpus: Corpus, payload: bytes, records: list[dict]) -> dict:
     return {
         "generator": "tools/gen_synthetic_eve.py",
         "generator_version": GENERATOR_VERSION,
-        "seed": args.seed,
+        "seed": spec.seed,
         "events": len(records),
         "counts_by_type": dict(sorted(corpus.counts.items())),
         "time_range": {"start": records[0]["timestamp"], "end": records[-1]["timestamp"]},
@@ -483,32 +517,32 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def write_corpus(out: Path, args: argparse.Namespace) -> tuple[int, int, Path]:
+def write_corpus(out: Path, spec: CorpusSpec) -> tuple[int, int, Path]:
     """Render the corpus and its manifest at ``out``; returns events, bytes and the manifest."""
-    start = datetime.fromisoformat(args.start.replace("Z", "+00:00")).astimezone(UTC)
-    corpus = Corpus(args.seed, start, timedelta(minutes=args.duration_minutes), args.events)
+    corpus = Corpus(spec.seed, spec.start, spec.duration, spec.events)
     records = corpus.generate()
     payload = render(records)
     manifest_path = out.with_name(f"{out.stem}.manifest.json")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(payload)
     manifest_path.write_text(
-        json.dumps(manifest_for(args, corpus, payload, records), indent=2) + "\n", encoding="utf-8"
+        json.dumps(manifest_for(spec, corpus, payload, records), indent=2) + "\n", encoding="utf-8"
     )
     return len(records), len(payload), manifest_path
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
-    if args.events < 1:
-        print("--events must be positive", file=sys.stderr)  # noqa: T201 - CLI
+    try:
+        spec = CorpusSpec.from_args(parse_args(argv))
+    except ValueError as error:
+        print(f"error: {error}", file=sys.stderr)  # noqa: T201 - CLI
         return 2
     try:
         out = repository_root(Path.cwd()) / CORPUS_FILE
     except FileNotFoundError as error:
         print(f"error: {error}", file=sys.stderr)  # noqa: T201 - CLI
         return 1
-    events, size, manifest_path = write_corpus(out, args)
+    events, size, manifest_path = write_corpus(out, spec)
     print(f"wrote {events} events to {CORPUS_FILE} ({size} bytes); manifest {manifest_path.name}")  # noqa: T201
     return 0
 

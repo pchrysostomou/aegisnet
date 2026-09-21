@@ -52,6 +52,23 @@ written and is superseded by the first item here.
   because "does it scan?" deserves an answer before somebody files it.
 
 ### Fixed
+- **SonarCloud rated the project C on security, for a rule that did not exist when it was last
+  at A.** `pythonsecurity:S8707` is a taint rule SonarCloud added in September; it followed
+  `argparse.Namespace` in `tools/gen_synthetic_eve.py` from `parse_args` through `write_corpus`
+  into `manifest_for` and on into `write_text`, and failed the gate on *Security Rating on New
+  Code*. The destination was never steerable — the command line takes no path and the file name
+  is a constant under the checkout — but that was true only if you read to the end.
+  `CorpusSpec.from_args` now converts the four values on the way in, so past it nothing holds
+  text somebody typed, and `--events 0`, `--duration-minutes 0` or a `--start` that is not a date
+  is a usage error with status 2 rather than a traceback. The first attempt made `CorpusSpec` a
+  dataclass and **ten tests failed on import**: a dataclass under postponed annotations looks
+  its own module up in `sys.modules`, and the suite loads this file by path without registering
+  it. A `NamedTuple` is frozen for free and needs no module. Touching the file also made
+  SonarCloud re-read all of it and raise what an earlier analysis had dropped — `"HTTP/1.1"`
+  written three times, and the lab range flagged as a hardcoded address three times. The
+  resolver and gateway are derived from `LAB_NETWORK` now, so the range is written once, and
+  that one line carries a `NOSONAR` with its reason, as `infra/lab` already does. The committed
+  corpus is byte-identical; the test that pins it to its generator says so.
 - **The project's only SonarCloud BLOCKER** (`python:S3516`). `_add_missing` in
   `infra/scripts/bootstrap_env.py` was declared `-> int` and returned a literal `0` down both of
   its paths, so a caller reading the signature was told an outcome was being reported and was in

@@ -13,7 +13,7 @@ requires-python = ">=3.12,<3.13"
 license = { text = "MIT" }
 
 dependencies = [
-  "fastapi>=0.141,<0.142",
+  "fastapi>=0.141,<0.143",
   # Imported directly (api/errors.py, api/v1/ingest.py), so it is declared directly rather
   # than relied on as fastapi's transitive. The floor is the advisory floor below.
   "starlette>=1.3.1",

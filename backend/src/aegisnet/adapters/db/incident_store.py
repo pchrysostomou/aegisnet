@@ -110,7 +110,7 @@ class SqlIncidentStore:
         source: IncidentAlertSource = IncidentAlertSource.correlation_engine,
     ) -> IncidentRecord:
         async with self._sessions() as session, session.begin():
-            ordinal = (
+            ordinal: int = (
                 await session.execute(select(func.nextval(text(f"'{CASE_SEQUENCE}'"))))
             ).scalar_one()
             row = Incident(

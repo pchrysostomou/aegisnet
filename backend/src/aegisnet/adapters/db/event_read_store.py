@@ -12,9 +12,10 @@ from collections.abc import Sequence
 from datetime import datetime
 from ipaddress import IPv4Network, IPv6Network, ip_address
 from typing import Any
+from typing import cast as type_cast
 from uuid import UUID
 
-from sqlalchemy import Row, Select, cast, exists, func, or_, select, tuple_
+from sqlalchemy import Select, cast, exists, func, or_, select, tuple_
 from sqlalchemy.dialects.postgresql import CIDR, INET
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -61,7 +62,7 @@ def _address(value: object) -> IPAddress | None:
     return ip_address(text.split("/")[0]) if "/" in text else ip_address(text)
 
 
-def _row(row: Row[Any], payload: dict[str, Any] | None) -> EventRow:
+def _row(row: Any, payload: dict[str, Any] | None) -> EventRow:
     return EventRow(
         id=row.id,
         batch_id=row.batch_id,
@@ -216,7 +217,10 @@ class SqlEventReadStore(EventReadStore):
 
     async def stats(self, query: EventQuery) -> EventStats:
         by_type = _apply_filters(
-            select(Event.event_type, func.count()).group_by(Event.event_type), query
+            type_cast(
+                Select[Any], select(Event.event_type, func.count()).group_by(Event.event_type)
+            ),
+            query,
         ).order_by(Event.event_type)
         hour = func.date_trunc("hour", Event.event_time)
         by_hour = _apply_filters(select(hour, func.count()).group_by(hour), query).order_by(hour)
